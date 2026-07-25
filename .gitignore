@@ -28,9 +28,18 @@ yarn-error.*
 
 # macOS
 .DS_Store
+
+# Backend
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/venv/
+backend/.venv/
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -41,3 +50,5 @@ example
 # generated native folders
 /ios
 /android
+Major*.md
+PLAN.md

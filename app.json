@@ -1,18 +1,20 @@
 {
   "expo": {
-    "name": "major-diary-ai-tmp",
-    "slug": "major-diary-ai-tmp",
+    "name": "Major Dairy AI",
+    "slug": "major-dairy-ai",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "majordiaryaitmp",
-    "userInterfaceStyle": "automatic",
+    "scheme": "majordairyai",
+    "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.majordairy.app",
+      "supportsTablet": true
     },
     "android": {
+      "package": "com.majordairy.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#B3353C",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,15 +30,23 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#B3353C",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 140
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2375de2d-21d1-4ad9-a5e2-f0ad9624d333"
+      }
+    },
+    "owner": "softechy"
   }
 }

@@ -1,98 +1,189 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { VideoView } from 'expo-video';
+import React, { useRef, useState } from 'react';
+import { Image, StyleSheet, TextInput, View, KeyboardAvoidingView, Platform } from 'react-native';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Button, PressableScale, Text, useToast } from '@/components';
+import { colors, radius, spacing, typography } from '@/theme';
+import { useAmbientVideo } from '@/hooks/useAmbientVideo';
+import { useAuthStore } from '@/store/useAuthStore';
+import { supabase } from '@/lib/supabase';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+const videoSource = require('@/assets/video/cow_field.mp4');
+const poster = require('@/assets/images/login-poster.jpg');
+const logoImage = require('@/assets/images/logo.png');
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+export default function LoginScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const showToast = useToast((s) => s.show);
+  const { signIn, loading, error, clearError } = useAuthStore();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const passwordRef = useRef<TextInput>(null);
+
+  const { player, videoFailed } = useAmbientVideo(videoSource);
+
+  const handleForgotPassword = async () => {
+    const e = email.trim();
+    if (!e) {
+      showToast('Enter your email above first', 'mail-outline');
+      return;
+    }
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(e);
+    if (resetError) {
+      showToast(resetError.message, 'alert-circle');
+    } else {
+      showToast('Password reset email sent', 'lock-closed');
+    }
+  };
+
+  const handleSignIn = async () => {
+    if (!email.trim() || !password.trim()) {
+      showToast('Please enter your email and password', 'alert-circle');
+      return;
+    }
+    await signIn(email.trim(), password);
+    // _layout AuthGuard handles redirect once user is set
+  };
+
+  // Show error toast when error changes
+  React.useEffect(() => {
+    if (error) {
+      showToast(error, 'alert-circle');
+      clearError();
+    }
+  }, [error]);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <StatusBar style="light" />
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+      <Image source={poster} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      {!videoFailed && (
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          nativeControls={false}
+        />
+      )}
+      <LinearGradient
+        colors={['rgba(29,27,26,0.55)', 'rgba(29,27,26,0.15)', 'rgba(29,27,26,0.88)']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      <View style={[styles.content, { paddingTop: insets.top + spacing.huge, paddingBottom: insets.bottom + spacing.xl }]}>
+        {/* Brand */}
+        <Animated.View entering={FadeInDown.duration(700).springify()} style={styles.brand}>
+          <Image source={logoImage} style={styles.logoImage} resizeMode="contain" />
+          <View style={styles.taglineRule} />
+          <Text variant="subheading" color="rgba(252,251,249,0.92)" style={styles.tagline}>
+            Driven By Passion and Results
+          </Text>
+        </Animated.View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
+        <View style={styles.spacer} />
+
+        {/* Login form */}
+        <Animated.View entering={FadeInUp.delay(250).duration(700).springify()} style={styles.actions}>
+          <TextInput
+            style={styles.input}
+            placeholder="Email address"
+            placeholderTextColor="rgba(252,251,249,0.45)"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={email}
+            onChangeText={setEmail}
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
+          <TextInput
+            ref={passwordRef}
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="rgba(252,251,249,0.45)"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            onSubmitEditing={handleSignIn}
+            returnKeyType="go"
           />
-        </ThemedView>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+          <Button
+            label="Sign In"
+            icon="log-in"
+            variant="primary"
+            onPress={handleSignIn}
+            loading={loading}
+          />
+
+          <View style={styles.linksRow}>
+            <PressableScale haptic={false} onPress={() => router.push('/register' as any)}>
+              <Text variant="bodyBold" color={colors.cream.base}>Register</Text>
+            </PressableScale>
+            <View style={styles.linkDot} />
+            <PressableScale haptic={false} onPress={handleForgotPassword}>
+              <Text variant="bodyBold" color={colors.cream.base}>Forgot Password</Text>
+            </PressableScale>
+            <View style={styles.linkDot} />
+            <PressableScale haptic={false} onPress={() => showToast('Support: help@majordairy.ai', 'help-buoy')}>
+              <Text variant="bodyBold" color={colors.cream.base}>Support</Text>
+            </PressableScale>
+          </View>
+        </Animated.View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: { flex: 1, backgroundColor: colors.charcoal[900] },
+  content: {
     flex: 1,
-    justifyContent: 'center',
+    paddingHorizontal: spacing.xxl,
+  },
+  brand: { alignItems: 'center', gap: spacing.md },
+  logoImage: { width: 280, height: 129 },
+  taglineRule: {
+    width: 44,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
+  },
+  tagline: { textAlign: 'center' },
+  spacer: { flex: 1 },
+  actions: { gap: spacing.md },
+  input: {
+    backgroundColor: 'rgba(252,251,249,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(252,251,249,0.2)',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    color: colors.cream.base,
+    ...typography.input,
+  },
+  linksRow: {
     flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  linkDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(252,251,249,0.5)',
   },
 });

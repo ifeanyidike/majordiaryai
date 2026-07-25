@@ -1,0 +1,166 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import {
+  Button,
+  Card,
+  EmptyState,
+  Header,
+  HeroHeader,
+  InfoRow,
+  ListRow,
+  Monogram,
+  Screen,
+  SectionHeader,
+  StatCard,
+  Text,
+  FocusedStatusBar,
+} from '@/components';
+import { charcoal, colors, gradients, onDark, spacing, status } from '@/theme';
+import { dial } from '@/lib/contact';
+import { pregnancyCounts } from '@/lib/pregnancy';
+import { cowsByFarm, useAppStore, vetById } from '@/store/useAppStore';
+
+export default function VetProfileScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const state = useAppStore();
+  const vet = vetById(state, id);
+
+  if (!vet) {
+    return (
+      <Screen>
+        <Header back title="Vet Profile" />
+        <EmptyState title="Vet not found" />
+      </Screen>
+    );
+  }
+
+  const assignedFarms = state.farms.filter((f) => vet.farmIds.includes(f.id));
+  const herd = vet.farmIds.flatMap((fid) => cowsByFarm(state, fid));
+  const { due, warning } = pregnancyCounts(herd);
+
+  return (
+    <Screen padded={false} topInset={false}>
+      <FocusedStatusBar style="light" />
+      {/* Deep-red clinical identity hero — brand palette only */}
+      <HeroHeader gradient={gradients.vet} back>
+        <Animated.View entering={FadeInDown.duration(500)} style={styles.heroRow}>
+          <Monogram name={vet.name.replace('Dr. ', '')} size={64} bg={onDark.panelBorder} color={colors.cream.base} />
+          <View style={styles.heroText}>
+            <Text variant="title" color={onDark.text}>
+              {vet.name}
+            </Text>
+            <View style={styles.clinicRow}>
+              <Ionicons name="medkit" size={13} color={onDark.textSecondary} />
+              <Text variant="caption" color={onDark.textSecondary}>
+                {vet.clinic}
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(120).duration(500)} style={styles.heroActions}>
+          <Button
+            label="Contact Vet"
+            icon="call"
+            variant="onDark"
+            onPress={() => dial(vet.phone)}
+            style={styles.heroBtn}
+            compact
+          />
+          <Button
+            label="Pregnancy Report"
+            icon="medkit"
+            variant="onDark"
+            onPress={() => router.push({ pathname: '/report/[type]', params: { type: 'pregnancy-check' } })}
+            style={styles.heroBtn}
+            compact
+          />
+        </Animated.View>
+      </HeroHeader>
+
+      <View style={styles.body}>
+        {/* Summary — overlapping stats (pregnancy-diagnosis focused) */}
+        <Animated.View entering={FadeInUp.delay(150).duration(500)}>
+          <View style={styles.statRow}>
+            <StatCard value={assignedFarms.length} label="Active Farms" accent={colors.primary} />
+            <StatCard value={herd.length} label="Cows Under Care" accent={charcoal[600]} />
+          </View>
+          <View style={styles.statRow}>
+            <StatCard value={due} label="Due for Check" accent={colors.primary} />
+            <StatCard value={warning} label="Overdue" accent={warning > 0 ? status.heat.fg : colors.textMuted} />
+          </View>
+        </Animated.View>
+
+        {/* Vet information */}
+        <SectionHeader title="Vet Information" />
+        <Animated.View entering={FadeInUp.delay(220).duration(500)}>
+          <Card style={styles.infoCard}>
+            <InfoRow label="Phone" value={vet.phone} />
+            <InfoRow label="Email" value={vet.email} />
+            <InfoRow label="Notes" value={vet.notes} hideIfEmpty />
+          </Card>
+        </Animated.View>
+
+        {/* Assigned farms with per-farm due counts */}
+        <SectionHeader title="Assigned Farms" />
+        <Animated.View entering={FadeInUp.delay(290).duration(500)}>
+          {assignedFarms.length === 0 ? (
+            <Card style={styles.infoCard}>
+              <Text variant="body" color={colors.textMuted}>
+                No farms assigned yet.
+              </Text>
+            </Card>
+          ) : (
+            assignedFarms.map((f) => {
+              const c = pregnancyCounts(cowsByFarm(state, f.id));
+              return (
+                <ListRow
+                  key={f.id}
+                  icon="business"
+                  iconColor={colors.primary}
+                  iconBg={colors.primarySoft}
+                  title={f.name}
+                  subtitle={`${f.city} · ${c.due} due${c.warning > 0 ? ` · ${c.warning} overdue` : ''}`}
+                  onPress={() => router.push({ pathname: '/farm/[id]', params: { id: f.id } })}
+                />
+              );
+            })
+          )}
+        </Animated.View>
+
+        <Animated.View entering={FadeInUp.delay(360).duration(500)}>
+          <Button
+            variant="secondary"
+            label="View Reports"
+            icon="bar-chart-outline"
+            onPress={() => router.push('/(tabs)/reports')}
+            style={styles.reportsBtn}
+          />
+        </Animated.View>
+      </View>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  heroText: { flex: 1, gap: 3 },
+  clinicRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  heroActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.xxl,
+  },
+  heroBtn: { flex: 1 },
+  body: {
+    paddingHorizontal: spacing.xl,
+    marginTop: -spacing.xxxl,
+  },
+  statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
+  infoCard: { paddingVertical: spacing.sm },
+  reportsBtn: { marginTop: spacing.sm },
+});
