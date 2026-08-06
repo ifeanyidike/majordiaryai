@@ -1,0 +1,21 @@
+# Railway service configuration (config as code), so deploying this backend on
+# ANY Railway account — dev's today, the company's later — needs only:
+#   1. Connect the GitHub repo
+#   2. Settings → Source → Root Directory: `backend`  (the one setting that
+#      cannot live in this file; Railway then reads this file from here)
+#   3. Enter the variables listed in backend/.env.example / app/core/config.py
+#      (DB_*, SUPABASE_*, JWT_SECRET; CORS_ORIGINS and SENDGRID_API_KEY as needed)
+
+[build]
+# Paths are relative to the REPO root: frontend-only pushes must not redeploy
+# the backend.
+watchPatterns = ["backend/**"]
+
+[deploy]
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+# Migrations run before the new build takes traffic (0001 creates the uuid-ossp
+# extension itself, so a fresh database works from zero).
+preDeployCommand = "alembic upgrade head"
+healthcheckPath = "/health"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
