@@ -12,24 +12,31 @@ import {
   Text,
 } from '@/components';
 import { alpha, colors, gradients, onDark, radius, red, shadows, spacing, status, StatusKey } from '@/theme';
-import { REPORT_DEFS } from '@/data/reports';
-import { summarize, useAppStore } from '@/store/useAppStore';
+import { WorklistReport } from '@/data/types';
+import {
+  DAILY_REPORT_TYPES, emptyReport, LIST_REPORT_TYPES, PROGRAM_REPORT_TYPES,
+} from '@/data/reports';
+import { mergedReports, summarize, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function ReportsScreen() {
   const router = useRouter();
-  const { cows, tasks, kpis, cowsLoading, cowsError, fetchCows, fetchTasks, fetchKpis } = useAppStore();
+  const store = useAppStore();
+  const { cows, kpis, cowsLoading, cowsError, fetchCows, fetchWorklist, fetchKpis } = store;
+  // Counts come from the same payload the To-Do list uses, so the hub and the
+  // technician's day can never show different numbers for the same report.
+  const reports = mergedReports(store);
   const { user } = useAuthStore();
   const summary = summarize(cows);
 
   useEffect(() => {
-    fetchTasks();
+    fetchWorklist();
     fetchKpis();
   }, []);
 
   const refresh = () => {
     fetchCows();
-    fetchTasks();
+    fetchWorklist();
     fetchKpis();
   };
 
@@ -60,16 +67,19 @@ export default function ReportsScreen() {
     { label: 'Calvings 30d', value: kpis ? String(kpis.upcomingCalvings30d) : '—' },
   ];
 
-  const dailyReports = REPORT_DEFS.filter((r) =>
-    ['heat', 'timed-breeding', 'needling'].includes(r.type));
-  const programReports = REPORT_DEFS.filter((r) =>
-    ['pregnancy-check', 'vaccination', 'post-calving', 'dry-report', 'fresh', 'open-report'].includes(r.type));
-  const lists = REPORT_DEFS.filter((r) => ['pregnant', 'open', 'cull'].includes(r.type));
+  // A report the server omitted has no cows today; still list it so the hub is
+  // a stable catalog rather than a list that shifts under the user.
+  const byType = (types: string[]) =>
+    types.map((t) => reports.find((r) => r.type === t) ?? emptyReport(t));
 
-  const renderReportRows = (defs: typeof REPORT_DEFS) =>
+  const dailyReports = byType(DAILY_REPORT_TYPES);
+  const programReports = byType(PROGRAM_REPORT_TYPES);
+  const lists = byType(LIST_REPORT_TYPES);
+
+  const renderReportRows = (defs: WorklistReport[]) =>
     defs.map((r) => {
       const c = status[r.statusKey as StatusKey] ?? status.open;
-      const count = r.filter(cows, tasks).length;
+      const count = r.count;
       return (
         <ListRow
           key={r.type}

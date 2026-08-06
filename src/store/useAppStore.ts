@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import { api, isApiConfigured } from '@/lib/api';
 import { daysBetween, daysSince } from '@/lib/dates';
-import { Cow, CowStatus, Farm, HistoryEvent, TaskStatus, TechTask, Vet } from '@/data/types';
+import {
+  Cow, CowStatus, Farm, HealthStatus, HistoryEvent, Vet,
+  Worklist, WorklistCow, WorklistFarm, WorklistReport,
+} from '@/data/types';
 import {
   cows as demoCows,
   farms as demoFarms,
-  initialTasks as demoTasks,
+  demoWorklist,
   vets as demoVets,
 } from '@/data/mock';
 
@@ -44,15 +47,42 @@ interface ApiVet {
   upcoming_visits?: number; pending_cases?: number;
 }
 
-interface ApiCowReportRow {
-  id: string; ear_tag: string; farm_id: string; farm_name: string;
+interface ApiWorklistCow {
+  cow_id: string; ear_tag: string; farm_id: string; status: string;
+  action: string; detail: string;
+  lactation_number?: number;
+  days_in_milk?: number | null; days_post_ai?: number | null;
+  last_insemination_id?: string | null; last_insemination_date?: string | null;
+  last_calving_date?: string | null; health_status?: string | null;
+  record_kind?: string | null;
+  treatment?: string | null; protocol?: string | null; protocol_day?: number | null;
+  needling_record_id?: string | null;
+  needling_completed?: boolean;
+  overdue?: boolean;
+  missed_shots?: number;
+  also_pending?: number;
 }
 
-interface ApiNeedlingRecord {
-  id: string; cow_id: string; treatment: string;
-  protocol_day: number; scheduled_date: string;
-  farm_id?: string;
-  is_final_day?: boolean; is_final?: boolean;
+interface ApiWorklistReport {
+  type: string; title: string; icon: string; status_key: string;
+  is_work_report: boolean; count: number; subtitle: string; can_record: boolean;
+  cows?: ApiWorklistCow[];
+}
+
+interface ApiWorklistFarm {
+  farm_id: string; farm_name: string;
+  address?: string | null; city?: string | null;
+  province?: string | null; phone?: string | null;
+  schedule: string; schedule_label: string;
+  covering_technician?: string | null; reassign_reason?: string | null;
+  visit_interval_days?: number; next_visit_date?: string | null;
+  total_cows?: number;
+  reports?: ApiWorklistReport[];
+}
+
+interface ApiWorklist {
+  date: string;
+  farms?: ApiWorklistFarm[];
 }
 
 interface ApiHerdSummary {
@@ -134,6 +164,67 @@ function mapCow(c: ApiCow): Cow {
   };
 }
 
+/**
+ * The worklist arrives fully computed — this only renames snake_case to camel.
+ * Deliberately no filtering, counting or rule evaluation: the moment the client
+ * re-derives membership it becomes a second source of truth that can drift.
+ */
+function mapWorklist(w: ApiWorklist): Worklist {
+  return {
+    date: w.date,
+    farms: (w.farms ?? []).map((f): WorklistFarm => ({
+      farmId: f.farm_id,
+      farmName: f.farm_name,
+      address: f.address ?? undefined,
+      city: f.city ?? undefined,
+      province: f.province ?? undefined,
+      phone: f.phone ?? undefined,
+      schedule: (f.schedule as WorklistFarm['schedule']) ?? 'visit_today',
+      scheduleLabel: f.schedule_label,
+      coveringTechnician: f.covering_technician ?? undefined,
+      reassignReason: f.reassign_reason ?? undefined,
+      visitIntervalDays: f.visit_interval_days ?? 0,
+      nextVisitDate: f.next_visit_date ?? undefined,
+      totalCows: f.total_cows ?? 0,
+      reports: (f.reports ?? []).map((r): WorklistReport => ({
+        type: r.type,
+        title: r.title,
+        icon: r.icon,
+        statusKey: r.status_key,
+        isWorkReport: r.is_work_report,
+        count: r.count,
+        subtitle: r.subtitle,
+        canRecord: r.can_record,
+        cows: (r.cows ?? []).map((c) => ({
+          cowId: c.cow_id,
+          earTag: c.ear_tag,
+          farmId: c.farm_id,
+          status: c.status as CowStatus,
+          action: c.action,
+          detail: c.detail,
+          lactationNumber: c.lactation_number ?? 0,
+          daysInMilk: c.days_in_milk ?? null,
+          daysPostAi: c.days_post_ai ?? null,
+          lastInseminationId: c.last_insemination_id ?? undefined,
+          lastInseminationDate: c.last_insemination_date ?? undefined,
+          lastCalvingDate: c.last_calving_date ?? undefined,
+          healthStatus: (c.health_status as HealthStatus | undefined) ?? undefined,
+          recordKind: (c.record_kind as WorklistCow['recordKind']) ?? null,
+          treatment: c.treatment ?? undefined,
+          protocol: c.protocol ?? undefined,
+          protocolDay: c.protocol_day ?? undefined,
+          needlingRecordId: c.needling_record_id ?? undefined,
+          needlingCompleted: c.needling_completed ?? false,
+          overdue: c.overdue ?? false,
+          missedShots: c.missed_shots ?? 0,
+          alsoPending: c.also_pending ?? 0,
+        })),
+      })),
+    })),
+  };
+}
+
+
 function mapVet(v: ApiVet): Vet {
   return {
     id: v.id, name: v.name,
@@ -184,18 +275,21 @@ interface AppState {
   farms: Farm[];
   cows: Cow[];
   vets: Vet[];
-  tasks: TechTask[];
+  /** The technician's day, exactly as the server computed it. */
+  worklist: Worklist | null;
+  /** Device-local date (YYYY-MM-DD) the worklist was last fetched on. */
+  worklistFetchedOn: string | null;
   notifications: AppNotification[];
   kpis: HerdKpis | null;
   farmsLoading: boolean;
   cowsLoading: boolean;
   vetsLoading: boolean;
-  tasksLoading: boolean;
+  worklistLoading: boolean;
   notificationsLoading: boolean;
   farmsError: string | null;
   cowsError: string | null;
   vetsError: string | null;
-  tasksError: string | null;
+  worklistError: string | null;
   /** True when running from bundled demo data (no API configured) */
   demoMode: boolean;
 
@@ -204,12 +298,14 @@ interface AppState {
   refreshCow: (id: string) => Promise<void>;
   fetchCowHistory: (id: string) => Promise<void>;
   fetchVets: () => Promise<void>;
-  fetchTasks: () => Promise<void>;
+  fetchWorklist: () => Promise<void>;
+  /** Fetch the worklist if it's missing or from a previous calendar day. */
+  ensureWorklist: () => void;
+  /** Demo mode only: locally clear an actioned row so the demo stays usable. */
+  completeWorklistCowDemo: (reportType: string, cowId: string) => void;
   fetchKpis: () => Promise<void>;
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
-  setTaskStatus: (taskId: string, status: TaskStatus) => void;
-  addTaskNote: (taskId: string, note: string) => void;
   addFarmNote: (farmId: string, note: string) => void;
   reset: () => void;
 }
@@ -262,18 +358,19 @@ const initialData = {
   farms: [] as Farm[],
   cows: [] as Cow[],
   vets: [] as Vet[],
-  tasks: [] as TechTask[],
+  worklist: null as Worklist | null,
+  worklistFetchedOn: null as string | null,
   notifications: [] as AppNotification[],
   kpis: null as HerdKpis | null,
   farmsLoading: false,
   cowsLoading: false,
   vetsLoading: false,
-  tasksLoading: false,
+  worklistLoading: false,
   notificationsLoading: false,
   farmsError: null as string | null,
   cowsError: null as string | null,
   vetsError: null as string | null,
-  tasksError: null as string | null,
+  worklistError: null as string | null,
   demoMode: !isApiConfigured,
 };
 
@@ -372,88 +469,54 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchTasks: async () => {
+  fetchWorklist: async () => {
+    // Always the FULL worklist. A farm-scoped fetch here once replaced the
+    // whole store slice with a one-farm payload, collapsing the To-Do list and
+    // every dashboard count until an unscoped refetch happened.
+    const fetchedOn = new Date().toLocaleDateString('en-CA');
     if (!isApiConfigured) {
-      set({ tasks: demoTasks, tasksError: null, demoMode: true });
+      set({ worklist: demoWorklist, worklistFetchedOn: fetchedOn, worklistError: null, demoMode: true });
       return;
     }
-    set({ tasksLoading: true, tasksError: null });
+    set({ worklistLoading: true, worklistError: null });
     try {
-      const [heatCows, needlingRecs, calvingCows, pregDue, breedingRows, vaccRows] = await Promise.all([
-        api.get<ApiCowReportRow[]>('/reports/heat-check').catch(() => [] as ApiCowReportRow[]),
-        api.get<ApiNeedlingRecord[]>('/needling/today').catch(() => [] as ApiNeedlingRecord[]),
-        api.get<ApiCowReportRow[]>('/reports/due-to-calve?days_ahead=3').catch(() => [] as ApiCowReportRow[]),
-        // Returns { next_check_date, cows } — tolerate a bare array too
-        api.get<{ cows?: ApiCowReportRow[] } | ApiCowReportRow[]>('/reports/pregnancy-check-due')
-          .then((r) => (Array.isArray(r) ? r : r.cows ?? []))
-          .catch(() => [] as ApiCowReportRow[]),
-        api.get<{ cow_id: string; ear_tag: string; farm_id: string }[]>('/reports/timed-breeding')
-          .catch(() => [] as { cow_id: string; ear_tag: string; farm_id: string }[]),
-        api.get<{ id: string; cow_id: string; ear_tag: string; farm_id: string }[]>('/vaccinations/due')
-          .catch(() => [] as { id: string; cow_id: string; ear_tag: string; farm_id: string }[]),
-      ]);
-
-      const { cows, tasks: oldTasks } = get();
-      // Keep locally-completed state across refetches: rebuilt tasks with the
-      // same id inherit their previous status and note.
-      const prior = new Map(oldTasks.map((t) => [t.id, t]));
-      const carry = (t: TechTask): TechTask => {
-        const old = prior.get(t.id);
-        return old ? { ...t, status: old.status, note: old.note } : t;
-      };
-
-      const calvingTasks: TechTask[] = calvingCows.map((c) => carry({
-        id: `calving-${c.id}`, cowId: c.id, kind: 'calving',
-        time: '07:00 AM', farmId: c.farm_id,
-        title: `Due to Calve: ${c.ear_tag}`, status: 'pending',
-      }));
-
-      const heatTasks: TechTask[] = heatCows.map((c) => carry({
-        id: `heat-${c.id}`, cowId: c.id, kind: 'heat',
-        time: '08:00 AM', farmId: c.farm_id,
-        title: `Heat Check: ${c.ear_tag}`, status: 'pending',
-      }));
-
-      const pregTasks: TechTask[] = pregDue.map((c) => carry({
-        id: `preg-${c.id}`, cowId: c.id, kind: 'preg',
-        time: '10:00 AM', farmId: c.farm_id,
-        title: `Preg Check: ${c.ear_tag}`, status: 'pending',
-      }));
-
-      const breedingTasks: TechTask[] = breedingRows.map((r) => carry({
-        id: `breeding-${r.cow_id}`, cowId: r.cow_id, kind: 'insemination',
-        time: '09:30 AM', farmId: r.farm_id,
-        title: `Inseminate: ${r.ear_tag}`, status: 'pending',
-      }));
-
-      const vaccinationTasks: TechTask[] = vaccRows.map((r) => carry({
-        id: `vacc-${r.id}`, cowId: r.cow_id, kind: 'vaccination',
-        time: '11:00 AM', farmId: r.farm_id,
-        title: `Vaccinate: ${r.ear_tag}`, status: 'pending',
-      }));
-
-      const needlingTasks: TechTask[] = needlingRecs.map((r) => {
-        const cow = cows.find((c) => c.id === r.cow_id);
-        return carry({
-          id: `needling-${r.id}`, cowId: r.cow_id, kind: 'needling',
-          isFinalDay: Boolean(r.is_final_day ?? r.is_final ?? /insemin/i.test(r.treatment)),
-          time: '09:00 AM', farmId: r.farm_id ?? cow?.farmId ?? '',
-          title: `Needling: ${r.treatment} (Day ${r.protocol_day})`,
-          status: 'pending' as TaskStatus,
-        });
-      });
-
-      set({
-        tasks: [
-          ...calvingTasks, ...heatTasks, ...breedingTasks,
-          ...needlingTasks, ...pregTasks, ...vaccinationTasks,
-        ],
-        tasksLoading: false,
-      });
+      const raw = await api.get<ApiWorklist>('/reports/worklist');
+      set({ worklist: mapWorklist(raw), worklistFetchedOn: fetchedOn, worklistLoading: false });
     } catch (e: any) {
-      set({ tasksLoading: false, tasksError: e.message ?? 'Could not load tasks' });
+      set({ worklistLoading: false, worklistError: e.message ?? 'Could not load your work list' });
     }
   },
+
+  ensureWorklist: () => {
+    const { worklist, worklistFetchedOn, worklistLoading, fetchWorklist } = get();
+    // Compare against the DEVICE date the payload was fetched on, not the
+    // server's payload date — a server in another timezone would never match
+    // the device's calendar and every check would refetch forever.
+    const today = new Date().toLocaleDateString('en-CA');
+    if (!worklistLoading && (!worklist || worklistFetchedOn !== today)) fetchWorklist();
+  },
+
+  completeWorklistCowDemo: (reportType, cowId) =>
+    // Demo mode has no API to record against; this keeps the bundled demo
+    // interactive by removing the actioned row the way a refetch would.
+    set((s) => {
+      if (!s.worklist) return s;
+      const farms = s.worklist.farms.map((farm) => {
+        const reports = farm.reports
+          .map((r) =>
+            r.type === reportType
+              ? { ...r, cows: r.cows.filter((c) => c.cowId !== cowId) }
+              : r,
+          )
+          .map((r) => ({ ...r, count: r.cows.length }))
+          .filter((r) => r.cows.length > 0);
+        const totalCows = new Set(
+          reports.filter((r) => r.isWorkReport).flatMap((r) => r.cows.map((c) => c.cowId)),
+        ).size;
+        return { ...farm, reports, totalCows };
+      });
+      return { worklist: { ...s.worklist, farms } };
+    }),
 
   fetchKpis: async () => {
     if (!isApiConfigured) {
@@ -502,12 +565,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setTaskStatus: (taskId, status) =>
-    set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)) })),
-
-  addTaskNote: (taskId, note) =>
-    set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, note } : t)) })),
-
   addFarmNote: (farmId, note) =>
     set((s) => ({
       farms: s.farms.map((f) => (f.id === farmId ? { ...f, notes: [note, ...(f.notes ?? [])] } : f)),
@@ -549,3 +606,82 @@ export const summarize = (list: Cow[]): HerdSummary => ({
   needling: list.filter((c) => c.status === 'needling').length,
   heat: list.filter((c) => c.inHeat).length,
 });
+
+// ── Worklist selectors ───────────────────────────────────────
+// Pure reads over the server's payload. None of these decide which cows belong
+// on a report — that rule lives in the backend catalog and only there.
+
+/** Farms on the technician's route today, in server order (busiest first). */
+export const worklistFarms = (s: AppState): WorklistFarm[] => s.worklist?.farms ?? [];
+
+/** Farms he should actually walk into — reassigned/skipped days excluded. */
+export const farmsToVisit = (s: AppState): WorklistFarm[] =>
+  worklistFarms(s).filter((f) => f.schedule === 'visit_today' || f.schedule === 'covering');
+
+export const farmWorklist = (s: AppState, farmId?: string): WorklistFarm | undefined =>
+  farmId ? worklistFarms(s).find((f) => f.farmId === farmId) : undefined;
+
+/** Work reports with cows at this farm — layer 2 of the To-Do list. */
+export const farmWorkReports = (s: AppState, farmId?: string): WorklistReport[] =>
+  (farmWorklist(s, farmId)?.reports ?? []).filter((r) => r.isWorkReport);
+
+/** Total cows needing work today across the farms he is visiting. */
+export const worklistTotal = (s: AppState): number =>
+  farmsToVisit(s).reduce((n, f) => n + f.totalCows, 0);
+
+/**
+ * One report merged across every farm — the Reports hub and any unscoped report
+ * screen. Counts stay consistent with the per-farm view because both come from
+ * the same rows.
+ */
+export function mergedReports(s: AppState): WorklistReport[] {
+  const byType = new Map<string, WorklistReport>();
+  const farmCount = new Map<string, number>();
+  for (const farm of worklistFarms(s)) {
+    for (const report of farm.reports) {
+      farmCount.set(report.type, (farmCount.get(report.type) ?? 0) + 1);
+      const existing = byType.get(report.type);
+      if (existing) {
+        existing.cows = [...existing.cows, ...report.cows];
+        existing.count = existing.cows.length;
+        // The per-farm subtitle ("3 cows require injection") is wrong for a
+        // merged list — restate it over the merged rows.
+        existing.subtitle = `${existing.count} ${existing.count === 1 ? 'cow' : 'cows'} across ${
+          farmCount.get(report.type)
+        } farms`;
+      } else {
+        byType.set(report.type, { ...report, cows: [...report.cows] });
+      }
+    }
+  }
+  return [...byType.values()];
+}
+
+export const reportFromWorklist = (
+  s: AppState,
+  type: string,
+  farmId?: string,
+): WorklistReport | undefined =>
+  farmId
+    ? farmWorklist(s, farmId)?.reports.find((r) => r.type === type)
+    : mergedReports(s).find((r) => r.type === type);
+
+export interface PregnancyCounts {
+  /** On the Pregnancy Report (day 30+). */
+  due: number;
+  /** Past the Pregnancy Check Warning threshold (day 50+). */
+  warning: number;
+}
+
+/**
+ * Pregnancy-check counts for a farm, or the whole scope when no farm is given.
+ *
+ * Derived from the work list rather than re-deriving "day 30 / day 50" here:
+ * those thresholds are the backend catalog's, and a second copy in the client
+ * is how the vet's dashboard and the vet's report end up disagreeing.
+ */
+export function pregnancyCounts(s: AppState, farmId?: string): PregnancyCounts {
+  const report = reportFromWorklist(s, 'pregnancy-check', farmId);
+  const cows = report?.cows ?? [];
+  return { due: cows.length, warning: cows.filter((c) => c.overdue).length };
+}

@@ -6,7 +6,8 @@ import { useToast } from '@/components/Toast';
  * can't dial (e.g. the iOS Simulator has no Phone app) — instead of an uncaught
  * promise rejection.
  */
-export function dial(phone: string) {
+export function dial(phone?: string | null) {
+  if (!phone) return;
   const num = phone.replace(/[^+\d]/g, '');
   Linking.openURL(`tel:${num}`).catch(() =>
     useToast.getState().show(`Can't place a call here · ${phone}`, 'call'),

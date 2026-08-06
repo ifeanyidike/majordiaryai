@@ -23,9 +23,10 @@ import {
 } from '@/components';
 import { colors, gradients, onDark, radius, spacing, status } from '@/theme';
 import { dial, emailTo } from '@/lib/contact';
-import { openDirections } from '@/lib/maps';
-import { pregnancyCounts } from '@/lib/pregnancy';
-import { cowsByFarm, farmById, summarize, useAppStore, vetById } from '@/store/useAppStore';
+import { formatAddress, openDirections } from '@/lib/maps';
+import {
+  cowsByFarm, farmById, pregnancyCounts, summarize, useAppStore, vetById,
+} from '@/store/useAppStore';
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   medkit: 'medkit',
@@ -44,6 +45,9 @@ export default function FarmProfileScreen() {
 
   useEffect(() => {
     state.fetchCows(id);
+    // Pregnancy counts come from the work list; on a deep link it may not be
+    // loaded yet, and an unloaded list reads as "0 due" rather than "unknown".
+    state.ensureWorklist();
   }, [id]);
 
   if (!farm) {
@@ -58,12 +62,12 @@ export default function FarmProfileScreen() {
   const herd = cowsByFarm(state, farm.id);
   const summary = summarize(herd);
   const vet = vetById(state, farm.vetId);
-  const preg = pregnancyCounts(herd);
+  const preg = pregnancyCounts(state, id);
 
   const call = () => dial(farm.phone);
   const email = () => emailTo(farm.email);
   const directions = () =>
-    openDirections(`${farm.address}, ${farm.city}, ${farm.province}`);
+    openDirections(formatAddress(farm.address, farm.city, farm.province));
 
   const contactChips: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }[] = [
     { icon: 'call', label: 'Call', onPress: call },

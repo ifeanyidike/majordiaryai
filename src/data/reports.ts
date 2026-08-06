@@ -1,172 +1,85 @@
-import { daysSince, parseLocalDate, todayISO } from '@/lib/dates';
-import { PREGNANCY_REPORT_DAY, PREGNANCY_WARNING_DAY, pregnancyCheckDue } from '@/lib/pregnancy';
-import { Cow, TechTask } from './types';
+import { WorklistReport } from './types';
 
 /**
- * Report catalog — the 9 program reports + 3 lists from the Phase 1 spec.
- * One definition drives both the Reports hub and the report detail screen so
- * counts and rows can never disagree.
+ * Presentation helpers for reports.
+ *
+ * This file used to hold a second implementation of every report rule — which
+ * cows are on the Heat Report, when a cow is overdue, and so on — alongside the
+ * backend's. Two copies of a membership rule drift, and a drifted rule makes a
+ * cow silently disappear from a technician's day. The rules now live in
+ * `backend/app/services/report_catalog.py` and only there; the client renders
+ * the server's rows and owns nothing but their appearance.
  */
 
-export interface ReportRowInfo {
-  /** Doc-specified columns, rendered as the row subtitle */
-  detail: (cow: Cow, farmName: string) => string;
-}
+/** Reports that read as a daily route, shown first on the Reports hub. */
+export const DAILY_REPORT_TYPES = ['heat', 'timed-breeding', 'needling', 'insemination'];
 
-export interface ReportDef {
-  type: string;
-  title: string;
-  icon: string;
-  /** Key into theme status colors for the hub row */
-  statusKey: string;
-  filter: (cows: Cow[], tasks: TechTask[]) => Cow[];
-  detail: (cow: Cow, farmName: string) => string;
-}
-
-const dsi = (c: Cow) => daysSince(c.lastInseminationDate);
-const dim = (c: Cow) => (c.lastCalvingDate ? daysSince(c.lastCalvingDate) : null);
-
-const withinDays = (iso: string | undefined, days: number) => {
-  if (!iso) return false;
-  const target = parseLocalDate(iso).getTime();
-  const today = parseLocalDate(todayISO()).getTime();
-  return target <= today + days * 86_400_000;
-};
-
-const fmt = (iso?: string) => iso ?? '—';
-
-export const REPORT_DEFS: ReportDef[] = [
-  {
-    type: 'heat',
-    title: 'Heat Report',
-    icon: 'flame',
-    statusKey: 'heat',
-    // Cows inseminated 20–25 days ago — checked daily inside the window only
-    filter: (cows) => cows.filter((c) => c.status === 'inseminated' && dsi(c) >= 20 && dsi(c) <= 25),
-    detail: (c, farm) => `${farm} · AI ${fmt(c.lastInseminationDate)} · Day ${dsi(c)} of 20–25`,
-  },
-  {
-    type: 'timed-breeding',
-    title: 'Timed Breeding',
-    icon: 'flask',
-    statusKey: 'inseminated',
-    // Cows due for insemination today — final protocol day
-    filter: (cows, tasks) => {
-      const ids = new Set(
-        tasks.filter((t) => t.kind === 'insemination' || (t.kind === 'needling' && t.isFinalDay)).map((t) => t.cowId),
-      );
-      return cows.filter((c) => ids.has(c.id));
-    },
-    detail: (c, farm) => `${farm} · ${c.currentProgram || 'Protocol'} — inseminate today`,
-  },
-  {
-    type: 'needling',
-    title: 'Needling Report',
-    icon: 'fitness',
-    statusKey: 'needling',
-    // Cows with an injection scheduled today
-    filter: (cows, tasks) => {
-      const ids = new Set(tasks.filter((t) => t.kind === 'needling').map((t) => t.cowId));
-      return cows.filter((c) => ids.has(c.id));
-    },
-    detail: (c, farm) => `${farm} · ${c.currentProgram || 'Protocol'} — injection due today`,
-  },
-  {
-    type: 'pregnancy-check',
-    title: 'Pregnancy Report',
-    icon: 'medkit',
-    statusKey: 'inseminated',
-    // Inseminated cows on the Pregnancy Report: Day 30+ approaching/due,
-    // Day 50+ overdue (warning). The vet enters a result on their next visit.
-    filter: (cows) => pregnancyCheckDue(cows),
-    detail: (c, farm) => {
-      const d = dsi(c);
-      const state = d >= PREGNANCY_WARNING_DAY ? '⚠ Overdue — ready for diagnosis' : 'Due for check';
-      return `${farm} · AI ${fmt(c.lastInseminationDate)} · Day ${d} · ${state}`;
-    },
-  },
-  {
-    type: 'vaccination',
-    title: 'Vaccination Report',
-    icon: 'shield-checkmark',
-    statusKey: 'fresh',
-    // Fresh cows in the 30–50 day post-calving window
-    filter: (cows) => cows.filter((c) => {
-      const d = dim(c);
-      return c.status === 'fresh' && d !== null && d >= 30 && d <= 50;
-    }),
-    detail: (c, farm) => `${farm} · Day ${dim(c)} post calving · complete by day 50`,
-  },
-  {
-    type: 'post-calving',
-    title: 'Post Calving Report',
-    icon: 'bandage',
-    statusKey: 'fresh',
-    // Same 30–50 day window — the 2cc vaccine shot report
-    filter: (cows) => cows.filter((c) => {
-      const d = dim(c);
-      return c.status === 'fresh' && d !== null && d >= 30 && d <= 50;
-    }),
-    detail: (c, farm) => `${farm} · Day ${dim(c)} post calving · 2cc vaccine due`,
-  },
-  {
-    type: 'dry-report',
-    title: 'Dry Report',
-    icon: 'moon',
-    statusKey: 'dry',
-    // Pregnant cows at/near day 223 post insemination (due within a week or overdue)
-    filter: (cows) => cows.filter((c) => c.status === 'pregnant' && withinDays(c.dryDate, 7)),
-    detail: (c, farm) => `${farm} · Dry ${fmt(c.dryDate)} · Due ${fmt(c.dueDate)} — notify farmer to change pen`,
-  },
-  {
-    type: 'fresh',
-    title: 'Fresh / Calving Report',
-    icon: 'heart',
-    statusKey: 'fresh',
-    filter: (cows) => cows.filter((c) => c.status === 'fresh'),
-    detail: (c, farm) => `${farm} · Calved ${fmt(c.lastCalvingDate)} · Day ${dim(c) ?? 0}`,
-  },
-  {
-    type: 'open-report',
-    title: 'Open Cow Report',
-    icon: 'ellipse-outline',
-    statusKey: 'open',
-    // Open cows awaiting a protocol decision (70+ days post calving or failed check)
-    filter: (cows) => cows.filter((c) => c.status === 'open'),
-    detail: (c, farm) =>
-      c.healthStatus === 'sick'
-        ? `${farm} · ${c.daysOpen} days open · Sick — recheck ${fmt(c.recheckDueDate)}`
-        : `${farm} · ${c.daysOpen} days open · Healthy — ready to breed`,
-  },
-  // ── Lists ──
-  {
-    type: 'pregnant',
-    title: 'Pregnant Cow List',
-    icon: 'heart-circle',
-    statusKey: 'pregnant',
-    filter: (cows) => cows.filter((c) => ['pregnant', 'dry'].includes(c.status)),
-    detail: (c, farm) =>
-      `${farm} · Due ${fmt(c.dueDate)} · Dry ${fmt(c.dryDate)} · ${dsi(c)} days pregnant`,
-  },
-  {
-    type: 'open',
-    title: 'Open Cow List',
-    icon: 'list-circle',
-    statusKey: 'open',
-    // Open + needling — enrolling in a protocol doesn't leave the open list
-    filter: (cows) => cows.filter((c) => ['open', 'needling'].includes(c.status)),
-    detail: (c, farm) =>
-      `${farm} · ${c.daysOpen} days open · Calved ${fmt(c.lastCalvingDate)}${c.status === 'needling' ? ` · ${c.currentProgram}` : ''}`,
-  },
-  {
-    type: 'cull',
-    title: 'Cull Cow List',
-    icon: 'alert-circle',
-    statusKey: 'cull',
-    filter: (cows) => cows.filter((c) => c.status === 'cull'),
-    detail: (c, farm) =>
-      `${farm} · Culled ${fmt(c.cullDate)}${c.cullReason ? ` · ${c.cullReason}` : ''}`,
-  },
+/** Program reports — event- or day-triggered rather than daily. */
+export const PROGRAM_REPORT_TYPES = [
+  'pregnancy-check', 'vaccination', 'post-calving', 'dry-report', 'fresh', 'open-report',
 ];
 
-export const reportByType = (type: string) => REPORT_DEFS.find((r) => r.type === type);
+/** Reference lists: never work, never counted in a workload. */
+export const LIST_REPORT_TYPES = ['calving-due', 'pregnant', 'open', 'cull'];
+
+/**
+ * Titles and icons for reports with no rows today. When the server returns a
+ * report it wins — these only fill the gap so an empty report still has a name.
+ */
+const REPORT_TITLES: Record<string, string> = {
+  heat: 'Heat Report',
+  'timed-breeding': 'Timed Breeding',
+  needling: 'Needling Report',
+  insemination: 'Insemination Program',
+  'pregnancy-check': 'Pregnancy Report',
+  vaccination: 'Vaccination Report',
+  'dry-report': 'Dry Report',
+  'post-calving': 'Post Calving Report',
+  'calving-due': 'Upcoming Calvings',
+  fresh: 'Fresh / Calving Report',
+  'open-report': 'Open Cow Report',
+  pregnant: 'Pregnant Cow List',
+  open: 'Open Cow List',
+  cull: 'Cull Cow List',
+};
+
+const REPORT_ICONS: Record<string, string> = {
+  heat: 'flame',
+  'timed-breeding': 'flask',
+  needling: 'fitness',
+  insemination: 'git-branch',
+  'pregnancy-check': 'medkit',
+  vaccination: 'shield-checkmark',
+  'dry-report': 'moon',
+  'post-calving': 'bandage',
+  'calving-due': 'alarm',
+  fresh: 'heart',
+  'open-report': 'ellipse-outline',
+  pregnant: 'heart-circle',
+  open: 'list-circle',
+  cull: 'alert-circle',
+};
+
+export const knownReportType = (type: string) => type in REPORT_TITLES;
+
+/** Reports of the given types that currently have rows, in the order listed. */
+export function reportsIn(reports: WorklistReport[], types: string[]): WorklistReport[] {
+  return types
+    .map((type) => reports.find((r) => r.type === type))
+    .filter((r): r is WorklistReport => r !== undefined);
+}
+
+/** A report the server didn't return has no cows — render the zero state. */
+export function emptyReport(type: string): WorklistReport {
+  return {
+    type,
+    title: REPORT_TITLES[type] ?? 'Report',
+    icon: REPORT_ICONS[type] ?? 'document-text',
+    statusKey: 'open',
+    isWorkReport: !LIST_REPORT_TYPES.includes(type),
+    count: 0,
+    subtitle: '0 cows',
+    canRecord: false,
+    cows: [],
+  };
+}

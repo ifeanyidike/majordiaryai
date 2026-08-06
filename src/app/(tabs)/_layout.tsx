@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ColorValue, Platform } from 'react-native';
+import { AppState, ColorValue, Platform } from 'react-native';
 import { colors, typography } from '@/theme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAppStore } from '@/store/useAppStore';
@@ -16,16 +16,26 @@ const tabIcon =
 
 export default function TabsLayout() {
   const role = useAuthStore((s) => s.user?.role ?? 'technician');
-  const { fetchFarms, fetchCows, fetchVets, fetchTasks, fetchNotifications } = useAppStore();
+  const { fetchFarms, fetchCows, fetchVets, fetchWorklist, ensureWorklist, fetchNotifications } =
+    useAppStore();
 
   // Load all core data once when the user enters the tab shell
   useEffect(() => {
     fetchFarms();
     fetchCows();
     fetchVets();
-    fetchTasks();
+    fetchWorklist();
     fetchNotifications();
   }, []);
+
+  // The worklist is a day's route: an app reopened the next morning must not
+  // keep rendering yesterday's farms. ensureWorklist refetches on date change.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') ensureWorklist();
+    });
+    return () => sub.remove();
+  }, [ensureWorklist]);
 
   const showFarms = role !== 'farm';
   const showTasks = role === 'technician';

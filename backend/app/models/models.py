@@ -104,12 +104,20 @@ class Farm(Base):
     # Owner-reported herd size — NOT the same as the computed cow_count exposed in FarmOut.
     herd_size: Mapped[int] = mapped_column(Integer, default=0)
     assigned_technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    # Visit rotation: farms are not visited daily — some run a 5-day cycle,
+    # others 6-day, so which farms a technician sees changes day to day. A visit
+    # is due when (date - visit_anchor_date) is a whole multiple of the interval.
+    visit_interval_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+    visit_anchor_date: Mapped[Optional[date_type]] = mapped_column(Date)
     notes: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
     cows: Mapped[List["Cow"]] = relationship("Cow", back_populates="farm", foreign_keys="Cow.farm_id")
     farm_users: Mapped[List["User"]] = relationship("User", foreign_keys="User.farm_id", back_populates="farm")
     vet_assignments: Mapped[List["VetFarmAssignment"]] = relationship("VetFarmAssignment", back_populates="farm")
+    visit_assignments: Mapped[List["FarmVisitAssignment"]] = relationship(
+        "FarmVisitAssignment", back_populates="farm", cascade="all, delete-orphan"
+    )
 
 
 class Vet(Base):
@@ -134,6 +142,33 @@ class VetFarmAssignment(Base):
 
     vet: Mapped["Vet"] = relationship("Vet", back_populates="farm_assignments")
     farm: Mapped["Farm"] = relationship("Farm", back_populates="vet_assignments")
+
+
+class FarmVisitAssignment(Base):
+    """A one-day override of who visits a farm.
+
+    The rotation (farm.visit_interval_days) says WHEN a farm is due; this says
+    WHO covers it on a given date when that differs from the standing assignment
+    — a relief technician, or another technician picking the day up. Absence of
+    a row means the standing `farms.assigned_technician_id` applies.
+    """
+
+    __tablename__ = "farm_visit_assignments"
+    __table_args__ = (UniqueConstraint("farm_id", "visit_date"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    farm_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("farms.id", ondelete="CASCADE"), nullable=False
+    )
+    visit_date: Mapped[date_type] = mapped_column(Date, nullable=False)
+    # Who is covering. NULL means the visit is explicitly skipped that day.
+    assigned_technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    reason: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+    farm: Mapped["Farm"] = relationship("Farm", back_populates="visit_assignments")
 
 
 class Cow(Base):
@@ -162,6 +197,9 @@ class Cow(Base):
     last_insemination_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("inseminations.id"))
     due_date: Mapped[Optional[date_type]] = mapped_column(Date)
     dry_date: Mapped[Optional[date_type]] = mapped_column(Date)
+    # Set when the technician confirms she was physically moved to the dry pen.
+    # The Dry Report is work until this is recorded, then she drops off it.
+    dry_off_confirmed_date: Mapped[Optional[date_type]] = mapped_column(Date)
     # Set when the cow leaves the herd (sold / dead)
     exit_date: Mapped[Optional[date_type]] = mapped_column(Date)
     exit_reason: Mapped[Optional[str]] = mapped_column(String)

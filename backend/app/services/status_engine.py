@@ -26,6 +26,7 @@ from typing import Iterable, Optional
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import aliased
 
 from app.core.timeutils import local_today
 from app.models.models import (
@@ -33,14 +34,21 @@ from app.models.models import (
     EnrollmentStatus, ProtocolType,
 )
 from app.services.notifications import create_notification
-from app.services.protocols import get_scheduled_records
+from app.services.protocols import get_scheduled_records, TIMED_AI_PROTOCOLS
 
 GESTATION_DAYS = 283
 DRY_OFF_DAY = 223            # days after insemination
+# Heat monitoring window, days post-AI (Major_further.md; the older docs say
+# 19-25 — confirm with the client whether day 19 counts).
+HEAT_WINDOW = (20, 25)
 FRESH_TO_OPEN_DAY = 70       # days after calving
 CALF_TO_HEIFER_DAY = 60      # days after birth
 HEIFER_BREEDING_DAY = 395    # ~13 months after birth
 BREEDING_WEEKDAYS = (0, 1, 5)  # Monday, Tuesday, Saturday
+# Days past a protocol's final day after which an un-inseminated cow is treated
+# as abandoned: the synchronisation has lapsed, so cancel and return her to Open
+# rather than leaving her pinned on Timed Breeding indefinitely.
+ABANDONED_PROTOCOL_DAYS = 7
 
 # Statuses in which an insemination may be recorded.
 INSEMINABLE_STATUSES = {
@@ -76,6 +84,34 @@ def ensure_transition(cow: Cow, new_status: CowStatus) -> None:
         )
 
 
+def heat_check_timing_error(days_since: int, has_signal: bool) -> Optional[str]:
+    """Why a heat check at `days_since` post-AI is not accepted, or None if it is.
+
+    Routine (no-signal) checks belong to the monitoring window only. A check
+    carrying a signal (observed heat or blood on the tail) is a fact from the
+    window's START onward with no upper bound — the spec's "blood on any day"
+    covers late returns to heat, and rejecting them past day 25 while the
+    bleeding endpoint pointed back here made them unrecordable. But the lower
+    bound stays: spotting a day or two after breeding is normal metestrous
+    bleeding from the heat she was JUST bred on, not evidence the AI failed —
+    treating it as a returned heat would cancel a perfectly good insemination.
+    """
+    lo, hi = HEAT_WINDOW
+    if has_signal:
+        if days_since < lo:
+            return (
+                f"Heat/bleeding this soon after breeding (day {days_since}) is normal "
+                f"post-breeding spotting, not a returned heat — heat checks start at day {lo}"
+            )
+        return None
+    if not (lo <= days_since <= hi):
+        return (
+            f"Routine heat checks are only accepted {lo}-{hi} days post-insemination "
+            f"(this check is at day {days_since})"
+        )
+    return None
+
+
 def compute_due_date(insemination_date: date) -> date:
     return insemination_date + timedelta(days=GESTATION_DAYS)
 
@@ -96,6 +132,9 @@ def _clear_reproductive_fields(cow: Cow) -> None:
     cow.last_insemination_date = None
     cow.due_date = None
     cow.dry_date = None
+    # Belongs to the cycle that just ended — leaving it set would keep the next
+    # dry-off silently pre-confirmed and off the technician's report.
+    cow.dry_off_confirmed_date = None
 
 
 async def cancel_active_enrollments(
@@ -128,7 +167,12 @@ async def on_heat_detected(cow: Cow, db: AsyncSession) -> None:
     """Heat detected (incl. blood on tail) — cow returns to the Insemination Program."""
     cow.status = CowStatus.open
     cow.current_program = "Insemination"
-    _clear_reproductive_fields(cow)
+    # Keep last_insemination_id/date: the failed AI is a true fact the
+    # Insemination Program report shows ("last AI <date>"); only the
+    # pregnancy-cycle projections belong to the cycle that just ended.
+    cow.due_date = None
+    cow.dry_date = None
+    cow.dry_off_confirmed_date = None
     create_notification(
         db, cow.farm_id, cow.id, "breeding_due",
         f"Cow {cow.ear_tag} was detected in heat and returned to the Insemination Program.",
@@ -153,10 +197,46 @@ async def on_pregnancy_negative(cow: Cow, db: AsyncSession) -> None:
     )
 
 
+async def on_final_record_completed(
+    cow: Cow, enrollment: NeedlingEnrollment, db: AsyncSession
+) -> None:
+    """The last scheduled step of a protocol was completed.
+
+    `is_final` means "last scheduled step", NOT "insemination day" — the two
+    need different handling or the cow dead-ends on no report:
+
+      timed-AI protocol      → shot given, AI outstanding. Enrollment goes to
+                               `completed_pending_ai` and she stays on the Timed
+                               Breeding report until the AI is recorded.
+      conditional-AI (PGF)   → the schedule is finished. If she showed heat the
+                               technician records that AI separately; otherwise
+                               she returns to Open for a new protocol decision.
+    """
+    if enrollment.protocol in TIMED_AI_PROTOCOLS:
+        enrollment.status = EnrollmentStatus.completed_pending_ai
+        return
+
+    enrollment.status = EnrollmentStatus.completed
+    # Guarded like every other status write — a drifted cow must not be moved
+    # into an illegal state just because her protocol ran out of steps.
+    ensure_transition(cow, CowStatus.open)
+    cow.status = CowStatus.open
+    cow.current_program = None
+    create_notification(
+        db, cow.farm_id, cow.id, "open",
+        f"Cow {cow.ear_tag} finished {enrollment.protocol.value} — "
+        "returned to Open for a breeding decision.",
+    )
+
+
 async def on_bleeding_before_insemination(cow: Cow, db: AsyncSession, start_date: date = None) -> None:
     """Bleeding event on a needling record before insemination: cancel the
     enrollment, set the cow Open, then auto-enroll her in Ovsynch (spec:
     "transfers into Ovsynch Needling Program")."""
+    # Guarded like every other status write — routers restrict which statuses
+    # may record bleeding, but this service must not be able to force an
+    # illegal transition (e.g. calf/fresh → needling) if a new caller slips.
+    ensure_transition(cow, CowStatus.open)
     await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
     cow.status = CowStatus.open
     cow.current_program = None
@@ -178,6 +258,7 @@ async def on_bleeding_before_insemination(cow: Cow, db: AsyncSession, start_date
             treatment=s["treatment"],
             is_final=s["is_final"],
         ))
+    ensure_transition(cow, CowStatus.needling)
     cow.status = CowStatus.needling
     cow.current_program = ProtocolType.ovsynch.value
     create_notification(
@@ -201,6 +282,20 @@ async def on_cull(cow: Cow, db: AsyncSession) -> None:
     await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
 
 
+async def run_transitions_for_user(db: AsyncSession, current_user: dict) -> int:
+    """Apply timed transitions for the caller's farms before building a report.
+
+    Every endpoint that feeds the technician's work list must call this, or the
+    list is assembled from statuses that are a day (or a month) stale — a fresh
+    cow past day 70 still counted as fresh, a heifer that never became open.
+    Lives here so `reports.py` and `needling.py` share one implementation.
+    """
+    from app.services.access import get_allowed_farm_ids  # local: avoids a cycle
+
+    farm_ids = await get_allowed_farm_ids(db, current_user)
+    return await run_lifecycle_transitions(db, farm_ids=farm_ids)
+
+
 async def run_lifecycle_transitions(
     db: AsyncSession,
     farm_ids: Optional[Iterable[uuid.UUID]] = None,
@@ -222,6 +317,10 @@ async def run_lifecycle_transitions(
     stmt = (
         select(Cow)
         .where(Cow.status.in_([CowStatus.pregnant, CowStatus.fresh, CowStatus.calf, CowStatus.heifer]))
+        # Deterministic lock order — two concurrent sweeps over overlapping
+        # farm scopes must acquire row locks in the same sequence or they
+        # deadlock (FOR UPDATE without ORDER BY locks in scan order).
+        .order_by(Cow.id)
         .with_for_update()
     )
     if farm_ids is not None:
@@ -267,13 +366,86 @@ async def run_lifecycle_transitions(
         if cow.status == CowStatus.heifer and cow.date_of_birth and \
                 (today - cow.date_of_birth).days >= HEIFER_BREEDING_DAY:
             cow.status = CowStatus.open
-            cow.current_program = None
+            # Master Structure: month-13 heifers go straight to the Insemination
+            # Program (bred directly), not to the Open report's protocol choice.
+            cow.current_program = "Insemination"
             create_notification(
                 db, cow.farm_id, cow.id, "open",
                 f"Heifer {cow.ear_tag} reached breeding age — ready for the Insemination Program.",
             )
             changed += 1
 
+    changed += await _expire_stale_enrollments(db, farm_ids, today)
+
     if changed:
         await db.commit()
+    return changed
+
+
+async def _expire_stale_enrollments(
+    db: AsyncSession,
+    farm_ids: Optional[Iterable[uuid.UUID]],
+    today: date,
+) -> int:
+    """Close out protocols whose final day came and went unactioned.
+
+    Without this an un-actioned final record pins the cow on Timed Breeding
+    forever AND (via the same-day overlap rule) suppresses every other injection
+    she is due — a silently growing hole in the work list. After
+    ABANDONED_PROTOCOL_DAYS past the final day with no insemination, the
+    synchronisation has lapsed biologically anyway: cancel it and put her back
+    on the Open report so somebody makes a fresh decision.
+    """
+    cutoff = today - timedelta(days=ABANDONED_PROTOCOL_DAYS)
+
+    # "Abandoned" means nobody is working the protocol — a technician catching
+    # up on late shots is not abandonment. Any record completed since the
+    # cutoff keeps the enrollment alive.
+    rec = aliased(NeedlingRecord)
+    recently_worked = (
+        select(rec.id)
+        .where(
+            rec.enrollment_id == NeedlingEnrollment.id,
+            rec.completed == True,  # noqa: E712
+            rec.completed_date >= cutoff,
+        )
+        .exists()
+    )
+
+    stmt = (
+        select(NeedlingEnrollment, Cow, NeedlingRecord.scheduled_date)
+        .join(Cow, Cow.id == NeedlingEnrollment.cow_id)
+        .join(NeedlingRecord, NeedlingRecord.enrollment_id == NeedlingEnrollment.id)
+        .where(
+            NeedlingEnrollment.status.in_(
+                [EnrollmentStatus.active, EnrollmentStatus.completed_pending_ai]
+            ),
+            NeedlingRecord.is_final == True,  # noqa: E712
+            NeedlingRecord.scheduled_date < cutoff,
+            Cow.status == CowStatus.needling,
+            ~recently_worked,
+        )
+        .order_by(Cow.id)
+        .with_for_update(of=(NeedlingEnrollment, Cow))
+    )
+    if farm_ids is not None:
+        farm_ids = list(farm_ids)
+        if not farm_ids:
+            return 0
+        stmt = stmt.where(Cow.farm_id.in_(farm_ids))
+
+    changed = 0
+    for enrollment, cow, final_date in (await db.execute(stmt)).all():
+        enrollment.status = EnrollmentStatus.cancelled
+        ensure_transition(cow, CowStatus.open)
+        cow.status = CowStatus.open
+        cow.current_program = None
+        days_late = (today - final_date).days
+        create_notification(
+            db, cow.farm_id, cow.id, "open",
+            f"Cow {cow.ear_tag} was not inseminated {days_late} days after her "
+            f"{enrollment.protocol.value} final day — protocol cancelled, she is "
+            "Open and needs a new breeding decision.",
+        )
+        changed += 1
     return changed

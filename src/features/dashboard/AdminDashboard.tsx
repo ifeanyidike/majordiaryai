@@ -13,16 +13,18 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { colors, gradients, onDark, radius, shadows, spacing, status } from '@/theme';
-import { summarize, useAppStore } from '@/store/useAppStore';
+import { summarize, useAppStore, worklistTotal } from '@/store/useAppStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
 /** Admin — system-wide command center in the charcoal identity. */
 export function AdminDashboard() {
   const router = useRouter();
-  const { farms, cows, vets, tasks, kpis, fetchKpis } = useAppStore();
+  const store = useAppStore();
+  const { farms, cows, vets, kpis, fetchKpis } = store;
   const summary = summarize(cows);
-  const activeTasks = tasks.filter((t) => t.status !== 'done').length;
+  // Outstanding cow-work across every farm, from the shared work list.
+  const activeTasks = worklistTotal(store);
   const today = new Date().toLocaleDateString('en-CA', {
     weekday: 'long',
     month: 'long',
@@ -35,7 +37,7 @@ export function AdminDashboard() {
     { value: farms.length, label: 'Farms' },
     { value: summary.total, label: 'Cows' },
     { value: vets.length, label: 'Vets' },
-    { value: activeTasks, label: 'Open tasks' },
+    { value: activeTasks, label: 'Cows to do' },
   ];
 
   const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [

@@ -15,8 +15,7 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { colors, gradients, onDark, radius, spacing, status } from '@/theme';
-import { pregnancyCounts } from '@/lib/pregnancy';
-import { useAppStore } from '@/store/useAppStore';
+import { pregnancyCounts, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 /**
@@ -26,9 +25,10 @@ import { useAuthStore } from '@/store/useAuthStore';
  */
 export function VetDashboard() {
   const router = useRouter();
-  const { farms, cows } = useAppStore();
+  const store = useAppStore();
+  const { farms, cows } = store;
   const { user } = useAuthStore();
-  const { due, warning } = pregnancyCounts(cows);
+  const { due, warning } = pregnancyCounts(store);
 
   return (
     <Screen padded={false} topInset={false}>
@@ -116,7 +116,7 @@ export function VetDashboard() {
         {/* Assigned farms — per-farm due counts */}
         <SectionHeader title="Your Farms" />
         {farms.map((f) => {
-          const c = pregnancyCounts(cows.filter((cow) => cow.farmId === f.id));
+          const c = pregnancyCounts(store, f.id);
           return (
             <ListRow
               key={f.id}

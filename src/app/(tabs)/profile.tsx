@@ -14,19 +14,21 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { colors, gradients, onDark, spacing, status } from '@/theme';
-import { summarize, unreadNotificationCount, useAppStore } from '@/store/useAppStore';
+import { summarize, unreadNotificationCount, useAppStore, worklistTotal } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, signOut } = useAuthStore();
   const store = useAppStore();
-  const { tasks, farms, cows } = store;
+  const { farms, cows } = store;
   const unread = unreadNotificationCount(store);
   const [signingOut, setSigningOut] = useState(false);
 
   const role = user?.role ?? 'technician';
-  const done = tasks.filter((t) => t.status === 'done').length;
+  // Cows still needing work today, from the same payload the To-Do list renders
+  // — a separate count here would drift from the list it claims to describe.
+  const outstanding = worklistTotal(store);
 
   const gradient =
     role === 'admin' ? gradients.charcoal
@@ -60,7 +62,7 @@ export default function ProfileScreen() {
           ]
         : [
             { value: farms.length, label: 'Assigned Farms', accent: colors.primary },
-            { value: `${done}/${tasks.length}`, label: 'Tasks Done', accent: status.pregnant.fg },
+            { value: outstanding, label: 'Cows To Do', accent: status.pregnant.fg },
           ];
 
   const handleLogout = async () => {

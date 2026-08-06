@@ -12,9 +12,12 @@ from app.models.models import (
 )
 from app.schemas.reports import (
     HerdSummary, CowReportRow, DailyTaskSummary, PregnancyCheckDueReport, TimedBreedingRow,
+    Worklist,
 )
 from app.services.access import get_allowed_farm_ids, scope_to_farms
-from app.services.status_engine import run_lifecycle_transitions
+from app.services.status_engine import run_transitions_for_user
+from app.services.worklist_builder import build_worklist
+from app.services.worklists import timed_breeding_stmt
 from datetime import date, timedelta
 from typing import List, Optional
 import uuid
@@ -26,8 +29,7 @@ TERMINAL_STATUSES = (CowStatus.cull, CowStatus.sold, CowStatus.dead)
 
 async def _run_transitions_scoped(db: AsyncSession, current_user: dict) -> None:
     """Apply timed lifecycle transitions for the caller's farms before reporting."""
-    farm_ids = await get_allowed_farm_ids(db, current_user)
-    await run_lifecycle_transitions(db, farm_ids=farm_ids)
+    await run_transitions_for_user(db, current_user)
 
 
 def _next_pregnancy_check_date(today: date) -> date:
@@ -210,6 +212,7 @@ async def breeding_due(
 ):
     """Cows returned to the Insemination Program (e.g. after a detected heat) —
     actionable breeding worklist."""
+    await _run_transitions_scoped(db, current_user)
     stmt = (
         select(Cow)
         .where(Cow.status == CowStatus.open, Cow.current_program == "Insemination")
@@ -229,24 +232,21 @@ async def timed_breeding(
     db: AsyncSession = Depends(get_db),
 ):
     """Cows in a needling enrollment whose final (AI) protocol day is today or
-    past and that have not yet been inseminated."""
+    past and that have not yet been inseminated.
+
+    Per the same-day overlap rule these cows are excluded from the Needling
+    report; `treatment` carries the final injection so the client can present
+    one combined task (e.g. "Give final GnRH + Inseminate").
+
+    `needling_completed` distinguishes the two states this report covers:
+    False → give the final shot AND inseminate; True → the shot is already
+    given (enrollment `completed_pending_ai`) and only the AI is outstanding.
+    """
+    await _run_transitions_scoped(db, current_user)
     today = local_today()
-    stmt = (
-        select(NeedlingRecord, NeedlingEnrollment, Cow, Farm)
-        .join(NeedlingEnrollment, NeedlingEnrollment.id == NeedlingRecord.enrollment_id)
-        .join(Cow, Cow.id == NeedlingRecord.cow_id)
-        .join(Farm, Farm.id == Cow.farm_id)
-        .where(
-            NeedlingRecord.is_final == True,
-            NeedlingRecord.scheduled_date <= today,
-            NeedlingEnrollment.status.in_(
-                [EnrollmentStatus.active, EnrollmentStatus.completed_pending_ai]
-            ),
-            Cow.status == CowStatus.needling,
-        )
-        .order_by(NeedlingRecord.scheduled_date)
-    )
-    stmt = scope_to_farms(stmt, current_user, farm_id, col=Cow.farm_id)
+    # Predicates come from app/services/worklists.py — shared with the Needling
+    # query so the overlap rule can't drift.
+    stmt = scope_to_farms(timed_breeding_stmt(today), current_user, farm_id, col=Cow.farm_id)
     result = await db.execute(stmt)
     return [
         {
@@ -257,6 +257,9 @@ async def timed_breeding(
             "enrollment_id": enrollment.id,
             "protocol": enrollment.protocol,
             "protocol_day": record.protocol_day,
+            "treatment": record.treatment,
+            "needling_record_id": record.id,
+            "needling_completed": record.completed,
             "scheduled_date": record.scheduled_date,
             "days_overdue": (today - record.scheduled_date).days,
         }
@@ -271,6 +274,7 @@ async def heat_check_due(
     db: AsyncSession = Depends(get_db),
 ):
     """Cows inseminated 20-25 days ago — due for heat check."""
+    await _run_transitions_scoped(db, current_user)
     today = local_today()
     window_start = today - timedelta(days=25)
     window_end = today - timedelta(days=20)
@@ -298,6 +302,7 @@ async def pregnancy_check_due(
 ):
     """Cows inseminated 30+ days ago — due for pregnancy check by vet.
     next_check_date is the next default check day (1st or 14th of the month)."""
+    await _run_transitions_scoped(db, current_user)
     today = local_today()
     cutoff = today - timedelta(days=30)
 
@@ -388,6 +393,7 @@ async def cull_list(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await _run_transitions_scoped(db, current_user)
     stmt = (
         select(Cow).where(Cow.status == CowStatus.cull)
         .options(selectinload(Cow.farm))
@@ -451,3 +457,21 @@ async def daily_task_summary(
         "heat_checks_due": heat_checks or 0,
         "vaccinations_due": vaccinations or 0,
     }
+
+
+@router.get("/worklist", response_model=Worklist)
+async def worklist(
+    farm_id: Optional[uuid.UUID] = None,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The technician's whole day: which farms to visit, which reports have
+    work at each, and the cow-by-cow actions inside them.
+
+    One endpoint for all three layers so the count on the Farm To-Do list and
+    the rows in the report are the same evaluation. Report membership rules live
+    in app/services/report_catalog.py and exist nowhere else — the client
+    renders this payload rather than re-deriving it.
+    """
+    await _run_transitions_scoped(db, current_user)
+    return await build_worklist(db, current_user, local_today(), farm_id)

@@ -4,10 +4,14 @@ from sqlalchemy import select, func, update, delete
 from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
-from app.models.models import Farm, Cow, CowStatus, User
-from app.schemas.farms import FarmCreate, FarmUpdate, FarmOut
+from app.core.timeutils import local_today
+from app.models.models import Farm, FarmVisitAssignment, Cow, CowStatus, User, UserRole
+from app.schemas.farms import (
+    FarmCreate, FarmUpdate, FarmOut, VisitAssignmentBody, VisitAssignmentOut,
+)
 from app.services.access import check_farm_access, scope_to_farms
-from typing import List
+from datetime import date
+from typing import List, Optional
 import uuid
 
 router = APIRouter()
@@ -143,3 +147,136 @@ async def delete_farm(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="Farm still has dependent records")
+
+
+# ── Visit schedule ───────────────────────────────────────────────────
+
+@router.get("/{farm_id}/visit-assignments", response_model=List[VisitAssignmentOut])
+async def list_visit_assignments(
+    farm_id: uuid.UUID,
+    from_date: Optional[date] = None,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Day-level overrides of who visits this farm (upcoming by default)."""
+    if not await check_farm_access(db, current_user, farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    stmt = (
+        select(FarmVisitAssignment, User.name)
+        .outerjoin(User, User.id == FarmVisitAssignment.assigned_technician_id)
+        .where(FarmVisitAssignment.farm_id == farm_id)
+        .order_by(FarmVisitAssignment.visit_date)
+    )
+    if from_date is not None:
+        stmt = stmt.where(FarmVisitAssignment.visit_date >= from_date)
+    return [
+        {**{c.key: getattr(a, c.key) for c in a.__table__.columns},
+         "assigned_technician_name": name}
+        for a, name in (await db.execute(stmt)).all()
+    ]
+
+
+@router.put("/{farm_id}/visit-assignments", response_model=VisitAssignmentOut)
+async def set_visit_assignment(
+    farm_id: uuid.UUID,
+    body: VisitAssignmentBody,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reassign (or skip) one day's visit.
+
+    Idempotent per (farm, date): re-sending replaces the override rather than
+    stacking duplicates, which the unique constraint would reject anyway.
+
+    Only an admin or the farm's STANDING technician may hand a day off. Scope
+    alone is not enough: a relief technician's scope comes from visit
+    assignments, so letting anyone in scope write them would let a one-day
+    cover assign themselves future days and renew their own access forever.
+    """
+    if not await check_farm_access(db, current_user, farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    # Admin scope passes check_farm_access for ANY id — without this, a bad id
+    # dies at the FK constraint and surfaces as a misleading concurrency 409.
+    farm = await db.get(Farm, farm_id)
+    if farm is None:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    if current_user["role"] != "admin" and farm.assigned_technician_id != current_user["id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the farm's standing technician or an admin can change visit assignments",
+        )
+
+    if body.visit_date < local_today():
+        raise HTTPException(status_code=422, detail="visit_date cannot be in the past")
+
+    if body.assigned_technician_id is not None:
+        tech = await db.get(User, body.assigned_technician_id)
+        if tech is None or tech.role not in (UserRole.technician, UserRole.admin):
+            raise HTTPException(
+                status_code=422,
+                detail="assigned_technician_id must be an existing technician or admin",
+            )
+
+    assignment = await db.scalar(
+        select(FarmVisitAssignment).where(
+            FarmVisitAssignment.farm_id == farm_id,
+            FarmVisitAssignment.visit_date == body.visit_date,
+        ).with_for_update()
+    )
+    if assignment is None:
+        assignment = FarmVisitAssignment(farm_id=farm_id, visit_date=body.visit_date)
+        db.add(assignment)
+    assignment.assigned_technician_id = body.assigned_technician_id
+    assignment.reason = body.reason
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent PUTs for the same (farm, date) both took the insert
+        # path; the unique constraint caught the second. A retry will update.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This visit was assigned concurrently — retry to overwrite",
+        )
+    await db.refresh(assignment)
+    name = None
+    if assignment.assigned_technician_id:
+        tech = await db.get(User, assignment.assigned_technician_id)
+        name = tech.name if tech else None
+    return {**{c.key: getattr(assignment, c.key) for c in assignment.__table__.columns},
+            "assigned_technician_name": name}
+
+
+@router.delete("/{farm_id}/visit-assignments/{visit_date}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_visit_assignment(
+    farm_id: uuid.UUID,
+    visit_date: date,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Drop an override so the standing technician covers the day again."""
+    if not await check_farm_access(db, current_user, farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    farm = await db.get(Farm, farm_id)
+    if farm is None:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    if current_user["role"] != "admin" and farm.assigned_technician_id != current_user["id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the farm's standing technician or an admin can change visit assignments",
+        )
+    if visit_date < local_today():
+        # Past overrides are history (and access-grant records) — immutable.
+        raise HTTPException(status_code=422, detail="Cannot delete a past visit assignment")
+
+    await db.execute(
+        delete(FarmVisitAssignment).where(
+            FarmVisitAssignment.farm_id == farm_id,
+            FarmVisitAssignment.visit_date == visit_date,
+        )
+    )
+    await db.commit()

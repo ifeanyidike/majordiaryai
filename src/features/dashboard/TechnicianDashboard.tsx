@@ -12,7 +12,9 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { colors, gradients, onDark, radius, shadows, spacing } from '@/theme';
-import { summarize, unreadNotificationCount, useAppStore } from '@/store/useAppStore';
+import {
+  farmsToVisit, summarize, unreadNotificationCount, useAppStore, worklistTotal,
+} from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -20,7 +22,7 @@ type IconName = keyof typeof Ionicons.glyphMap;
 export function TechnicianDashboard() {
   const router = useRouter();
   const store = useAppStore();
-  const { farms, tasks, cows } = store;
+  const { cows } = store;
   const unread = unreadNotificationCount(store);
   const { user, signOut } = useAuthStore();
   const today = new Date().toLocaleDateString('en-CA', {
@@ -29,18 +31,21 @@ export function TechnicianDashboard() {
     day: 'numeric',
   });
   const summary = summarize(cows);
-  const pendingTasks = tasks.filter((t) => t.status !== 'done').length;
-  const doneTasks = tasks.length - pendingTasks;
+  // Both figures come from the work list itself, so this caption and the To-Do
+  // screen it links to always agree. "Farms" here means farms on today's route,
+  // not every farm assigned to the technician.
+  const route = farmsToVisit(store);
+  const outstanding = worklistTotal(store);
 
   const heroStats = [
-    { value: farms.length, label: 'Farms' },
-    { value: pendingTasks, label: 'Tasks left' },
+    { value: route.length, label: 'Farms today' },
+    { value: outstanding, label: 'Cows to do' },
     { value: summary.total, label: 'Cows' },
   ];
 
   const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [
-    { label: 'Farms CRM', caption: `${farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
-    { label: 'To Do List', caption: `${doneTasks}/${tasks.length} done`, icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
+    { label: 'Farms CRM', caption: `${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
+    { label: 'To Do List', caption: route.length ? `${route.length} farms · ${outstanding} cows` : 'All clear', icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
     { label: 'Reports', caption: `${summary.total} cows tracked`, icon: 'bar-chart', onPress: () => router.push('/(tabs)/reports') },
     { label: 'Cow Search', caption: 'Find any cow', icon: 'search', onPress: () => router.push('/cow-search') },
   ];

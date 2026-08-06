@@ -13,9 +13,6 @@ import uuid
 
 router = APIRouter()
 
-HEAT_WINDOW_START = 20  # days post-insemination
-HEAT_WINDOW_END = 25
-
 
 # ── Heat checks ──────────────────────────────────────────────
 
@@ -52,16 +49,23 @@ async def record_heat_check(
     if not cow.last_insemination_date:
         raise HTTPException(status_code=409, detail="Cow has no recorded insemination")
 
-    # Heat window is 20-25 days post-insemination — computed server-side.
-    days_since = (body.check_date - cow.last_insemination_date).days
-    if days_since < HEAT_WINDOW_START or days_since > HEAT_WINDOW_END:
+    if cow.status != CowStatus.inseminated:
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"Heat checks are only accepted {HEAT_WINDOW_START}-{HEAT_WINDOW_END} days "
-                f"post-insemination (this check is at day {days_since})"
-            ),
+            detail=f"Heat checks require an inseminated cow (status is '{cow.status.value}')",
         )
+
+    days_since = (body.check_date - cow.last_insemination_date).days
+    if days_since < 0:
+        raise HTTPException(status_code=422, detail="check_date is before the insemination")
+    # Timing rule lives in status_engine.heat_check_timing_error (and is tested
+    # there): routine checks are window-bound; signal checks (heat / blood on
+    # tail) are accepted from the window's start onward with no upper bound.
+    error = status_engine.heat_check_timing_error(
+        days_since, has_signal=bool(body.heat_detected or body.bleeding_event)
+    )
+    if error:
+        raise HTTPException(status_code=409, detail=error)
 
     check = HeatCheck(
         cow_id=cow.id,
@@ -104,7 +108,11 @@ async def list_pregnancy_checks(
 @router.post("/pregnancy", response_model=PregnancyCheckOut, status_code=status.HTTP_201_CREATED)
 async def record_pregnancy_check(
     body: PregnancyCheckCreate,
-    current_user: dict = Depends(require_roles("admin", "technician", "vet")),
+    # Vet Area spec: pregnancy diagnosis is the veterinarian's call. Technicians
+    # run breeding, heat checks and needling; they can SEE the Pregnancy Report
+    # (knowing which cows are due is the point) but may not enter a diagnosis.
+    # Enforced here, not just in the UI — the client gate is cosmetic on its own.
+    current_user: dict = Depends(require_roles("admin", "vet")),
     db: AsyncSession = Depends(get_db),
 ):
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)

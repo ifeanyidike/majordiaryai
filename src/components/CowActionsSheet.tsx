@@ -15,9 +15,9 @@ import { Button, SegmentedControl, SectionHeader, Text, useToast } from '@/compo
 import { api, isApiConfigured } from '@/lib/api';
 import { daysSince, isValidPastOrTodayDate, todayISO } from '@/lib/dates';
 import { isPreferredStartDay, PROTOCOLS, protocolByValue } from '@/data/protocols';
-import { useAuthStore } from '@/store/useAuthStore';
+import { Role as UserRole, useAuthStore } from '@/store/useAuthStore';
 import { colors, radius, shadows, spacing, typography } from '@/theme';
-import { Cow } from '@/data/types';
+import { Cow, CowStatus } from '@/data/types';
 
 // ── helpers ──────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ function nowTime(): string {
 
 const isValidTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
 
-function daysPostInsemination(cow: Cow): number | null {
+function daysPostInsemination(cow: { lastInseminationDate?: string }): number | null {
   if (!cow.lastInseminationDate) return null;
   return daysSince(cow.lastInseminationDate);
 }
@@ -79,7 +79,16 @@ const ACTION_DEFS: Record<ActionKey, ActionDef> = {
   mark_dead:        { key: 'mark_dead',        label: 'Mark Dead',       icon: 'close-circle', danger: true },
 };
 
-function getActions(cow: Cow): ActionKey[] {
+/**
+ * Actions only certain roles may perform. Must mirror the backend's
+ * `require_roles` — offering an action the API will reject with a 403 is worse
+ * than not offering it. Pregnancy diagnosis is the vet's (Vet Area spec).
+ */
+const ROLE_RESTRICTED: Partial<Record<ActionKey, UserRole[]>> = {
+  pregnancy_check: ['vet', 'admin'],
+};
+
+function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
   const keys: ActionKey[] = [];
   const days = daysPostInsemination(cow);
   const dim = cow.lastCalvingDate ? daysSince(cow.lastCalvingDate) : null;
@@ -112,7 +121,7 @@ function getActions(cow: Cow): ActionKey[] {
   }
 
   if (!['cull', 'sold', 'dead'].includes(cow.status)) keys.push('cull');
-  return keys;
+  return keys.filter((k) => (ROLE_RESTRICTED[k] ?? []).length === 0 || ROLE_RESTRICTED[k]!.includes(role));
 }
 
 // ── small form primitives ─────────────────────────────────────
@@ -247,14 +256,39 @@ function FormActions({
 
 // ── individual modal forms ────────────────────────────────────
 
+/**
+ * The subset of a cow a recording form actually needs. `Cow` satisfies it
+ * structurally, and so does a work-list row — which lets a report row open its
+ * form without a second fetch for the full cow record.
+ */
+export interface RecordTarget {
+  id: string;
+  earTag: string;
+  status: CowStatus;
+  lastInseminationId?: string;
+  lastInseminationDate?: string;
+  lastCalvingDate?: string;
+  healthStatus?: Cow['healthStatus'];
+}
+
 interface FormProps {
-  cow: Cow;
+  cow: RecordTarget;
   onCancel: () => void;
   onComplete: () => void;
 }
 
-function InseminationForm({ cow, onCancel, onComplete }: FormProps) {
+export function InseminationForm({
+  cow, onCancel, onComplete, banner,
+}: FormProps & { banner?: string; finalNeedlingRecordId?: string }) {
+  // Bleeding replaces the insemination for a cow still in a protocol. It is
+  // offered whenever she is mid-protocol — NOT only when a completable record
+  // happens to exist, because after the final shot there is none left and that
+  // is exactly when she is closest to insemination.
+  const canBleed = cow.status === 'needling';
   const toast = useToast();
+  // Bleeding can be recorded on ANY protocol day, including the final one.
+  // Bleeding means no insemination: the cow goes Open and restarts on Ovsynch.
+  const [bleeding, setBleeding] = useState(false);
   const [date, setDate] = useState(todayISO());
   const [time, setTime] = useState(nowTime());
   const [bull, setBull] = useState('');
@@ -263,12 +297,34 @@ function InseminationForm({ cow, onCancel, onComplete }: FormProps) {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const valid = isValidPastOrTodayDate(date) && isValidTime(time) && bull.trim().length > 0 && semenType !== null;
+  // When bleeding is recorded there is no AI, so the AI fields aren't required.
+  const valid = bleeding && canBleed
+    ? true
+    : isValidPastOrTodayDate(date) && isValidTime(time) && bull.trim().length > 0 && semenType !== null;
 
   const submit = async () => {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
+      // Bleeding: record the event instead of an AI. Goes to the cow-level
+      // endpoint, which works whether or not a scheduled record is still open —
+      // the backend cancels the enrollment and re-enrolls her on Ovsynch.
+      if (bleeding && canBleed) {
+        await api.post(`/needling/cow/${cow.id}/bleeding`, {
+          notes: notes.trim() || null,
+        });
+        toast.show(
+          `Bleeding recorded — ${cow.earTag} moves to Open and restarts on Ovsynch`,
+          'water',
+          'success',
+        );
+        onComplete();
+        return;
+      }
+
+      // Final-day combined task: the API completes the pending final needling
+      // record in the same transaction as the AI, so there is no second write
+      // to orchestrate (and no partial-failure window) from the client.
       // Backend takes a single datetime; technician comes from the auth token.
       await api.post('/inseminations/', {
         cow_id: cow.id,
@@ -278,7 +334,11 @@ function InseminationForm({ cow, onCancel, onComplete }: FormProps) {
         semen_type: semenType,
         notes: notes.trim() || null,
       });
-      toast.success(`AI recorded — ${cow.earTag} is now Inseminated`);
+      toast.success(
+        banner
+          ? `Final injection + AI recorded — ${cow.earTag} is now Inseminated`
+          : `AI recorded — ${cow.earTag} is now Inseminated`,
+      );
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to record insemination');
@@ -289,29 +349,55 @@ function InseminationForm({ cow, onCancel, onComplete }: FormProps) {
 
   return (
     <>
-      <DateTimeFields date={date} time={time} onDate={setDate} onTime={setTime} dateLabel="Insemination Date" />
-      <FormLabel>Bull Name</FormLabel>
-      <FormInput value={bull} onChangeText={setBull} placeholder="Required" />
-      <FormLabel>Semen Type</FormLabel>
-      <SegmentedControl
-        options={[
-          { value: 'sexed', label: 'Sexed' },
-          { value: 'conventional', label: 'Conventional' },
-          { value: 'beef', label: 'Beef' },
-        ]}
-        value={semenType}
-        onChange={setSemenType}
-        style={styles.fieldGap}
-      />
-      <FormLabel>Dose ID</FormLabel>
-      <FormInput value={doseId} onChangeText={setDoseId} placeholder="Optional" />
+      {banner ? (
+        <View style={styles.combinedBanner}>
+          <Ionicons name="fitness" size={18} color={colors.primary} />
+          <Text variant="caption" color={colors.text} style={styles.flex1}>
+            {banner}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Bleeding is recordable on any protocol day — including the final one,
+          where it replaces the insemination. */}
+      {canBleed ? (
+        <>
+          <FormToggle label="Bleeding event?" value={bleeding} onChange={setBleeding} />
+          {bleeding && (
+            <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
+              No insemination will be recorded. She moves to Open and restarts on Ovsynch.
+            </Text>
+          )}
+        </>
+      ) : null}
+
+      {!bleeding && (
+        <>
+          <DateTimeFields date={date} time={time} onDate={setDate} onTime={setTime} dateLabel="Insemination Date" />
+          <FormLabel>Bull Name</FormLabel>
+          <FormInput value={bull} onChangeText={setBull} placeholder="Required" />
+          <FormLabel>Semen Type</FormLabel>
+          <SegmentedControl
+            options={[
+              { value: 'sexed', label: 'Sexed' },
+              { value: 'conventional', label: 'Conventional' },
+              { value: 'beef', label: 'Beef' },
+            ]}
+            value={semenType}
+            onChange={setSemenType}
+            style={styles.fieldGap}
+          />
+          <FormLabel>Dose ID</FormLabel>
+          <FormInput value={doseId} onChangeText={setDoseId} placeholder="Optional" />
+        </>
+      )}
       <FormLabel>Notes</FormLabel>
       <FormInput value={notes} onChangeText={setNotes} placeholder="Optional" multiline />
       <TechnicianRow />
       <FormActions
         onCancel={onCancel}
-        submitLabel="Record AI"
-        submitIcon="flask"
+        submitLabel={bleeding ? 'Record Bleeding' : 'Record AI'}
+        submitIcon={bleeding ? 'water' : 'flask'}
         onSubmit={submit}
         loading={loading}
         disabled={!valid}
@@ -465,7 +551,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
   );
 }
 
-function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
+export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [calvDate, setCalvDate] = useState(todayISO());
   const [calvTime, setCalvTime] = useState(nowTime());
@@ -570,7 +656,7 @@ function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   );
 }
 
-function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
+export function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [date, setDate] = useState(todayISO());
   const [time, setTime] = useState(nowTime());
@@ -586,19 +672,26 @@ function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      // Vaccinations complete a scheduled record — find this cow's pending one.
-      const due = await api.get<{ id: string; cow_id: string }[]>('/vaccinations/due');
-      const record = due.find((r) => r.cow_id === cow.id);
-      if (!record) {
-        toast.error('No vaccination is scheduled for this cow right now.');
-        return;
-      }
-      await api.patch(`/vaccinations/${record.id}/complete`, {
+      const body = {
         vaccine_name: vaccine.trim(),
         lot_number: lot.trim() || null,
         administered_at: `${date}T${time}:00`,
         notes: notes.trim() || null,
-      });
+      };
+      // Complete the cow's pending scheduled record if she has one — checked
+      // via her own record list, not /vaccinations/due, which only covers the
+      // 30-50-day post-calving window and missed every other scheduled vaccine.
+      const records = await api.get<{ id: string; completed: boolean; scheduled_date: string }[]>(
+        `/vaccinations/cow/${cow.id}`,
+      );
+      const pending = records.find((r) => !r.completed && r.scheduled_date <= todayISO());
+      if (pending) {
+        await api.patch(`/vaccinations/${pending.id}/complete`, body);
+      } else {
+        // Nothing scheduled (e.g. an imported cow's post-calving shot) —
+        // record it ad-hoc rather than telling the technician "no".
+        await api.post(`/vaccinations/cow/${cow.id}`, body);
+      }
       toast.success(`Vaccination recorded for ${cow.earTag}`);
       onComplete();
     } catch (e: any) {
@@ -635,7 +728,7 @@ function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
   );
 }
 
-function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
+export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [health, setHealth] = useState<'healthy' | 'sick' | null>(
     cow.healthStatus ?? null,
@@ -795,6 +888,42 @@ function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
   );
 }
 
+export function DryOffConfirmForm({ cow, onCancel, onComplete }: FormProps) {
+  const toast = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    if (!guardApi(toast.error)) return;
+    setLoading(true);
+    try {
+      await api.post(`/cows/${cow.id}/dry-off-confirm`, {});
+      toast.success(`${cow.earTag} confirmed in the dry pen`);
+      onComplete();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Failed to confirm dry off');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Text variant="body" color={colors.textSecondary} style={styles.fieldHint}>
+        Confirm {cow.earTag} has been moved to the dry pen. She leaves the Dry Report once
+        recorded — without this it repeats every day.
+      </Text>
+      <TechnicianRow />
+      <FormActions
+        onCancel={onCancel}
+        submitLabel="Confirm Dry Off"
+        submitIcon="moon"
+        onSubmit={submit}
+        loading={loading}
+      />
+    </>
+  );
+}
+
 function CullConfirm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [reason, setReason] = useState('');
@@ -901,7 +1030,8 @@ interface Props {
 
 export function CowActionsSheet({ cow, onRefresh }: Props) {
   const [activeAction, setActiveAction] = useState<ActionKey | null>(null);
-  const actions = getActions(cow);
+  const role = useAuthStore((s) => s.user?.role) ?? 'technician';
+  const actions = getActions(cow, role);
 
   if (actions.length === 0) return null;
 
@@ -1057,6 +1187,17 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   fieldHint: {
+    marginBottom: spacing.md,
+  },
+  combinedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.red[200],
+    borderRadius: radius.sm,
+    padding: spacing.md,
     marginBottom: spacing.md,
   },
   fieldGap: {

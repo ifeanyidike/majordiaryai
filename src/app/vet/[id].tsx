@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import {
@@ -20,13 +20,17 @@ import {
 } from '@/components';
 import { charcoal, colors, gradients, onDark, spacing, status } from '@/theme';
 import { dial } from '@/lib/contact';
-import { pregnancyCounts } from '@/lib/pregnancy';
-import { cowsByFarm, useAppStore, vetById } from '@/store/useAppStore';
+import { cowsByFarm, pregnancyCounts, useAppStore, vetById } from '@/store/useAppStore';
 
 export default function VetProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const state = useAppStore();
+
+  useEffect(() => {
+    // Same reason as the farm profile: unloaded work list would show 0 due.
+    state.ensureWorklist();
+  }, []);
   const vet = vetById(state, id);
 
   if (!vet) {
@@ -40,7 +44,15 @@ export default function VetProfileScreen() {
 
   const assignedFarms = state.farms.filter((f) => vet.farmIds.includes(f.id));
   const herd = vet.farmIds.flatMap((fid) => cowsByFarm(state, fid));
-  const { due, warning } = pregnancyCounts(herd);
+  // THIS vet's farms only — an unscoped count would include every farm the
+  // viewer can see, not the ones this vet covers.
+  const { due, warning } = vet.farmIds.reduce(
+    (acc, fid) => {
+      const c = pregnancyCounts(state, fid);
+      return { due: acc.due + c.due, warning: acc.warning + c.warning };
+    },
+    { due: 0, warning: 0 },
+  );
 
   return (
     <Screen padded={false} topInset={false}>
@@ -116,7 +128,7 @@ export default function VetProfileScreen() {
             </Card>
           ) : (
             assignedFarms.map((f) => {
-              const c = pregnancyCounts(cowsByFarm(state, f.id));
+              const c = pregnancyCounts(state, f.id);
               return (
                 <ListRow
                   key={f.id}

@@ -1,4 +1,9 @@
-import { Cow, Farm, TechTask, Technician, Vet } from './types';
+import { addDays, todayISO } from '@/lib/dates';
+import { Cow, Farm, Technician, Vet, Worklist } from './types';
+
+/** Demo dates are computed at import time so the canned data never looks stale. */
+const TODAY = todayISO();
+const addDemoDays = (n: number) => addDays(TODAY, n);
 
 /**
  * Bundled demo data — used when no API is configured (demo mode).
@@ -405,21 +410,146 @@ export const cows: Cow[] = [
   },
 ];
 
-export const initialTasks: TechTask[] = [
-  {
-    id: 't1', time: '8:30 AM', farmId: 'f3', cowId: 'MR-3120', kind: 'heat',
-    title: 'Heat Check: CA 131 209 3120', status: 'pending',
-  },
-  {
-    id: 't2', time: '10:00 AM', farmId: 'f1', cowId: 'GV-1156', kind: 'vaccination',
-    title: 'Vaccinate: CA 124 578 1156', status: 'pending',
-  },
-  {
-    id: 't3', time: '1:00 PM', farmId: 'f2', cowId: 'SF-2334', kind: 'needling',
-    title: 'Needling: 2cc GnRH (Day 1)', status: 'pending',
-  },
-  {
-    id: 't4', time: '4:45 PM', farmId: 'f3', kind: 'other',
-    title: 'Fresh Cow Exams', status: 'pending',
-  },
-];
+/**
+ * Demo work list — a canned payload in the exact shape the API returns.
+ *
+ * Deliberately static data, not a rules engine: report membership is decided by
+ * the backend catalog, and re-implementing those rules here just to fill a demo
+ * screen would recreate the two-sources-of-truth problem it exists to avoid.
+ */
+export const demoWorklist: Worklist = {
+  date: TODAY,
+  farms: [
+    {
+      farmId: 'f1',
+      farmName: 'Green Valley Dairy',
+      address: '2841 Concession Rd 6',
+      city: 'London',
+      province: 'Ontario',
+      phone: '+1 (519) 555-0114',
+      schedule: 'visit_today',
+      scheduleLabel: 'Visit Today',
+      visitIntervalDays: 5,
+      nextVisitDate: addDemoDays(5),
+      totalCows: 2,
+      reports: [
+        {
+          type: 'needling',
+          title: 'Needling Report',
+          icon: 'fitness',
+          statusKey: 'needling',
+          isWorkReport: true,
+          count: 1,
+          subtitle: '1 cow requires injection',
+          canRecord: true,
+          cows: [{
+            cowId: 'GV-1102', earTag: 'CA 124 578 1102', farmId: 'f1',
+            status: 'needling',
+            action: 'Requires 2cc PGF injection today (Ovsynch, Day 7)',
+            detail: 'Ovsynch · injection due today',
+            lactationNumber: 3, daysInMilk: 96, daysPostAi: null,
+            recordKind: 'needling', treatment: '2cc PGF',
+            protocol: 'ovsynch', protocolDay: 7,
+            needlingRecordId: 'demo-needling-1',
+            needlingCompleted: false, overdue: false, missedShots: 0, alsoPending: 0,
+          }],
+        },
+        {
+          // The day-30 2cc shot lives on the Post Calving Report; the
+          // Vaccination Report is for separately scheduled vaccines. Keep the
+          // demo consistent with the backend catalog's semantics.
+          type: 'post-calving',
+          title: 'Post Calving Report',
+          icon: 'bandage',
+          statusKey: 'fresh',
+          isWorkReport: true,
+          count: 1,
+          subtitle: '1 cow due the 2cc shot',
+          canRecord: true,
+          cows: [{
+            cowId: 'GV-1156', earTag: 'CA 124 578 1156', farmId: 'f1',
+            status: 'fresh',
+            action: 'Requires 2cc vaccine shot (Day 34 post calving — complete by day 50)',
+            detail: 'Day 34 post calving · complete by day 50',
+            lactationNumber: 2, daysInMilk: 34, daysPostAi: null,
+            recordKind: 'vaccination', needlingCompleted: false, overdue: false, missedShots: 0, alsoPending: 0,
+          }],
+        },
+      ],
+    },
+    {
+      farmId: 'f2',
+      farmName: 'Sunrise Farms',
+      address: '1150 Oxford Rd 29',
+      city: 'Woodstock',
+      province: 'Ontario',
+      phone: '+1 (519) 555-0167',
+      schedule: 'visit_today',
+      scheduleLabel: 'Visit Today',
+      visitIntervalDays: 6,
+      nextVisitDate: addDemoDays(6),
+      totalCows: 1,
+      reports: [
+        {
+          type: 'timed-breeding',
+          title: 'Timed Breeding',
+          icon: 'flask',
+          statusKey: 'inseminated',
+          isWorkReport: true,
+          count: 1,
+          subtitle: '1 cow requires insemination',
+          canRecord: true,
+          // The same-day overlap rule in demo form: final injection folded into
+          // the insemination, and absent from the Needling report above.
+          cows: [{
+            cowId: 'SF-2334', earTag: 'CA 118 442 2334', farmId: 'f2',
+            status: 'needling',
+            action: 'Give final 2cc GnRH + inseminate today (Ovsynch, Day 10 — final day)',
+            detail: 'Ovsynch · inseminate today',
+            lactationNumber: 2, daysInMilk: 118, daysPostAi: null,
+            recordKind: 'insemination', treatment: '2cc GnRH',
+            protocol: 'ovsynch', protocolDay: 10,
+            needlingRecordId: 'demo-needling-2',
+            needlingCompleted: false, overdue: false, missedShots: 0, alsoPending: 0,
+          }],
+        },
+      ],
+    },
+    {
+      farmId: 'f3',
+      farmName: 'Maple Ridge Dairy',
+      address: '7723 Wellington Rd 34',
+      city: 'Guelph',
+      province: 'Ontario',
+      phone: '+1 (519) 555-0139',
+      // Shows the reassignment case from the spec's example table.
+      schedule: 'reassigned',
+      scheduleLabel: 'Reassigned to Relief Tech — Skip',
+      coveringTechnician: 'Relief Tech',
+      reassignReason: 'Covering while on leave',
+      visitIntervalDays: 5,
+      nextVisitDate: addDemoDays(5),
+      totalCows: 1,
+      reports: [
+        {
+          type: 'heat',
+          title: 'Heat Report',
+          icon: 'flame',
+          statusKey: 'heat',
+          isWorkReport: true,
+          count: 1,
+          subtitle: '1 cow to check for heat',
+          canRecord: true,
+          cows: [{
+            cowId: 'MR-3120', earTag: 'CA 131 209 3120', farmId: 'f3',
+            status: 'inseminated',
+            action: 'Requires checking for heat',
+            detail: 'Day 22 of 20–25',
+            lactationNumber: 4, daysInMilk: 140, daysPostAi: 22,
+            recordKind: 'heat', needlingCompleted: false, overdue: false, missedShots: 0, alsoPending: 0,
+          }],
+        },
+      ],
+    },
+  ],
+};

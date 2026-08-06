@@ -1,12 +1,29 @@
 """
 Needling protocol schedules (per the Major Dairy AI requirement docs).
 Each protocol is a list of dicts: {day: int, treatment: str, is_final: bool}
-Day 1 = start_date. The is_final flag marks the protocol's final (AI) day
+Day 1 = start_date. The is_final flag marks the protocol's last scheduled day
 structurally — never rely on string matching of the treatment text.
+
+`is_final` means "last step of the protocol". It does NOT by itself mean
+"timed-AI day": Prostaglandin Heat ends with *conditional* insemination on
+observed heat, so it must not be pulled onto the Timed Breeding report or
+excluded from the Needling report by the same-day overlap rule. Use
+TIMED_AI_PROTOCOLS for that distinction.
 """
 
 from datetime import date, timedelta
 from typing import List, Dict
+
+# Protocols that end in a scheduled (timed) insemination. Prostaglandin Heat is
+# deliberately absent — its final day is heat observation with AI only if the
+# cow is actually in heat, which the technician records as a heat event.
+TIMED_AI_PROTOCOLS = frozenset({
+    "ovsynch",
+    "double_ovsynch",
+    "presynch",
+    "general_synch",
+    "general_synch_2",
+})
 
 PROTOCOLS: Dict[str, List[Dict]] = {
     "ovsynch": [
@@ -50,6 +67,27 @@ PROTOCOLS: Dict[str, List[Dict]] = {
         {"day": 20, "treatment": "2cc GnRH + Insemination", "is_final": True},
     ],
 }
+
+
+# Display names. `cows.current_program` and `enrollments.protocol` store the raw
+# enum value ("ovsynch"), which must never reach a technician's instruction line.
+PROTOCOL_LABELS = {
+    "ovsynch": "Ovsynch",
+    "prostaglandin_heat": "PGF Heat",
+    "double_ovsynch": "Double Ovsynch",
+    "presynch": "Presynch",
+    "general_synch": "General Synch",
+    "general_synch_2": "General Synch 2",
+}
+
+
+def protocol_label(protocol) -> str:
+    """Human label for a protocol value, enum or string. Falls back to the raw
+    value so an unknown protocol shows *something* rather than vanishing."""
+    if protocol is None:
+        return "Protocol"
+    raw = getattr(protocol, "value", protocol)
+    return PROTOCOL_LABELS.get(raw, raw or "Protocol")
 
 
 class UnknownProtocolError(ValueError):

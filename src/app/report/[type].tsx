@@ -1,26 +1,42 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { EmptyState, ErrorBanner, Header, ListRow, Screen, StatusPill } from '@/components';
-import { colors, spacing } from '@/theme';
-import { reportByType } from '@/data/reports';
-import { farmById, useAppStore, visibleCows } from '@/store/useAppStore';
+import {
+  CowRecordSheet,
+  EmptyState,
+  ErrorBanner,
+  Header,
+  Screen,
+  StatusPill,
+  Text,
+} from '@/components';
+import { colors, radius, shadows, spacing } from '@/theme';
+import { emptyReport, knownReportType } from '@/data/reports';
+import { WorklistCow } from '@/data/types';
+import { farmWorklist, reportFromWorklist, useAppStore } from '@/store/useAppStore';
 
+/**
+ * Layer 3 — the report itself: every cow on it, the exact action for each, and
+ * where to record the outcome.
+ *
+ * Rows, actions and "can this user record it" all come from the server. The
+ * screen decides nothing about membership — including which form opens, since
+ * offering one the API would answer with a 403 is worse than offering none.
+ */
 export default function ReportDetailScreen() {
-  const { type } = useLocalSearchParams<{ type: string }>();
+  const { type, farmId } = useLocalSearchParams<{ type: string; farmId?: string }>();
   const router = useRouter();
   const state = useAppStore();
-  const { cowsLoading, cowsError, fetchCows, fetchTasks, tasks } = state;
-
-  const def = reportByType(type ?? '');
+  const { worklist, worklistLoading, worklistError, fetchWorklist, ensureWorklist } = state;
+  const [active, setActive] = useState<WorklistCow | null>(null);
 
   useEffect(() => {
-    // Task-driven reports (needling, timed breeding) need today's task list too.
-    if (def && ['needling', 'timed-breeding'].includes(def.type)) fetchTasks();
-  }, [def?.type]);
+    ensureWorklist();
+  }, [type, farmId]);
 
-  if (!def) {
+  if (!type || !knownReportType(type)) {
     return (
       <Screen>
         <Header back title="Report" />
@@ -33,56 +49,150 @@ export default function ReportDetailScreen() {
     );
   }
 
-  const cows = visibleCows(state);
-  const list = def.filter(cows, tasks);
-  const loading = cowsLoading && cows.length === 0;
+  const farm = farmWorklist(state, farmId);
+  const report = reportFromWorklist(state, type, farmId) ?? emptyReport(type);
+  const list = report.cows;
+  const loading = worklistLoading && !worklist;
+
+  // Always the full worklist — a farm-scoped fetch would replace the whole
+  // store slice with a one-farm payload and corrupt every other screen.
+  const refresh = () => fetchWorklist();
+
+  // A farm handed to someone else today is reference, not work — recording on
+  // it would double-enter against whoever is actually covering the visit.
+  const reassignedAway =
+    farm != null && (farm.schedule === 'reassigned' || farm.schedule === 'skipped');
+  const canRecord = report.canRecord && !reassignedAway;
 
   return (
     <Screen scroll={false} padded={false}>
       <FlatList
         data={list}
-        keyExtractor={(cow) => cow.id}
+        keyExtractor={(cow) => cow.cowId}
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.huge }}
         refreshControl={
           <RefreshControl
-            // Pull-to-refresh spinner only when there's already content on screen;
-            // the first-load/retry state uses the single inline spinner below.
-            refreshing={cowsLoading && cows.length > 0}
-            onRefresh={() => fetchCows()}
+            refreshing={worklistLoading && !!worklist}
+            onRefresh={refresh}
             tintColor={colors.primary}
             colors={[colors.primary]}
           />
         }
         ListHeaderComponent={
           <>
-            <Header back title={def.title} subtitle={`${list.length} ${list.length === 1 ? 'cow' : 'cows'}`} />
-            {cowsError ? <ErrorBanner message={cowsError} onRetry={() => fetchCows()} /> : null}
+            <Header
+              back
+              title={report.title}
+              subtitle={
+                [farm?.farmName, `${list.length} ${list.length === 1 ? 'cow' : 'cows'}`]
+                  .filter(Boolean)
+                  .join(' · ')
+              }
+            />
+            {worklistError ? <ErrorBanner message={worklistError} onRetry={refresh} /> : null}
             {loading ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+            ) : null}
+            {!canRecord && list.length > 0 ? (
+              <View style={styles.readOnly}>
+                <Ionicons name="eye-outline" size={15} color={colors.textSecondary} />
+                <Text variant="caption" color={colors.textSecondary} style={styles.flex1}>
+                  {reassignedAway
+                    ? `${farm?.scheduleLabel ?? 'Reassigned today'} — view only.`
+                    : type === 'pregnancy-check'
+                      ? 'View only — the veterinarian records the result for this report.'
+                      : "View only — your role can't record results on this report."}
+                </Text>
+              </View>
             ) : null}
           </>
         }
         ListEmptyComponent={
-          loading || cowsError ? null : (
+          loading || worklistError ? null : (
             <EmptyState title="No cows in this report" message="Nothing due here right now." />
           )
         }
-        renderItem={({ item: cow, index }) => {
-          const farm = farmById(state, cow.farmId);
-          const pill = def.type === 'heat' ? 'heat' : cow.status;
-          return (
-            <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 50).duration(400)}>
-              <ListRow
-                icon="analytics-outline"
-                title={cow.earTag}
-                subtitle={def.detail(cow, farm?.name ?? 'Unknown farm')}
-                right={<StatusPill kind={pill} />}
-                onPress={() => router.push({ pathname: '/cow/[id]', params: { id: cow.id } })}
-              />
-            </Animated.View>
-          );
-        }}
+        renderItem={({ item: cow, index }) => (
+          <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 50).duration(400)}>
+            <Pressable
+              style={styles.row}
+              onPress={() =>
+                !reassignedAway && cow.recordKind
+                  ? setActive(cow)
+                  : router.push({ pathname: '/cow/[id]', params: { id: cow.cowId } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${cow.earTag}. ${cow.action}`}
+            >
+              <View style={styles.rowTop}>
+                <Text variant="subheading" style={styles.flex1} numberOfLines={1}>
+                  {cow.earTag}
+                </Text>
+                {cow.overdue ? (
+                  <View style={styles.overdue}>
+                    <Text variant="caption" color={colors.danger}>Overdue</Text>
+                  </View>
+                ) : null}
+                <StatusPill kind={report.type === 'heat' ? 'heat' : cow.status} />
+              </View>
+
+              {/* Action Required — the imperative instruction for today */}
+              <View style={styles.actionRow}>
+                <Ionicons name="arrow-forward-circle" size={15} color={colors.primary} />
+                <Text variant="body" color={colors.text} style={styles.flex1}>
+                  {cow.action}
+                </Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Text variant="caption" color={colors.textMuted} numberOfLines={1} style={styles.flex1}>
+                  {cow.detail}
+                </Text>
+                <Text variant="caption" color={colors.primary}>
+                  {!reassignedAway && cow.recordKind ? 'Tap to record' : 'Open profile'}
+                </Text>
+              </View>
+            </Pressable>
+          </Animated.View>
+        )}
+      />
+
+      <CowRecordSheet
+        visible={!!active}
+        cow={active ?? undefined}
+        reportType={type}
+        onClose={() => setActive(null)}
+        onRecorded={refresh}
       />
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex1: { flex: 1 },
+  row: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    marginBottom: spacing.sm + 2,
+    gap: spacing.sm,
+    ...shadows.card,
+  },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  actionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  overdue: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primarySoft,
+  },
+  readOnly: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+});

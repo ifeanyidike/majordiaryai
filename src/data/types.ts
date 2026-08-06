@@ -76,28 +76,92 @@ export interface Vet {
   pendingCases: number;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'done';
+/**
+ * The technician's work list, exactly as the server computed it.
+ *
+ * Report membership rules live in the backend (app/services/report_catalog.py)
+ * and nowhere else. The client renders this — it derives no "which cows are on
+ * the Heat Report" logic of its own, because two copies of that rule drift and
+ * a drifted rule makes a cow silently vanish from someone's day.
+ */
 
-export type TaskKind =
+/** Which inline form records this row's outcome; null = read-only for this user. */
+export type RecordKind =
   | 'heat'
-  | 'needling'
   | 'preg'
-  | 'calving'
+  | 'needling'
   | 'insemination'
   | 'vaccination'
-  | 'other';
+  | 'calving'
+  | 'enroll'
+  | 'dry_off';
 
-export interface TechTask {
-  id: string;
-  time: string;
+export interface WorklistCow {
+  cowId: string;
+  earTag: string;
   farmId: string;
+  status: CowStatus;
+  /** "Action Required" — the imperative instruction for this cow today. */
+  action: string;
+  detail: string;
+  lactationNumber: number;
+  daysInMilk: number | null;
+  daysPostAi: number | null;
+  /** Carried so a row can open its recording form without refetching the cow. */
+  lastInseminationId?: string;
+  lastInseminationDate?: string;
+  lastCalvingDate?: string;
+  healthStatus?: HealthStatus;
+  recordKind: RecordKind | null;
+  treatment?: string;
+  protocol?: string;
+  protocolDay?: number;
+  needlingRecordId?: string;
+  needlingCompleted: boolean;
+  overdue: boolean;
+  /** Timed Breeding: shots hidden by the overlap rule that were never given. */
+  missedShots: number;
+  /** Needling: pending injections beyond the one shown. */
+  alsoPending: number;
+}
+
+export interface WorklistReport {
+  type: string;
   title: string;
-  status: TaskStatus;
-  kind: TaskKind;
-  /** Needling only — this is the protocol's final (insemination) day */
-  isFinalDay?: boolean;
-  note?: string;
-  cowId?: string;
+  icon: string;
+  statusKey: string;
+  isWorkReport: boolean;
+  count: number;
+  subtitle: string;
+  canRecord: boolean;
+  cows: WorklistCow[];
+}
+
+/** Why a farm is (or isn't) on this technician's route today. `not_due` farms
+ * are in scope but off-rotation — hidden from the route, kept for herd views. */
+export type VisitSchedule = 'visit_today' | 'covering' | 'reassigned' | 'skipped' | 'not_due';
+
+export interface WorklistFarm {
+  farmId: string;
+  farmName: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  phone?: string;
+  schedule: VisitSchedule;
+  /** "Visit Today" / "Reassigned to Relief Tech — Skip" */
+  scheduleLabel: string;
+  coveringTechnician?: string;
+  reassignReason?: string;
+  visitIntervalDays: number;
+  nextVisitDate?: string;
+  totalCows: number;
+  reports: WorklistReport[];
+}
+
+export interface Worklist {
+  date: string;
+  farms: WorklistFarm[];
 }
 
 export interface Technician {

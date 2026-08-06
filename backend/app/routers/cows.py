@@ -270,3 +270,42 @@ async def mark_dead(
     cow.exit_reason = body.reason
     await db.commit()
     return {"id": str(cow_id), "status": "dead"}
+
+
+@router.post("/{cow_id}/dry-off-confirm", response_model=CowOut)
+async def confirm_dry_off(
+    cow_id: uuid.UUID,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm a dried-off cow was moved to the dry pen.
+
+    Without this the Dry Report had no completable action: the cow sat on the
+    technician's daily list for the whole window with no way to clear her, so
+    the count never reflected work actually done.
+    """
+    cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
+
+    if cow.status == CowStatus.pregnant and cow.dry_date and cow.dry_date <= local_today():
+        # She hit day 223 but the sweep hasn't run for her farm yet — confirming
+        # the pen change implies the dry-off happened.
+        status_engine.ensure_transition(cow, CowStatus.dry)
+        cow.status = CowStatus.dry
+    if cow.status != CowStatus.dry:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only a dry cow can be confirmed dried off (status is '{cow.status.value}')",
+        )
+
+    cow.dry_off_confirmed_date = local_today()
+    # The "change pen" email already went out when the day-223 sweep flipped her
+    # to Dry (status_engine.run_lifecycle_transitions). Confirming the move is
+    # the technician closing the loop — emailing the farmer "please move her"
+    # at that moment would be a second email asking for the action it confirms.
+    await db.commit()
+
+    result = await db.execute(
+        select(Cow).where(Cow.id == cow_id).options(selectinload(Cow.farm))
+    )
+    cow = result.scalar_one()
+    return _cow_dict(cow, cow.farm.name if cow.farm else None)

@@ -4,7 +4,9 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import ensure_aware, local_today, to_local_date
-from app.models.models import Insemination
+from app.models.models import Insemination, NeedlingEnrollment
+from app.services.protocols import TIMED_AI_PROTOCOLS
+from app.services.worklists import pending_final_record_stmt
 from app.schemas.inseminations import InseminationCreate, InseminationOut
 from app.services import status_engine
 from app.services.access import get_cow_scoped
@@ -65,6 +67,31 @@ async def record_insemination(
     )
     db.add(insemination)
     await db.flush()  # get the id before status update
+
+    # Same-day overlap rule: on a protocol's final day the injection and the AI
+    # are one action. Complete the pending final needling record in THIS
+    # transaction so the treatment is recorded no matter which client (app,
+    # script, integration) records the insemination — and so it can never be
+    # orphaned by on_insemination() closing the enrollment.
+    # Lock order is cow → record (matching complete_record) to avoid an ABBA
+    # deadlock when a technician fires both endpoints back-to-back.
+    final_record = await db.scalar(pending_final_record_stmt(cow.id, local_today()))
+    if final_record is not None:
+        enrollment = await db.get(NeedlingEnrollment, final_record.enrollment_id)
+        # Timed-AI protocols pair a real injection with the AI; Prostaglandin
+        # Heat's last day is observation with conditional AI, so don't claim an
+        # injection was given that the protocol never scheduled.
+        note = (
+            "Final injection given with insemination"
+            if enrollment is not None and enrollment.protocol in TIMED_AI_PROTOCOLS
+            else "Insemination recorded on this protocol day"
+        )
+        final_record.completed = True
+        final_record.completed_date = insemination_date
+        final_record.technician_id = current_user["id"]
+        final_record.notes = (final_record.notes or "") + (
+            "\n" if final_record.notes else ""
+        ) + note
 
     await status_engine.on_insemination(cow, insemination, db)
     await db.commit()

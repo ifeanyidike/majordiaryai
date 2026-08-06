@@ -3,18 +3,25 @@
 Role scoping rules:
   admin       → all farms
   farm        → only their own farm
-  technician  → farms where they are the assigned technician
+  technician  → farms where they are the assigned technician, plus any farm
+                they are covering for a recent/upcoming visit
   vet         → farms assigned via vet_farm_assignments
 
 Out-of-scope resources return 404 (not 403) to avoid enumeration.
 """
 
 import uuid
+from datetime import timedelta
 from typing import Optional, Set
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.models import Cow, Farm, Vet, VetFarmAssignment
+from app.core.timeutils import local_today
+from app.models.models import Cow, Farm, FarmVisitAssignment, Vet, VetFarmAssignment
+
+# How long a day-cover keeps granting the relief technician access to the farm,
+# so late data entry still works without the grant lasting indefinitely.
+RELIEF_ACCESS_GRACE_DAYS = 7
 
 
 def farm_ids_select(current_user: dict):
@@ -25,7 +32,25 @@ def farm_ids_select(current_user: dict):
     if role == "farm":
         return select(Farm.id).where(Farm.id == current_user["farm_id"])
     if role == "technician":
-        return select(Farm.id).where(Farm.assigned_technician_id == current_user["id"])
+        # Standing assignment, plus any farm they have been given a visit for.
+        # A relief technician covering someone's route must be able to open the
+        # farm and record work there, or the reassignment is cosmetic.
+        # Bounded to recent/future dates so an old cover doesn't grant access
+        # forever, with a few days' slack for late data entry.
+        cutoff = local_today() - timedelta(days=RELIEF_ACCESS_GRACE_DAYS)
+        covering = (
+            select(FarmVisitAssignment.farm_id)
+            .where(
+                FarmVisitAssignment.assigned_technician_id == current_user["id"],
+                FarmVisitAssignment.visit_date >= cutoff,
+            )
+        )
+        return select(Farm.id).where(
+            or_(
+                Farm.assigned_technician_id == current_user["id"],
+                Farm.id.in_(covering),
+            )
+        )
     # vet
     return (
         select(VetFarmAssignment.farm_id)

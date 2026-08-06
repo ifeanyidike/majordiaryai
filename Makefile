@@ -20,9 +20,17 @@ PIP  := $(VENV)/bin/pip
 BACKEND_CMD := cd backend && CORS_ORIGINS="$(CORS_ORIGINS)" \
 	.venv/bin/uvicorn main:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload
 
+# Backend tests run against a THROWAWAY Postgres in Docker — never the app
+# database. `make test` starts it, runs pytest, and leaves it running for the
+# next run (`make test-db-stop` removes it).
+TEST_DB_PORT ?= 55432
+TEST_DB_NAME ?= majordairy_test
+TEST_DB_CONTAINER ?= majordairy-test-db
+TEST_DATABASE_URL ?= postgresql+asyncpg://postgres:postgres@localhost:$(TEST_DB_PORT)/$(TEST_DB_NAME)
+
 .DEFAULT_GOAL := help
 .PHONY: help run dev backend frontend ios android install install-backend \
-        install-frontend migrate seed typecheck check stop
+        install-frontend migrate seed typecheck check stop test test-db test-db-stop
 
 help: ## Show available targets
 	@echo "Major Dairy AI — make targets:"
@@ -69,7 +77,19 @@ typecheck: ## Type-check the frontend (tsc) and compile the backend
 	npx tsc --noEmit
 	$(PY) -m compileall -q backend/app backend/main.py
 
-check: typecheck ## Alias for typecheck
+TEST_DB_ENV := TEST_DB_PORT=$(TEST_DB_PORT) TEST_DB_NAME=$(TEST_DB_NAME) \
+               TEST_DB_CONTAINER=$(TEST_DB_CONTAINER)
+
+test-db: ## Start the throwaway Postgres used by the backend tests
+	@cd backend && $(TEST_DB_ENV) bash scripts/test_db.sh start
+
+test-db-stop: ## Remove the throwaway test database
+	@cd backend && $(TEST_DB_ENV) bash scripts/test_db.sh stop
+
+test: test-db ## Run the backend test suite against the throwaway database
+	cd backend && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" .venv/bin/python -m pytest tests/ -q
+
+check: typecheck test ## Type-check everything and run the backend tests
 
 stop: ## Stop backend + Metro by port (won't touch other uvicorn apps)
 	-@lsof -ti tcp:$(BACKEND_PORT) | xargs kill 2>/dev/null || true

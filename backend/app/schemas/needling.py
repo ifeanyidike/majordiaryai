@@ -37,3 +37,9 @@ class NeedlingEnrollmentOut(BaseModel):
 class CompleteRecordBody(BaseModel):
     bleeding_event: bool = False
     notes: Optional[str] = None
+
+
+class BleedingEventBody(BaseModel):
+    """A bleeding event, recordable on any day — with or without a scheduled
+    record to complete (spec: "bleeding events can be recorded on any day")."""
+    notes: Optional[str] = None

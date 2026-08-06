@@ -60,6 +60,49 @@ async def vaccinations_due(
     ]
 
 
+@router.post("/cow/{cow_id}", response_model=VaccinationOut, status_code=201)
+async def record_adhoc_vaccination(
+    cow_id: uuid.UUID,
+    body: VaccinationCompleteBody,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record a vaccination that was never scheduled.
+
+    An imported cow has no auto-scheduled calving-linked record, so her Post
+    Calving row had nothing to complete — the report showed work with no way to
+    clear it. This creates the record already completed; the Post Calving
+    report clears on any completed vaccination in the current lactation.
+    """
+    cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
+    if cow.status in TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot record a vaccination for a {cow.status.value} cow",
+        )
+
+    administered_at = ensure_aware(body.administered_at) if body.administered_at else local_now()
+    administered_on = to_local_date(administered_at)
+    if administered_on > local_today():
+        raise HTTPException(status_code=422, detail="administered_at cannot be in the future")
+
+    record = VaccinationRecord(
+        cow_id=cow.id,
+        scheduled_date=administered_on,
+        completed=True,
+        completed_date=administered_on,
+        administered_at=administered_at,
+        vaccine_name=body.vaccine_name,
+        lot_number=body.lot_number,
+        technician_id=current_user["id"],
+        notes=body.notes,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
 @router.get("/cow/{cow_id}", response_model=List[VaccinationOut])
 async def list_cow_vaccinations(
     cow_id: uuid.UUID,
