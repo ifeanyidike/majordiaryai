@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic_settings import BaseSettings
 
 
@@ -27,3 +29,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Supabase's TRANSACTION pooler (6543) hands out a different server connection
+# per transaction, which breaks prepared statements. The SESSION pooler (5432)
+# keeps a stable backend connection. Both the app engine and Alembic must agree
+# on this — when only the app remapped, migrations silently ran against a
+# different endpoint than the API.
+TRANSACTION_POOLER_PORT = 6543
+SESSION_POOLER_PORT = 5432
+
+
+def effective_db_port(port: Optional[int] = None) -> int:
+    """The port to actually connect on, remapping the transaction pooler."""
+    port = settings.db_port if port is None else port
+    return SESSION_POOLER_PORT if port == TRANSACTION_POOLER_PORT else port

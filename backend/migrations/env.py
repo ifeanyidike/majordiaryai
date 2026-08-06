@@ -7,7 +7,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app.core.config import settings
+from app.core.config import effective_db_port, settings
 from app.models.base import Base
 import app.models.models  # noqa: F401 — registers all ORM models
 
@@ -18,10 +18,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Build sync URL manually — avoids configparser % interpolation issues
+# Build sync URL manually — avoids configparser % interpolation issues.
+# effective_db_port() is shared with the app engine so migrations and the API
+# always target the same endpoint (see app/core/config.py).
 sync_url = (
     f"postgresql+psycopg2://{settings.db_user}:{quote_plus(settings.db_password)}"
-    f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+    f"@{settings.db_host}:{effective_db_port()}/{settings.db_name}"
 )
 
 

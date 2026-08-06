@@ -1,24 +1,20 @@
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from urllib.parse import quote_plus
-from app.core.config import settings
+from app.core.config import effective_db_port, settings
 from app.models.base import Base  # noqa: F401 — ensures models are registered
 
 logger = logging.getLogger("app.db")
 
-# Supabase's TRANSACTION pooler (port 6543) hands out a different server
-# connection per transaction, which breaks asyncpg's prepared statements
-# (InvalidSQLStatementNameError → intermittent 500s). A long-lived API server
-# should use the SESSION pooler (5432) or a direct connection, both of which
-# keep a stable backend connection and support prepared statements. Remap the
-# transaction-pooler port to the session pooler automatically.
-_port = settings.db_port
-if _port == 6543:
+# Shared with Alembic (see config.effective_db_port): the transaction pooler
+# breaks asyncpg's prepared statements, so 6543 is remapped to the session
+# pooler on 5432.
+_port = effective_db_port()
+if _port != settings.db_port:
     logger.warning(
-        "DB_PORT 6543 is the transaction pooler (no prepared-statement support); "
-        "connecting via the session pooler on 5432 instead."
+        "DB_PORT %s is the transaction pooler (no prepared-statement support); "
+        "connecting via the session pooler on %s instead.", settings.db_port, _port
     )
-    _port = 5432
 
 # URL-encode password to safely handle special characters like @
 db_url = (
