@@ -60,11 +60,46 @@ def main() -> int:
         message = str(exc).strip()
         print(f"FAILED: {message}")
         print()
+        # Supavisor's three signatures, confirmed empirically against the
+        # pooler. They are precise, so map each to its real cause.
+        if "ENOIDENTIFIER" in message:
+            print("DB_USER has no project ref — the pooler cannot tell which project")
+            print("you mean. Use postgres.<your-project-ref>.")
+            return 1
+        if "ENOTFOUND" in message:
+            print(f"The project ref in DB_USER does not exist on this host: {user}")
+            print("Check it against the subdomain of your SUPABASE_URL, and make sure")
+            print("DB_HOST is the pooler for that same project/region.")
+            return 1
         if "password authentication failed" in message:
+            # Getting here means the tenant resolved: ref is right, password isn't.
+            print("The project ref resolved (a bad ref returns ENOTFOUND instead),")
+            print("so DB_USER is correct and DB_PASSWORD is the problem.")
+            print()
+            print("  Supabase → Project Settings → Database → Reset database password")
+            print()
+            print("It is the DATABASE password, not your Supabase account login.")
+            print("Also check the Railway value for a trailing space or wrapping quotes.")
+            return 1
+        if False:
             print("The server answered and rejected the credentials, so host and port are fine.")
-            print("Either DB_PASSWORD is wrong, or DB_USER is not the exact role Supabase lists.")
-            print("DB_PASSWORD is the DATABASE password (Project Settings → Database),")
-            print("not your Supabase account password. You can reset it there.")
+            print()
+            if is_pooler and "." in user:
+                # Supavisor strips the .<ref> suffix and authenticates the
+                # underlying role, so the error always names it "postgres" —
+                # it says nothing about whether the ref itself is right.
+                print("The username is correctly qualified, and the pooler reports the")
+                print('underlying role ("postgres") regardless, so this points at:')
+                print("  1. DB_PASSWORD — must be the DATABASE password")
+                print("     (Supabase → Project Settings → Database → Reset database password),")
+                print("     NOT your Supabase account login.")
+                print("  2. A stray character in the variable — trailing space, or quotes")
+                print("     pasted around the value. Retype it rather than pasting.")
+                print("  3. The project ref in DB_USER not matching this host's project.")
+            else:
+                print("Either DB_PASSWORD is wrong, or DB_USER is not the role Supabase lists.")
+                print("DB_PASSWORD is the DATABASE password (Project Settings → Database),")
+                print("not your Supabase account password. You can reset it there.")
         elif "does not exist" in message:
             print("Credentials accepted but DB_NAME is wrong — for Supabase it is 'postgres'.")
         elif "timeout" in message.lower() or "could not translate" in message:
