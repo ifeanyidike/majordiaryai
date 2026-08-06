@@ -6,10 +6,10 @@
 #   3. Enter the variables listed in backend/.env.example / app/core/config.py
 #      (DB_*, SUPABASE_*, JWT_SECRET; CORS_ORIGINS and SENDGRID_API_KEY as needed)
 
-[build]
-# Paths are relative to the REPO root: frontend-only pushes must not redeploy
-# the backend.
-watchPatterns = ["backend/**"]
+# NOTE: no watchPatterns here on purpose. With a Root Directory set, the path
+# base for watch patterns is ambiguous, and a pattern that matches nothing
+# silently stops new commits from ever deploying — which looks exactly like
+# "my fix didn't work". Re-add only once deploys are known good.
 
 [deploy]
 startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
