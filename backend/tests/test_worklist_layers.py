@@ -16,20 +16,31 @@ from app.models.models import (
 )
 from app.services.report_catalog import WorklistContext, build_reports
 from app.services.visits import (
-    VisitStatus, is_visit_due, next_visit_date, resolve_visit, visit_label,
+    VisitStatus, describe_weekdays, is_visit_due, next_visit_date, resolve_visit,
+    visit_label, weekdays_for,
 )
 from app.services.worklist_builder import build_worklist
 
 TODAY = date.today()
 
 
-def _farm(interval=5, offset=0, tech=None) -> Farm:
+def _farm(days_per_week=6, tech=None, weekdays=None) -> Farm:
     return Farm(
         id=uuid.uuid4(), name="F", owner_name="O", herd_size=0,
-        visit_interval_days=interval,
-        visit_anchor_date=TODAY - timedelta(days=offset),
+        visit_weekdays=list(weekdays if weekdays is not None
+                            else weekdays_for(days_per_week)),
         assigned_technician_id=tech,
     )
+
+
+def _farm_due_today(tech=None) -> Farm:
+    """Scheduled on today's weekday, whatever day the suite runs."""
+    return _farm(weekdays=[TODAY.weekday()], tech=tech)
+
+
+def _farm_not_due_today(tech=None) -> Farm:
+    """Scheduled only on a different weekday, so it is off the route today."""
+    return _farm(weekdays=[(TODAY.weekday() + 1) % 7], tech=tech)
 
 
 def _ctx(cows, role="technician", **kw) -> WorklistContext:
@@ -41,31 +52,63 @@ def _rows(cows, report_type, **kw):
     return reports.get(report_type, {"cows": []})["cows"]
 
 
-# ── Layer 1: the rotation ────────────────────────────────────────────
+# ── Layer 1: the weekday schedule ────────────────────────────────────
+# Client: a "5-day farm" is Mon-Fri and a "6-day farm" is Mon-Sat, Sunday off.
 
-@pytest.mark.parametrize("interval,offset,due", [
-    (5, 0, True),    # anchored today
-    (5, 5, True),    # exactly one cycle ago
-    (5, 2, False),   # mid-cycle
-    (6, 6, True),
-    (6, 3, False),
+# Fixed reference week so these never depend on the day the suite runs.
+MONDAY = date(2026, 8, 3)
+FRIDAY = MONDAY + timedelta(days=4)
+SATURDAY = MONDAY + timedelta(days=5)
+SUNDAY = MONDAY + timedelta(days=6)
+
+
+@pytest.mark.parametrize("days_per_week,day,due", [
+    (5, MONDAY, True),
+    (5, FRIDAY, True),
+    (5, SATURDAY, False),   # the 5-day farm drops off the route on Saturday
+    (5, SUNDAY, False),
+    (6, MONDAY, True),
+    (6, SATURDAY, True),    # ...where the 6-day farm is still due
+    (6, SUNDAY, False),     # nobody works Sunday
 ])
-def test_rotation_decides_which_farms_are_due(interval, offset, due):
-    """Farms are not visited daily — a 5-day farm and a 6-day farm fall due on
-    different days, which is the whole reason layer 1 exists."""
-    assert is_visit_due(_farm(interval, offset), TODAY) is due
+def test_weekday_schedule_decides_which_farms_are_due(days_per_week, day, due):
+    assert is_visit_due(_farm(days_per_week), day) is due
 
 
-def test_farm_without_a_configured_rotation_is_always_due():
-    """A missing schedule must not silently hide real work."""
+def test_nobody_is_scheduled_on_sunday():
+    """Sunday is the day off on both schedules — which is what keeps the
+    Mon/Tue/Sat breeding-day rule from ever landing on a non-working day."""
+    assert not is_visit_due(_farm(5), SUNDAY)
+    assert not is_visit_due(_farm(6), SUNDAY)
+
+
+def test_farm_without_a_configured_schedule_defaults_to_six_days():
+    """A missing schedule must not silently hide real work: default to the
+    busiest schedule (Mon-Sat), not to "never"."""
     farm = _farm()
-    farm.visit_anchor_date = None
-    assert is_visit_due(farm, TODAY) is True
+    farm.visit_weekdays = None
+    assert is_visit_due(farm, SATURDAY) is True
+    assert is_visit_due(farm, SUNDAY) is False
 
 
-def test_next_visit_date_is_the_following_cycle():
-    assert next_visit_date(_farm(5, 0), TODAY) == TODAY + timedelta(days=5)
-    assert next_visit_date(_farm(5, 2), TODAY) == TODAY + timedelta(days=3)
+def test_irregular_weekday_patterns_are_supported():
+    """Storing the day set (not a count) means Mon/Thu needs no schema change."""
+    farm = _farm(weekdays=[0, 3])
+    assert is_visit_due(farm, MONDAY) is True
+    assert is_visit_due(farm, MONDAY + timedelta(days=3)) is True
+    assert is_visit_due(farm, FRIDAY) is False
+
+
+def test_next_visit_date_is_the_next_scheduled_weekday():
+    # Friday on a 5-day farm → the following Monday, skipping the weekend.
+    assert next_visit_date(_farm(5), FRIDAY) == MONDAY + timedelta(days=7)
+    # Friday on a 6-day farm → Saturday.
+    assert next_visit_date(_farm(6), FRIDAY) == SATURDAY
+
+
+@pytest.mark.parametrize("days_per_week,label", [(5, "Mon–Fri"), (6, "Mon–Sat")])
+def test_schedule_label_reads_as_a_range(days_per_week, label):
+    assert describe_weekdays(weekdays_for(days_per_week)) == label
 
 
 # ── Layer 1: reassignment ────────────────────────────────────────────
@@ -144,12 +187,12 @@ def test_pregnancy_report_and_warning_threshold(days, expected_overdue):
     assert rows[0]["overdue"] is expected_overdue
 
 
-def test_pregnancy_result_is_recordable_by_vets_only():
-    """Vet Area spec. A technician sees the report but gets no form — offering
-    one the API answers with 403 is worse than offering none."""
+def test_pregnancy_result_is_recordable_by_technician_and_vet():
+    """Client decision (2026-08-06): "either or both" may record the result, so
+    both roles get the form. The API allows the same set."""
     cow = _cow(status=CowStatus.inseminated,
                last_insemination_date=TODAY - timedelta(days=40))
-    assert _rows([cow], "pregnancy-check", role="technician")[0]["record_kind"] is None
+    assert _rows([cow], "pregnancy-check", role="technician")[0]["record_kind"] == "preg"
     assert _rows([cow], "pregnancy-check", role="vet")[0]["record_kind"] == "preg"
 
 
@@ -362,9 +405,9 @@ async def test_rotation_flags_off_rotation_farms_instead_of_hiding_them(db):
     db.add(tech)
     await db.flush()
 
-    due = _farm(interval=5, offset=0, tech=tech.id)
+    due = _farm_due_today(tech=tech.id)
     due.name = "Due Today"
-    not_due = _farm(interval=5, offset=2, tech=tech.id)
+    not_due = _farm_not_due_today(tech=tech.id)
     not_due.name = "Mid Rotation"
     db.add_all([due, not_due])
     await db.flush()
@@ -385,7 +428,7 @@ async def test_off_rotation_farms_keep_their_herd_data(db):
     """The rotation is a route concern. Pregnancy data must not blink in and
     out with the visit schedule — the spec keeps a cow on the Pregnancy Report
     until a result is entered."""
-    mid_rotation = _farm(interval=5, offset=2)
+    mid_rotation = _farm_not_due_today()
     mid_rotation.name = "Mid Rotation"
     db.add(mid_rotation)
     await db.flush()
@@ -413,7 +456,7 @@ async def test_vet_worklist_is_scoped_to_pregnancy_work(db):
     db.add(vet_user)
     await db.flush()
     vet = Vet(id=uuid.uuid4(), user_id=vet_user.id, name="Vet")
-    farm = _farm(interval=5, offset=2)  # off-rotation on purpose
+    farm = _farm_not_due_today()  # off-rotation on purpose
     db.add_all([vet, farm])
     await db.flush()
     db.add(VetFarmAssignment(vet_id=vet.id, farm_id=farm.id))
@@ -444,7 +487,7 @@ async def test_worklist_flags_a_farm_handed_to_a_relief_technician(db):
     db.add_all([mine, relief])
     await db.flush()
 
-    farm = _farm(interval=5, offset=0, tech=mine.id)
+    farm = _farm_due_today(tech=mine.id)
     farm.name = "Vandenberg Farm"
     db.add(farm)
     await db.flush()

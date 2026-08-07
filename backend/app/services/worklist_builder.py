@@ -19,7 +19,10 @@ from app.models.models import (
 )
 from app.services.access import scope_to_farms
 from app.services.report_catalog import WorklistContext, build_reports
-from app.services.visits import VisitStatus, is_visit_due, next_visit_date, resolve_visit, visit_label
+from app.services.visits import (
+    describe_weekdays, is_visit_due, next_visit_date, resolve_visit, visit_label,
+    visit_weekdays, VisitStatus,
+)
 from app.services.worklists import (
     injection_only, needling_due_stmt, OPEN_ENROLLMENT_STATUSES, TERMINAL_STATUSES,
     timed_breeding_stmt,
@@ -266,7 +269,8 @@ async def build_worklist(
             "schedule_label": label,
             "covering_technician": covering_name,
             "reassign_reason": override.reason if override else None,
-            "visit_interval_days": farm.visit_interval_days,
+            "visit_weekdays": list(visit_weekdays(farm)),
+            "visit_schedule_label": describe_weekdays(farm.visit_weekdays),
             "next_visit_date": (nv.isoformat() if (nv := next_visit_date(farm, today)) else None),
             # Distinct cows: a cow on two reports is still one animal to process.
             "total_cows": len({c["cow_id"] for r in work for c in r["cows"]}),

@@ -75,7 +75,8 @@ interface ApiWorklistFarm {
   province?: string | null; phone?: string | null;
   schedule: string; schedule_label: string;
   covering_technician?: string | null; reassign_reason?: string | null;
-  visit_interval_days?: number; next_visit_date?: string | null;
+  visit_weekdays?: number[]; visit_schedule_label?: string | null;
+  next_visit_date?: string | null;
   total_cows?: number;
   reports?: ApiWorklistReport[];
 }
@@ -183,7 +184,8 @@ function mapWorklist(w: ApiWorklist): Worklist {
       scheduleLabel: f.schedule_label,
       coveringTechnician: f.covering_technician ?? undefined,
       reassignReason: f.reassign_reason ?? undefined,
-      visitIntervalDays: f.visit_interval_days ?? 0,
+      visitWeekdays: f.visit_weekdays ?? [],
+      visitScheduleLabel: f.visit_schedule_label ?? undefined,
       nextVisitDate: f.next_visit_date ?? undefined,
       totalCows: f.total_cows ?? 0,
       reports: (f.reports ?? []).map((r): WorklistReport => ({

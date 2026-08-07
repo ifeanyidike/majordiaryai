@@ -153,7 +153,10 @@ export interface WorklistFarm {
   scheduleLabel: string;
   coveringTechnician?: string;
   reassignReason?: string;
-  visitIntervalDays: number;
+  /** Weekdays this farm is visited, Mon=0 … Sun=6. */
+  visitWeekdays: number[];
+  /** Display label for the schedule, e.g. "Mon–Sat". */
+  visitScheduleLabel?: string;
   nextVisitDate?: string;
   totalCows: number;
   reports: WorklistReport[];

@@ -108,11 +108,12 @@ async def list_pregnancy_checks(
 @router.post("/pregnancy", response_model=PregnancyCheckOut, status_code=status.HTTP_201_CREATED)
 async def record_pregnancy_check(
     body: PregnancyCheckCreate,
-    # Vet Area spec: pregnancy diagnosis is the veterinarian's call. Technicians
-    # run breeding, heat checks and needling; they can SEE the Pregnancy Report
-    # (knowing which cows are due is the point) but may not enter a diagnosis.
-    # Enforced here, not just in the UI — the client gate is cosmetic on its own.
-    current_user: dict = Depends(require_roles("admin", "vet")),
+    # Client decision (Josh, 2026-08-06): "either or both" — a pregnancy result
+    # may be recorded by the technician or the vet. The Vet Area doc frames
+    # diagnosis as the vet's job, but in practice technicians perform and record
+    # checks too. `vet_id` is still only set when the caller is actually a vet,
+    # so who performed it stays distinguishable in the record.
+    current_user: dict = Depends(require_roles("admin", "vet", "technician")),
     db: AsyncSession = Depends(get_db),
 ):
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)

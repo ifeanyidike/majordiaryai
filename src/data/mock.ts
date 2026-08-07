@@ -429,7 +429,8 @@ export const demoWorklist: Worklist = {
       phone: '+1 (519) 555-0114',
       schedule: 'visit_today',
       scheduleLabel: 'Visit Today',
-      visitIntervalDays: 5,
+      visitWeekdays: [0, 1, 2, 3, 4],
+      visitScheduleLabel: 'Mon–Fri',
       nextVisitDate: addDemoDays(5),
       totalCows: 2,
       reports: [
@@ -486,7 +487,8 @@ export const demoWorklist: Worklist = {
       phone: '+1 (519) 555-0167',
       schedule: 'visit_today',
       scheduleLabel: 'Visit Today',
-      visitIntervalDays: 6,
+      visitWeekdays: [0, 1, 2, 3, 4, 5],
+      visitScheduleLabel: 'Mon–Sat',
       nextVisitDate: addDemoDays(6),
       totalCows: 1,
       reports: [
@@ -527,7 +529,8 @@ export const demoWorklist: Worklist = {
       scheduleLabel: 'Reassigned to Relief Tech — Skip',
       coveringTechnician: 'Relief Tech',
       reassignReason: 'Covering while on leave',
-      visitIntervalDays: 5,
+      visitWeekdays: [0, 1, 2, 3, 4],
+      visitScheduleLabel: 'Mon–Fri',
       nextVisitDate: addDemoDays(5),
       totalCows: 1,
       reports: [

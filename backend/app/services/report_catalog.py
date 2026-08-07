@@ -462,10 +462,10 @@ REPORTS: List[ReportDef] = [
     ReportDef("insemination", "Insemination Program", "git-branch", "inseminated", True,
               _insemination_program,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} returned for breeding"),
-    # Pregnancy diagnosis is the vet's call (Vet Area spec); technicians see the
-    # report — knowing who is due is the point — but cannot enter a result.
+    # Recordable by technician or vet (client decision, 2026-08-06) — hence no
+    # record_roles restriction. POST /checks/pregnancy enforces the same.
     ReportDef("pregnancy-check", "Pregnancy Report", "medkit", "inseminated", True,
-              _pregnancy_check, record_roles=("vet", "admin"),
+              _pregnancy_check,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} due for check"),
     ReportDef("vaccination", "Vaccination Report", "shield-checkmark", "fresh", True, _vaccination,
               subtitle=lambda n: f"{n} scheduled {'vaccination' if n == 1 else 'vaccinations'} due"),

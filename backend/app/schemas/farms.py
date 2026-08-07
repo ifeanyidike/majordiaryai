@@ -1,7 +1,20 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import List, Optional
 from uuid import UUID
 from datetime import date, datetime
+
+
+def _clean_weekdays(days: Optional[List[int]]) -> Optional[List[int]]:
+    """Sorted, de-duplicated, 0-6 only. Mirrors the DB check constraint so a
+    bad value is a 422 rather than an IntegrityError."""
+    if days is None:
+        return None
+    cleaned = sorted(set(days))
+    if not cleaned:
+        raise ValueError("visit_weekdays cannot be empty — a farm needs at least one visit day")
+    if any(d < 0 or d > 6 for d in cleaned):
+        raise ValueError("visit_weekdays must be 0-6 (Mon=0 … Sun=6)")
+    return cleaned
 
 
 class FarmCreate(BaseModel):
@@ -15,10 +28,12 @@ class FarmCreate(BaseModel):
     email: Optional[EmailStr] = None
     herd_size: int = Field(default=0, ge=0)  # owner-reported figure
     assigned_technician_id: Optional[UUID] = None
-    # Visit rotation: 5-day, 6-day, ... A visit falls on anchor + k*interval.
-    visit_interval_days: int = Field(default=7, ge=1, le=365)
-    visit_anchor_date: Optional[date] = None
+    # Visit weekdays, Mon=0 … Sun=6. "5-day farm" = Mon–Fri [0-4];
+    # "6-day farm" = Mon–Sat [0-5], which is the default.
+    visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
     notes: Optional[str] = None
+
+    _check_weekdays = field_validator("visit_weekdays")(_clean_weekdays)
 
 
 class FarmUpdate(BaseModel):
@@ -32,9 +47,10 @@ class FarmUpdate(BaseModel):
     email: Optional[EmailStr] = None
     herd_size: Optional[int] = Field(default=None, ge=0)
     assigned_technician_id: Optional[UUID] = None
-    visit_interval_days: Optional[int] = Field(default=None, ge=1, le=365)
-    visit_anchor_date: Optional[date] = None
+    visit_weekdays: Optional[List[int]] = None
     notes: Optional[str] = None
+
+    _check_weekdays = field_validator("visit_weekdays")(_clean_weekdays)
 
 
 class FarmOut(BaseModel):
@@ -51,8 +67,9 @@ class FarmOut(BaseModel):
     assigned_technician_id: Optional[UUID] = None
     # resolved name of the assigned technician (for display; id above is the FK)
     assigned_technician_name: Optional[str] = None
-    visit_interval_days: int = 7
-    visit_anchor_date: Optional[date] = None
+    visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
+    # Human label for the schedule, e.g. "Mon–Sat"
+    visit_schedule_label: Optional[str] = None
     notes: Optional[str] = None
     created_at: datetime
     # computed counts (populated via JOIN)

@@ -20,6 +20,7 @@ from sqlalchemy.pool import NullPool
 from urllib.parse import quote_plus
 
 from app.core.config import settings
+from app.services.visits import weekdays_for
 from app.models.models import (
     CalfSex, CalvingRecord, Cow, CowStatus, EnrollmentStatus, Farm, HealthStatus,
     HeatCheck, Insemination, NeedlingEnrollment, NeedlingRecord, Notification,
@@ -62,15 +63,15 @@ async def clear(session: AsyncSession) -> None:
 
 
 def make_farm(name, owner, address, city, postal, phone, email, herd_size, note,
-              visit_interval_days=7, visit_offset=0):
-    """visit_offset shifts the rotation so the seeded farms don't all fall due
-    on the same day — that's the whole point of the General To-Do list."""
+              days_per_week=6):
+    """days_per_week: 5 = Mon-Fri, 6 = Mon-Sat (the default). Seeding a mix is
+    the point of the General To-Do list — on a Saturday the 5-day farms drop
+    off the technician's route."""
     return Farm(
         id=uuid.uuid4(), name=name, owner_name=owner, address=address, city=city,
         province="Ontario", postal_code=postal, phone=phone, email=email,
         herd_size=herd_size, notes=note,
-        visit_interval_days=visit_interval_days,
-        visit_anchor_date=TODAY - timedelta(days=visit_offset),
+        visit_weekdays=list(weekdays_for(days_per_week)),
     )
 
 
@@ -79,17 +80,16 @@ async def seed(session: AsyncSession) -> None:
     gv = make_farm("Green Valley Dairy", "John Smith", "2841 Concession Rd 6", "London",
                    "N6P 1A7", "+1 (519) 555-0114", "office@greenvalleydairy.ca", 425,
                    "Prefers visits before noon. New parlor installed March 2026.",
-                   # 5-day rotation, due today
-                   visit_interval_days=5, visit_offset=0)
+                   # 5-day farm: Mon-Fri
+                   days_per_week=5)
     sf = make_farm("Sunrise Farms", "David Brown", "1150 Oxford Rd 29", "Woodstock",
                    "N4S 7V8", "+1 (519) 555-0167", "david@sunrisefarms.ca", 310, "Gate code 4482.",
-                   # 6-day rotation, also due today
-                   visit_interval_days=6, visit_offset=0)
+                   # 6-day farm: Mon-Sat
+                   days_per_week=6)
     mr = make_farm("Maple Ridge Dairy", "Peter Jones", "7723 Wellington Rd 34", "Guelph",
                    "N1H 6J2", "+1 (519) 555-0139", "peter@mapleridgedairy.ca", 560, None,
-                   # 5-day rotation offset by two days — NOT due today, so the
-                   # General To-Do list actually differs from "all my farms".
-                   visit_interval_days=5, visit_offset=2)
+                   # 5-day farm: off the route on Saturdays
+                   days_per_week=5)
     session.add_all([gv, sf, mr])
     await session.flush()
 

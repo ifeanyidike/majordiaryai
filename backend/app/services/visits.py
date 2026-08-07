@@ -2,22 +2,48 @@
 
 Spec (Technician To-Do List System):
   · the list shows the farms a technician visits TODAY, not every farm he owns
-  · schedules are rotations, not daily: "some farms are on a 5-day rotation,
-    others 6-day, so the list will vary day to day"
   · a farm can be reassigned for the day to a Relief Technician or another
     technician, and then shows on his list as "Reassigned — Skip"
 
-Two pieces of data drive that: the rotation on `farms` (interval + anchor) says
-WHEN a farm is due, and a `farm_visit_assignments` row says WHO covers a
-specific date when it isn't the standing technician.
+The schedule is a set of WEEKDAYS, not an every-N-days cycle. Per the client:
+a "5-day farm" is Monday–Friday and a "6-day farm" is Monday–Saturday, with
+Sunday off in both — which is also why the breeding-day rule (Mon/Tue/Sat)
+never lands on a day nobody works.
+
+Two pieces of data drive the list: `farms.visit_weekdays` says WHEN a farm is
+due, and a `farm_visit_assignments` row says WHO covers a specific date when it
+isn't the standing technician.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
-from typing import Optional
+from typing import Optional, Sequence
 from uuid import UUID
 
 from app.models.models import Farm, FarmVisitAssignment
+
+# Mon=0 … Sun=6, matching date.weekday().
+WEEKDAYS_MON_FRI = (0, 1, 2, 3, 4)      # "5-day" farm
+WEEKDAYS_MON_SAT = (0, 1, 2, 3, 4, 5)   # "6-day" farm — the default
+DEFAULT_VISIT_WEEKDAYS = WEEKDAYS_MON_SAT
+
+WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def weekdays_for(days_per_week: int) -> Sequence[int]:
+    """The weekday set for a "5-day"/"6-day" farm, as the client describes them."""
+    return WEEKDAYS_MON_FRI if days_per_week == 5 else WEEKDAYS_MON_SAT
+
+
+def describe_weekdays(weekdays: Optional[Sequence[int]]) -> str:
+    """Short human label, e.g. "Mon–Fri" or "Mon, Thu"."""
+    days = sorted(set(weekdays or DEFAULT_VISIT_WEEKDAYS))
+    if not days:
+        return "No scheduled visits"
+    # Contiguous runs read better as a range than a list.
+    if days == list(range(days[0], days[-1] + 1)) and len(days) > 2:
+        return f"{WEEKDAY_NAMES[days[0]]}–{WEEKDAY_NAMES[days[-1]]}"
+    return ", ".join(WEEKDAY_NAMES[d] for d in days)
 
 
 class VisitStatus(str, Enum):
@@ -37,33 +63,30 @@ class VisitStatus(str, Enum):
     not_due = "not_due"
 
 
-def is_visit_due(farm: Farm, on: date) -> bool:
-    """True when `on` lands on this farm's rotation.
+def visit_weekdays(farm: Farm) -> Sequence[int]:
+    """This farm's visit weekdays, falling back to the Mon–Sat default.
 
-    A farm with no anchor date has never had a rotation configured; treat it as
-    due every day rather than invisible — a missing schedule must not silently
-    hide real work from the technician.
+    An unconfigured farm defaults to the busiest schedule rather than to
+    "never" — a missing setting must not silently hide real work.
     """
-    interval = farm.visit_interval_days or 0
-    if interval <= 0 or farm.visit_anchor_date is None:
-        return True
-    delta = (on - farm.visit_anchor_date).days
-    if delta < 0:
-        return False  # rotation hasn't started yet
-    return delta % interval == 0
+    return farm.visit_weekdays or DEFAULT_VISIT_WEEKDAYS
+
+
+def is_visit_due(farm: Farm, on: date) -> bool:
+    """True when `on` is one of this farm's visit weekdays."""
+    return on.weekday() in set(visit_weekdays(farm))
 
 
 def next_visit_date(farm: Farm, on: date) -> Optional[date]:
-    """The first rotation date strictly after `on` (None when unscheduled)."""
-    from datetime import timedelta
-
-    interval = farm.visit_interval_days or 0
-    if interval <= 0 or farm.visit_anchor_date is None:
+    """The next visit date strictly after `on` (None when nothing is scheduled)."""
+    days = set(visit_weekdays(farm))
+    if not days:
         return None
-    if farm.visit_anchor_date > on:
-        return farm.visit_anchor_date
-    elapsed = (on - farm.visit_anchor_date).days
-    return farm.visit_anchor_date + timedelta(days=((elapsed // interval) + 1) * interval)
+    for ahead in range(1, 8):
+        candidate = on + timedelta(days=ahead)
+        if candidate.weekday() in days:
+            return candidate
+    return None
 
 
 def resolve_visit(

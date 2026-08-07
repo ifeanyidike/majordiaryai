@@ -128,7 +128,9 @@ class WorklistFarm(BaseModel):
     schedule_label: str
     covering_technician: Optional[str] = None
     reassign_reason: Optional[str] = None
-    visit_interval_days: int = 0
+    # Visit weekdays (Mon=0 … Sun=6) and a display label like "Mon–Sat"
+    visit_weekdays: List[int] = []
+    visit_schedule_label: Optional[str] = None
     next_visit_date: Optional[date] = None
     total_cows: int = 0
     reports: List[WorklistReport] = []
