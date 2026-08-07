@@ -37,6 +37,8 @@ export const farms: Farm[] = [
     herdSize: 4,
     reportedHerdSize: 425,
     assignedTechnician: 'Alex Morgan',
+    visitWeekdays: [0, 1, 2, 3, 4],
+    visitScheduleLabel: 'Mon–Fri',
     vetId: 'v1',
     upcomingActivities: [
       { id: 'a1', icon: 'medkit', label: 'Pregnancy checks (18 cows)', date: 'Tomorrow, 8:00 AM' },
@@ -58,6 +60,8 @@ export const farms: Farm[] = [
     herdSize: 3,
     reportedHerdSize: 310,
     assignedTechnician: 'Alex Morgan',
+    visitWeekdays: [0, 1, 2, 3, 4, 5],
+    visitScheduleLabel: 'Mon–Sat',
     vetId: 'v2',
     upcomingActivities: [
       { id: 'a4', icon: 'shield-checkmark', label: 'Vaccination — fresh group', date: 'Today, 10:00 AM' },
@@ -78,6 +82,8 @@ export const farms: Farm[] = [
     herdSize: 5,
     reportedHerdSize: 560,
     assignedTechnician: 'Alex Morgan',
+    visitWeekdays: [0, 1, 2, 3, 4],
+    visitScheduleLabel: 'Mon–Fri',
     vetId: 'v1',
     upcomingActivities: [
       { id: 'a6', icon: 'medkit', label: 'Pregnancy checks (24 cows)', date: 'Wed, 7:30 AM' },

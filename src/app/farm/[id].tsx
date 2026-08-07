@@ -27,6 +27,7 @@ import { formatAddress, openDirections } from '@/lib/maps';
 import {
   cowsByFarm, farmById, pregnancyCounts, summarize, useAppStore, vetById,
 } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   medkit: 'medkit',
@@ -41,6 +42,7 @@ export default function FarmProfileScreen() {
   const toast = useToast();
   const state = useAppStore();
   const farm = farmById(state, id);
+  const role = useAuthStore((s) => s.user?.role);
   const [noteOpen, setNoteOpen] = useState(false);
 
   useEffect(() => {
@@ -130,13 +132,22 @@ export default function FarmProfileScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(220).duration(500)}>
+        <Animated.View entering={FadeInUp.delay(220).duration(500)} style={styles.actionRow}>
           <Button
             label="View Herd"
             icon="list"
             onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
-            style={styles.herdBtn}
+            style={styles.flex1}
           />
+          {role === 'admin' && (
+            <Button
+              variant="secondary"
+              label="Edit"
+              icon="create-outline"
+              onPress={() => router.push({ pathname: '/farm/edit', params: { id: farm.id } })}
+              style={styles.flex1}
+            />
+          )}
         </Animated.View>
 
         {/* Farm information */}
@@ -262,6 +273,7 @@ export default function FarmProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  actionRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.lg },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   heroText: { flex: 1, gap: 2 },
   chipsRow: {

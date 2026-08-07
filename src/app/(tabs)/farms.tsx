@@ -71,6 +71,18 @@ export default function FarmsScreen() {
               ? 'Farms under your care'
               : 'Your assigned region'
         }
+        right={
+          role === 'admin' ? (
+            <Pressable
+              onPress={() => router.push('/farm/edit')}
+              style={styles.addBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Add farm"
+            >
+              <Ionicons name="add" size={20} color={colors.textOnPrimary} />
+            </Pressable>
+          ) : undefined
+        }
       />
 
       {/* stats ribbon */}
@@ -158,6 +170,11 @@ export default function FarmsScreen() {
 }
 
 const styles = StyleSheet.create({
+  addBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
   ribbon: {
     flexDirection: 'row',
     backgroundColor: colors.surface,

@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Button, SegmentedControl, SectionHeader, Text, useToast } from '@/components';
+import { FormInput, FormLabel } from './FormField';
 import { api, isApiConfigured } from '@/lib/api';
 import { daysSince, isValidPastOrTodayDate, todayISO } from '@/lib/dates';
 import { isPreferredStartDay, PROTOCOLS, protocolByValue } from '@/data/protocols';
@@ -82,11 +83,10 @@ const ACTION_DEFS: Record<ActionKey, ActionDef> = {
 /**
  * Actions only certain roles may perform. Must mirror the backend's
  * `require_roles` — offering an action the API will reject with a 403 is worse
- * than not offering it. Pregnancy diagnosis is the vet's (Vet Area spec).
+ * than not offering it. Pregnancy checks are recordable by technician or vet
+ * (client decision, 2026-08-06), so nothing is restricted here today.
  */
-const ROLE_RESTRICTED: Partial<Record<ActionKey, UserRole[]>> = {
-  pregnancy_check: ['vet', 'admin'],
-};
+const ROLE_RESTRICTED: Partial<Record<ActionKey, UserRole[]>> = {};
 
 function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
   const keys: ActionKey[] = [];
@@ -124,39 +124,7 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
   return keys.filter((k) => (ROLE_RESTRICTED[k] ?? []).length === 0 || ROLE_RESTRICTED[k]!.includes(role));
 }
 
-// ── small form primitives ─────────────────────────────────────
-
-function FormLabel({ children }: { children: string }) {
-  return (
-    <Text variant="label" color={colors.textSecondary} style={{ marginBottom: 4 }}>
-      {children}
-    </Text>
-  );
-}
-
-function FormInput({
-  value, onChangeText, placeholder, multiline, keyboardType, error,
-}: {
-  value: string;
-  onChangeText: (t: string) => void;
-  placeholder?: string;
-  multiline?: boolean;
-  keyboardType?: 'default' | 'numeric' | 'numbers-and-punctuation';
-  error?: boolean;
-}) {
-  return (
-    <TextInput
-      style={[styles.input, multiline && styles.inputMulti, error && styles.inputError]}
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor={colors.textMuted}
-      multiline={multiline}
-      keyboardType={keyboardType}
-      autoCapitalize="none"
-    />
-  );
-}
+// Form primitives are shared with the full-screen forms (FormField.tsx).
 
 function DateTimeFields({
   date, time, onDate, onTime, dateLabel = 'Date',

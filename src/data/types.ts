@@ -59,6 +59,12 @@ export interface Farm {
   /** Owner-reported total herd size, when it differs from tracked cows */
   reportedHerdSize?: number;
   assignedTechnician: string;
+  /** FK for editing; `assignedTechnician` above is the resolved display name. */
+  assignedTechnicianId?: string;
+  /** Weekdays this farm is visited, Mon=0 … Sun=6 (5-day = Mon–Fri). */
+  visitWeekdays: number[];
+  /** Display label for the schedule, e.g. "Mon–Sat". */
+  visitScheduleLabel?: string;
   vetId: string;
   upcomingActivities: { id: string; icon: string; label: string; date: string }[];
   notes: string[];
@@ -175,4 +181,12 @@ export interface Technician {
   email: string;
   region: string;
   activeFarms?: number;
+}
+
+/** A staff member the admin can assign to a farm. */
+export interface StaffUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }

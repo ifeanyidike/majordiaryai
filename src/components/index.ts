@@ -3,6 +3,7 @@ export { Button } from './Button';
 export { CowActionsSheet } from './CowActionsSheet';
 export { Card } from './Card';
 export { EmptyState } from './EmptyState';
+export { FormInput, FormLabel, FormRow } from './FormField';
 export { ErrorBanner } from './ErrorBanner';
 export { FocusedStatusBar } from './FocusedStatusBar';
 export { Header } from './Header';

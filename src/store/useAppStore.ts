@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { api, isApiConfigured } from '@/lib/api';
 import { daysBetween, daysSince } from '@/lib/dates';
 import {
-  Cow, CowStatus, Farm, HealthStatus, HistoryEvent, Vet,
+  Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
   Worklist, WorklistCow, WorklistFarm, WorklistReport,
 } from '@/data/types';
 import {
@@ -22,6 +22,7 @@ interface ApiFarm {
   phone: string; email: string;
   herd_size: number; cow_count?: number;
   assigned_technician_id?: string; assigned_technician_name?: string | null;
+  visit_weekdays?: number[]; visit_schedule_label?: string | null;
   notes?: string | null;
 }
 
@@ -94,6 +95,22 @@ interface ApiHerdSummary {
   upcoming_calvings_30d?: number;
 }
 
+/** What the farm form collects — camelCase in, snake_case out in saveFarm. */
+export interface FarmInput {
+  name: string;
+  ownerName: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  phone?: string;
+  email?: string;
+  herdSize: number;
+  assignedTechnicianId?: string;
+  visitWeekdays: number[];
+  notes?: string;
+}
+
 // ── Mappers ──────────────────────────────────────────────────
 
 function mapFarm(f: ApiFarm): Farm {
@@ -108,6 +125,9 @@ function mapFarm(f: ApiFarm): Farm {
     reportedHerdSize: f.herd_size || undefined,
     // Display the technician's name, not the raw user id.
     assignedTechnician: f.assigned_technician_name ?? '',
+    assignedTechnicianId: f.assigned_technician_id ?? undefined,
+    visitWeekdays: f.visit_weekdays ?? [0, 1, 2, 3, 4, 5],
+    visitScheduleLabel: f.visit_schedule_label ?? undefined,
     vetId: '', upcomingActivities: [],
     notes: f.notes ? [f.notes] : [],
   };
@@ -308,6 +328,11 @@ interface AppState {
   fetchKpis: () => Promise<void>;
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
+  /** Create or update a farm (admin). Returns the saved farm's id. */
+  saveFarm: (input: FarmInput, farmId?: string) => Promise<string>;
+  /** Technicians available to assign to a farm (admin only endpoint). */
+  technicians: StaffUser[];
+  fetchTechnicians: () => Promise<void>;
   addFarmNote: (farmId: string, note: string) => void;
   reset: () => void;
 }
@@ -362,6 +387,7 @@ const initialData = {
   vets: [] as Vet[],
   worklist: null as Worklist | null,
   worklistFetchedOn: null as string | null,
+  technicians: [] as StaffUser[],
   notifications: [] as AppNotification[],
   kpis: null as HerdKpis | null,
   farmsLoading: false,
@@ -564,6 +590,48 @@ export const useAppStore = create<AppState>((set, get) => ({
       await api.patch(`/notifications/${id}/read`, {});
     } catch {
       // non-fatal; a refetch will reconcile
+    }
+  },
+
+  saveFarm: async (input, farmId) => {
+    if (!isApiConfigured) throw new Error('Demo mode — connect the API to save farms.');
+    // snake_case at the boundary, exactly like the read mappers.
+    const body = {
+      name: input.name,
+      owner_name: input.ownerName,
+      address: input.address || null,
+      city: input.city || null,
+      province: input.province || null,
+      postal_code: input.postalCode || null,
+      phone: input.phone || null,
+      email: input.email || null,
+      herd_size: input.herdSize,
+      assigned_technician_id: input.assignedTechnicianId ?? null,
+      visit_weekdays: input.visitWeekdays,
+      notes: input.notes || null,
+    };
+    const saved = farmId
+      ? await api.patch<ApiFarm>(`/farms/${farmId}`, body)
+      : await api.post<ApiFarm>('/farms/', body);
+    // Refetch rather than splicing the response in: the list carries computed
+    // counts (cow_count, pregnant_count) this payload doesn't recompute.
+    await get().fetchFarms();
+    return saved.id;
+  },
+
+  fetchTechnicians: async () => {
+    if (!isApiConfigured) {
+      set({ technicians: [] });
+      return;
+    }
+    try {
+      const raw = await api.get<{ id: string; name: string; email: string; role: string }[]>(
+        '/users/?role=technician',
+      );
+      set({ technicians: raw.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role })) });
+    } catch {
+      // Non-fatal: the farm form still saves, just without a picker.
+      set({ technicians: [] });
     }
   },
 

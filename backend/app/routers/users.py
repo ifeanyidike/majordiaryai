@@ -1,8 +1,11 @@
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
-from app.core.auth import get_current_user, get_token_claims
+from app.core.auth import get_current_user, get_token_claims, require_roles
 from app.models.models import User, UserRole
 from app.schemas.users import UserCreate, UserUpdate, UserOut
 
@@ -10,6 +13,24 @@ router = APIRouter()
 
 # Roles a user may claim for themselves at signup — NEVER admin.
 SELF_SERVE_ROLES = {UserRole.technician, UserRole.farm, UserRole.vet}
+
+
+@router.get("/", response_model=List[UserOut])
+async def list_users(
+    role: Optional[UserRole] = None,
+    current_user: dict = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Users, optionally filtered by role — admin only.
+
+    Exists so the farm form can offer a technician picker instead of asking an
+    admin to paste a UUID. Restricted to admins because it exposes the staff
+    directory; nothing else in the app needs to enumerate users.
+    """
+    stmt = select(User).order_by(User.name)
+    if role is not None:
+        stmt = stmt.where(User.role == role)
+    return (await db.execute(stmt)).scalars().all()
 
 
 @router.get("/me", response_model=UserOut)
