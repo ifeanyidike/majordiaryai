@@ -412,7 +412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ farmsLoading: true, farmsError: null });
     try {
-      const raw = await api.get<ApiFarm[]>('/farms/');
+      const raw = await api.getAll<ApiFarm>('/farms/');
       set({ farms: raw.map(mapFarm), farmsLoading: false });
     } catch (e: any) {
       set({ farmsLoading: false, farmsError: e.message ?? 'Could not load farms' });
@@ -427,7 +427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ cowsLoading: true, cowsError: null });
     try {
       const path = farmId ? `/cows/?farm_id=${farmId}` : '/cows/';
-      const raw = await api.get<ApiCow[]>(path);
+      const raw = await api.getAll<ApiCow>(path);
       const fetched = raw.map(mapCow);
       set((s) => ({
         // A farm-scoped fetch merges into the herd — it must never wipe

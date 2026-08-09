@@ -90,6 +90,27 @@ async function upload<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
+  /**
+   * Fetch every page of a paginated list endpoint.
+   *
+   * The API bounds list responses (see X-Total-Count), but herd statistics are
+   * computed from the full set, so a partially-loaded list would silently show
+   * wrong counts. This walks the pages and returns the whole thing. `maxItems`
+   * is a safety valve: a herd larger than that is a signal to move the screen
+   * to lazy loading rather than to raise the cap.
+   */
+  getAll: async <T>(path: string, pageSize = 200, maxItems = 5000): Promise<T[]> => {
+    const out: T[] = [];
+    let offset = 0;
+    for (;;) {
+      const sep = path.includes('?') ? '&' : '?';
+      const page = await request<T[]>('GET', `${path}${sep}limit=${pageSize}&offset=${offset}`);
+      out.push(...page);
+      if (page.length < pageSize || out.length >= maxItems) break;
+      offset += pageSize;
+    }
+    return out;
+  },
   post: <T>(path: string, body: unknown) => request<T>('POST', path, body),
   patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),

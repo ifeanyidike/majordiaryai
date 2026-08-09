@@ -218,3 +218,54 @@ async def test_out_of_scope_cow_is_not_enumerable(db, api, make_user):
     async with api(role="technician", user_id=uuid.uuid4()) as client:
         resp = await client.get(f"/cows/{cow.id}")
     assert resp.status_code == 404, resp.text
+
+
+# ── Pagination: bounded responses that never lose a row ──────────────
+
+async def test_cow_list_is_paginated_and_reports_the_true_total(db, api):
+    """A page must be bounded, and X-Total-Count must still say how many
+    exist — herd statistics are computed from the full set, so a caller that
+    only saw a page would otherwise show wrong counts."""
+    farm = await _farm(db)
+    for _ in range(7):
+        await _cow(db, farm, status=CowStatus.open)
+
+    async with api(role="admin") as client:
+        page = await client.get(f"/cows/?farm_id={farm.id}&limit=3&offset=0")
+    assert page.status_code == 200, page.text
+    assert len(page.json()) == 3
+    assert page.headers["x-total-count"] == "7"
+
+
+async def test_paging_covers_every_cow_exactly_once(db, api):
+    """Ear tags are not unique across farms, so ordering needs a tiebreaker —
+    without one, rows repeat or vanish between pages."""
+    farm = await _farm(db)
+    for _ in range(10):
+        await _cow(db, farm, status=CowStatus.open)
+
+    seen = []
+    async with api(role="admin") as client:
+        for offset in (0, 4, 8):
+            resp = await client.get(f"/cows/?farm_id={farm.id}&limit=4&offset={offset}")
+            seen.extend(c["id"] for c in resp.json())
+
+    assert len(seen) == 10, "paging lost or duplicated rows"
+    assert len(set(seen)) == 10, "the same cow appeared on two pages"
+
+
+async def test_page_size_is_capped(db, api):
+    """An unbounded limit would defeat the point of paginating at all."""
+    async with api(role="admin") as client:
+        resp = await client.get("/cows/?limit=99999")
+    assert resp.status_code == 422, resp.text
+
+
+async def test_farm_list_is_paginated_too(db, api):
+    for _ in range(4):
+        await _farm(db)
+    async with api(role="admin") as client:
+        resp = await client.get("/farms/?limit=2&offset=0")
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()) == 2
+    assert int(resp.headers["x-total-count"]) >= 4

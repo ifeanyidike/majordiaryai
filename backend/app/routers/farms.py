@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +15,10 @@ from typing import List, Optional
 import uuid
 
 router = APIRouter()
+
+# Matches /cows: responses are bounded, with the true size in X-Total-Count.
+DEFAULT_PAGE_SIZE = 200
+MAX_PAGE_SIZE = 1000
 
 ACTIVE_STATUSES = (CowStatus.calf, CowStatus.heifer, CowStatus.fresh, CowStatus.open,
                    CowStatus.needling, CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry)
@@ -53,11 +57,21 @@ def _row_to_dict(row):
 
 @router.get("/", response_model=List[FarmOut])
 async def list_farms(
+    response: Response,
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Farms in the caller's scope. Bounded like /cows; X-Total-Count carries
+    the full size so the caller knows whether more pages exist."""
     stmt = scope_to_farms(select(Farm), current_user, col=Farm.id)
-    result = await db.execute(_with_counts(stmt))
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    response.headers["X-Total-Count"] = str(total or 0)
+
+    # name is not unique, so id breaks ties and keeps paging stable.
+    paged = _with_counts(stmt).order_by(Farm.name, Farm.id).limit(limit).offset(offset)
+    result = await db.execute(paged)
     return [_row_to_dict(r) for r in result.all()]
 
 

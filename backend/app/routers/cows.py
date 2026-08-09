@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
@@ -21,6 +21,12 @@ import uuid
 
 router = APIRouter()
 
+# Response sizes are bounded so one caller cannot pull an entire multi-farm
+# herd in a single request. Callers page with limit/offset and read the true
+# size from the X-Total-Count header.
+DEFAULT_PAGE_SIZE = 200
+MAX_PAGE_SIZE = 1000
+
 # Non-nullable columns that a PATCH must never null out.
 _NON_NULLABLE_FIELDS = {"lactation_number", "status"}
 
@@ -32,18 +38,35 @@ def _cow_dict(cow: Cow, farm_name=None) -> dict:
 
 @router.get("/", response_model=List[CowOut])
 async def list_cows(
+    response: Response,
     farm_id: Optional[uuid.UUID] = None,
     status: Optional[CowStatus] = None,
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Cows in the caller's scope, newest page first.
+
+    Bounded on purpose: an admin over 50 farms of 500 cows would otherwise get
+    25,000 rows in one response. `X-Total-Count` carries the full size so a
+    caller can page without a second round trip, and so herd counts stay right
+    even when only a page is loaded.
+    """
     stmt = select(Cow).options(selectinload(Cow.farm))
     stmt = scope_to_farms(stmt, current_user, farm_id)
 
     if status:
         stmt = stmt.where(Cow.status == status)
 
-    stmt = stmt.order_by(Cow.ear_tag)
+    total = await db.scalar(
+        select(func.count()).select_from(stmt.order_by(None).subquery())
+    )
+    response.headers["X-Total-Count"] = str(total or 0)
+
+    # ear_tag is not unique across farms, so add id as a tiebreaker — without
+    # it a row can repeat or be skipped between pages.
+    stmt = stmt.order_by(Cow.ear_tag, Cow.id).limit(limit).offset(offset)
     result = await db.execute(stmt)
     cows = result.scalars().all()
     return [_cow_dict(cow, cow.farm.name if cow.farm else None) for cow in cows]

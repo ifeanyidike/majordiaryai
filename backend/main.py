@@ -40,6 +40,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Paging metadata is useless to a browser client unless it is exposed.
+    expose_headers=["X-Total-Count"],
 )
 
 
