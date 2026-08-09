@@ -186,3 +186,72 @@ def records_of(db):
         return result.scalars().all()
 
     return _get
+
+
+# ── HTTP-level harness ───────────────────────────────────────────────
+# The suite above drives services directly, which leaves the routers — auth,
+# role gates, request validation, error mapping — verified by reading only.
+# These fixtures exercise the real app through ASGI so a role gate that stops
+# matching the spec fails a test instead of shipping.
+
+
+@pytest_asyncio.fixture
+async def api(db):
+    """Factory returning an HTTP client authenticated as a given role.
+
+    `get_current_user` is overridden (not `require_roles`), so the real
+    permission logic still runs — only token verification is stubbed, since
+    minting Supabase JWTs in tests would test Supabase, not this app.
+    """
+    import httpx
+
+    from app.core.auth import get_current_user
+    from app.core.database import get_db
+    from main import app
+
+    def _make(role: str = "admin", user_id=None, farm_id=None) -> "httpx.AsyncClient":
+        # Recorded work carries technician_id FKs, so the caller must be a real
+        # users row. When the test supplies an id it owns that row already;
+        # otherwise create one here (autoflush persists it before the first
+        # query the endpoint runs).
+        if user_id is None:
+            user_id = uuid.uuid4()
+            db.add(User(
+                id=user_id, name=f"Test {role}",
+                email=f"{uuid.uuid4().hex[:8]}@test.local",
+                role=UserRole(role),
+            ))
+        caller = {
+            "id": user_id,
+            "name": f"Test {role}",
+            "email": f"{role}@test.local",
+            "role": role,
+            "farm_id": farm_id,
+        }
+        # Hand the request the test's transaction so rows created in the test
+        # are visible to the endpoint (and roll back with everything else).
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_current_user] = lambda: caller
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        )
+
+    yield _make
+    from main import app as _app
+    _app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def make_user(db):
+    """A persisted user of a given role, for FK-bearing assignments."""
+    async def _make(role: UserRole = UserRole.technician, name: str = "Tech") -> User:
+        u = User(
+            id=uuid.uuid4(), name=name,
+            email=f"{uuid.uuid4().hex[:8]}@test.local", role=role,
+        )
+        db.add(u)
+        await db.flush()
+        return u
+
+    return _make

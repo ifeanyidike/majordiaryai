@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_roles
 from app.models.models import Notification
 from app.schemas.notifications import NotificationOut
 from app.services.access import check_farm_access, scope_to_farms
@@ -27,6 +27,27 @@ async def list_notifications(
     stmt = stmt.limit(max(1, min(limit, 500)))
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/undelivered", response_model=List[NotificationOut])
+async def undelivered(
+    limit: int = 100,
+    current_user: dict = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Notifications whose email never reached the farmer.
+
+    Delivery used to fail silently, so "the farmer was never told" was
+    invisible. This is the query that surfaces it — a rejected send, a farm
+    with no address on file, or sending switched off entirely.
+    """
+    stmt = (
+        select(Notification)
+        .where(Notification.email_status.in_(("failed", "no_email", "disabled")))
+        .order_by(Notification.created_at.desc())
+        .limit(max(1, min(limit, 500)))
+    )
+    return (await db.execute(stmt)).scalars().all()
 
 
 @router.patch("/{notification_id}/read", response_model=NotificationOut)

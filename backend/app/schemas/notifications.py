@@ -11,4 +11,8 @@ class NotificationOut(BaseModel):
     type: str
     message: str
     read: bool
+    # Whether the farmer's email went out: sent | failed | no_email | disabled.
+    # None on rows created before delivery tracking existed.
+    email_status: Optional[str] = None
+    emailed_at: Optional[datetime] = None
     created_at: datetime

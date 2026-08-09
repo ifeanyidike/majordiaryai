@@ -388,4 +388,10 @@ class Notification(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     message: Mapped[str] = mapped_column(String, nullable=False)
     read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Did the farmer's email actually go out? sent | failed | no_email | disabled.
+    # Written by the background sender after the fact, so a silent delivery
+    # failure is auditable instead of living only in a log line.
+    email_status: Mapped[Optional[str]] = mapped_column(String)
+    emailed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    email_error: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

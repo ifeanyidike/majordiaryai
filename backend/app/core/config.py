@@ -14,7 +14,14 @@ class Settings(BaseSettings):
     supabase_anon_key: str
     jwt_secret: str
     jwt_algorithm: str = "HS256"
+    # IANA zone, NOT a fixed offset: "America/Toronto" is Eastern time WITH
+    # daylight saving, whereas a literal "EST" would be an hour out all summer.
+    # Every report asks "what day is it locally", so this must track DST.
     farm_timezone: str = "America/Toronto"
+    # How often the lifecycle sweep runs (dry-off, fresh→open, calf→heifer …).
+    # 6h keeps a day-223 dry-off notice timely without hammering the database;
+    # 0 disables the loop (used by tests, which drive the sweep directly).
+    sweep_interval_seconds: int = 6 * 60 * 60
     # Comma-separated list of allowed CORS origins (Expo dev defaults).
     cors_origins: str = "http://localhost:8081,http://localhost:19006"
 

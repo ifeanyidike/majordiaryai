@@ -1,9 +1,12 @@
 import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import settings
+from app.services import scheduler
 from app.routers import (
     users, farms, cows, inseminations, needling, checks, calving,
     reports, vets, vaccinations, notifications, admin, imports,
@@ -15,7 +18,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app")
 
-app = FastAPI(title="Major Dairy AI API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run the lifecycle sweep on a timer for as long as the API is up.
+
+    Without this the day-223 dry-off (and every other timed transition) only
+    happened when somebody opened a report, so a quiet day silently skipped it.
+    """
+    scheduler.start()
+    try:
+        yield
+    finally:
+        await scheduler.stop()
+
+
+app = FastAPI(title="Major Dairy AI API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
