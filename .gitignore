@@ -57,3 +57,8 @@ example
 /android
 Major*.md
 PLAN.md
+
+# local credential notes — test logins, never commit
+test-accounts.txt
+*.credentials.txt
+*.secrets.txt
