@@ -190,3 +190,12 @@ export interface StaffUser {
   email: string;
   role: string;
 }
+
+/** A day-level override of who visits a farm (relief technician cover). */
+export interface VisitAssignment {
+  farmId: string;
+  visitDate: string;              // YYYY-MM-DD
+  assignedTechnicianId?: string;  // undefined = visit explicitly skipped
+  assignedTechnicianName?: string;
+  reason?: string;
+}

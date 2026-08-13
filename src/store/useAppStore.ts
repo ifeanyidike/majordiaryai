@@ -3,7 +3,7 @@ import { api, isApiConfigured } from '@/lib/api';
 import { daysBetween, daysSince } from '@/lib/dates';
 import {
   Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
-  Worklist, WorklistCow, WorklistFarm, WorklistReport,
+  VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
 } from '@/data/types';
 import {
   cows as demoCows,
@@ -93,6 +93,26 @@ interface ApiHerdSummary {
   conception_rate?: number;
   services_per_conception?: number | null;
   upcoming_calvings_30d?: number;
+}
+
+/** What the cow form collects. Creating needs a farm; editing never moves one. */
+export interface CowInput {
+  earTag: string;
+  farmId: string;
+  breed?: string;
+  dateOfBirth?: string;
+  sex?: 'female' | 'male';
+  lactationNumber: number;
+  notes?: string;
+}
+
+/** What the vet form collects. */
+export interface VetInput {
+  name: string;
+  clinic?: string;
+  phone?: string;
+  email?: string;
+  farmIds: string[];
 }
 
 /** What the farm form collects — camelCase in, snake_case out in saveFarm. */
@@ -330,6 +350,17 @@ interface AppState {
   markNotificationRead: (id: string) => Promise<void>;
   /** Create or update a farm (admin). Returns the saved farm's id. */
   saveFarm: (input: FarmInput, farmId?: string) => Promise<string>;
+  /** Create or update a cow (admin/technician). Returns the saved cow's id. */
+  saveCow: (input: CowInput, cowId?: string) => Promise<string>;
+  /** Create or update a vet and sync its farm assignments (admin). */
+  saveVet: (input: VetInput, vetId?: string) => Promise<string>;
+  /** Day-level visit overrides for a farm. */
+  visitAssignments: Record<string, VisitAssignment[]>;
+  fetchVisitAssignments: (farmId: string) => Promise<void>;
+  setVisitAssignment: (
+    farmId: string, visitDate: string, technicianId: string | null, reason?: string,
+  ) => Promise<void>;
+  clearVisitAssignment: (farmId: string, visitDate: string) => Promise<void>;
   /** Technicians available to assign to a farm (admin only endpoint). */
   technicians: StaffUser[];
   fetchTechnicians: () => Promise<void>;
@@ -388,6 +419,7 @@ const initialData = {
   worklist: null as Worklist | null,
   worklistFetchedOn: null as string | null,
   technicians: [] as StaffUser[],
+  visitAssignments: {} as Record<string, VisitAssignment[]>,
   notifications: [] as AppNotification[],
   kpis: null as HerdKpis | null,
   farmsLoading: false,
@@ -617,6 +649,89 @@ export const useAppStore = create<AppState>((set, get) => ({
     // counts (cow_count, pregnant_count) this payload doesn't recompute.
     await get().fetchFarms();
     return saved.id;
+  },
+
+  saveCow: async (input, cowId) => {
+    if (!isApiConfigured) throw new Error('Demo mode — connect the API to save cows.');
+    const common = {
+      breed: input.breed || null,
+      date_of_birth: input.dateOfBirth || null,
+      lactation_number: input.lactationNumber,
+      notes: input.notes || null,
+    };
+    const saved = cowId
+      // A cow never changes farm or ear tag by edit — moving one is a transfer,
+      // and the ear tag is her identity. PATCH deliberately omits both.
+      ? await api.patch<ApiCow>(`/cows/${cowId}`, common)
+      : await api.post<ApiCow>('/cows/', {
+          ...common, ear_tag: input.earTag, farm_id: input.farmId,
+          sex: input.sex ?? 'female',
+        });
+    await get().fetchCows();
+    return saved.id;
+  },
+
+  saveVet: async (input, vetId) => {
+    if (!isApiConfigured) throw new Error('Demo mode — connect the API to save vets.');
+    const body = {
+      name: input.name,
+      clinic: input.clinic || null,
+      phone: input.phone || null,
+      email: input.email || null,
+    };
+    const saved = vetId
+      ? await api.patch<{ id: string; farm_ids: string[] }>(`/vets/${vetId}`, body)
+      : await api.post<{ id: string; farm_ids: string[] }>('/vets/', body);
+
+    // Assignments are their own endpoints, so diff rather than replace:
+    // re-posting an existing one is a 409.
+    const before = new Set(saved.farm_ids ?? []);
+    const after = new Set(input.farmIds);
+    for (const farmId of after) {
+      if (!before.has(farmId)) await api.post(`/vets/${saved.id}/assign/${farmId}`, {});
+    }
+    for (const farmId of before) {
+      if (!after.has(farmId)) await api.delete(`/vets/${saved.id}/assign/${farmId}`);
+    }
+    await get().fetchVets();
+    return saved.id;
+  },
+
+  fetchVisitAssignments: async (farmId) => {
+    if (!isApiConfigured) return;
+    try {
+      const raw = await api.get<any[]>(`/farms/${farmId}/visit-assignments`);
+      set((s) => ({
+        visitAssignments: {
+          ...s.visitAssignments,
+          [farmId]: raw.map((a) => ({
+            farmId: a.farm_id,
+            visitDate: a.visit_date,
+            assignedTechnicianId: a.assigned_technician_id ?? undefined,
+            assignedTechnicianName: a.assigned_technician_name ?? undefined,
+            reason: a.reason ?? undefined,
+          })),
+        },
+      }));
+    } catch {
+      // Non-fatal: the farm screen still works without the override list.
+    }
+  },
+
+  setVisitAssignment: async (farmId, visitDate, technicianId, reason) => {
+    await api.put(`/farms/${farmId}/visit-assignments`, {
+      visit_date: visitDate,
+      assigned_technician_id: technicianId,
+      reason: reason || null,
+    });
+    await get().fetchVisitAssignments(farmId);
+    await get().fetchWorklist();
+  },
+
+  clearVisitAssignment: async (farmId, visitDate) => {
+    await api.delete(`/farms/${farmId}/visit-assignments/${visitDate}`);
+    await get().fetchVisitAssignments(farmId);
+    await get().fetchWorklist();
   },
 
   fetchTechnicians: async () => {

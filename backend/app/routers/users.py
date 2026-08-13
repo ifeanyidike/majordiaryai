@@ -18,17 +18,20 @@ SELF_SERVE_ROLES = {UserRole.technician, UserRole.farm, UserRole.vet}
 @router.get("/", response_model=List[UserOut])
 async def list_users(
     role: Optional[UserRole] = None,
-    current_user: dict = Depends(require_roles("admin")),
+    current_user: dict = Depends(require_roles("admin", "technician")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Users, optionally filtered by role — admin only.
+    """Users, optionally filtered by role.
 
-    Exists so the farm form can offer a technician picker instead of asking an
-    admin to paste a UUID. Restricted to admins because it exposes the staff
-    directory; nothing else in the app needs to enumerate users.
+    Admins get the whole staff directory (the farm form's technician picker).
+    Technicians can only enumerate OTHER TECHNICIANS — they need that to hand a
+    day's visit to a relief tech, but have no business listing farm managers,
+    vets or admins.
     """
     stmt = select(User).order_by(User.name)
-    if role is not None:
+    if current_user["role"] != "admin":
+        stmt = stmt.where(User.role == UserRole.technician)
+    elif role is not None:
         stmt = stmt.where(User.role == role)
     return (await db.execute(stmt)).scalars().all()
 

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import {
+  Button,
   Card,
   CowActionsSheet,
   EmptyState,
@@ -17,6 +18,7 @@ import {
   Text,
   FocusedStatusBar,
 } from '@/components';
+import { useAuthStore } from '@/store/useAuthStore';
 import { colors, gradients, onDark, radius, spacing } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { HistoryEvent } from '@/data/types';
@@ -51,6 +53,7 @@ export default function CowProfileScreen() {
   const router = useRouter();
   const state = useAppStore();
   const { refreshCow, fetchCowHistory } = state;
+  const role = useAuthStore((s) => s.user?.role);
   const cow = cowById(state, id);
   const [tab, setTab] = useState<HistoryTab>('inseminations');
 
@@ -172,6 +175,17 @@ export default function CowProfileScreen() {
           </>
         ) : null}
 
+        {/* Edit the permanent record (Master Cow Record) */}
+        {(role === 'admin' || role === 'technician') && (
+          <Button
+            variant="secondary"
+            label="Edit Cow Details"
+            icon="create-outline"
+            onPress={() => router.push({ pathname: '/cow/edit', params: { id: cow.id } })}
+            style={styles.editBtn}
+          />
+        )}
+
         {/* Status Actions */}
         <CowActionsSheet
           cow={cow}
@@ -235,6 +249,7 @@ export default function CowProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  editBtn: { marginBottom: spacing.lg },
   heroTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',

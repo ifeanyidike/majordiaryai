@@ -1,10 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { EmptyState, ErrorBanner, Header, ListRow, Screen, StatusPill } from '@/components';
 import { colors, spacing } from '@/theme';
 import { cowsByFarm, farmById, useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export default function HerdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -13,6 +15,8 @@ export default function HerdScreen() {
   const farm = farmById(state, id);
   const herd = cowsByFarm(state, id);
   const { fetchCows, cowsLoading, cowsError } = state;
+  const role = useAuthStore((s) => s.user?.role);
+  const canEdit = role === 'admin' || role === 'technician';
 
   useEffect(() => {
     fetchCows(id);
@@ -39,7 +43,23 @@ export default function HerdScreen() {
         }
         ListHeaderComponent={
           <>
-            <Header back title="Herd" subtitle={subtitle} />
+            <Header
+              back
+              title="Herd"
+              subtitle={subtitle}
+              right={
+                canEdit ? (
+                  <Pressable
+                    onPress={() => router.push({ pathname: '/cow/edit', params: { farmId: id } })}
+                    style={styles.addBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add cow to this farm"
+                  >
+                    <Ionicons name="add" size={20} color={colors.textOnPrimary} />
+                  </Pressable>
+                ) : undefined
+              }
+            />
             {cowsError ? <ErrorBanner message={cowsError} onRetry={() => fetchCows(id)} /> : null}
             {loading ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
@@ -47,7 +67,7 @@ export default function HerdScreen() {
           </>
         }
         ListEmptyComponent={
-          loading || cowsError ? null : <EmptyState title="No cows tracked yet" />
+          loading || cowsError ? null : <EmptyState title="No cows tracked yet" message={canEdit ? 'Add one with the + button above.' : undefined} />
         }
         renderItem={({ item: cow, index }) => (
           <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 50).duration(400)}>
@@ -64,3 +84,11 @@ export default function HerdScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  addBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+});

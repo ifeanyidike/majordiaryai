@@ -15,7 +15,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.models.models import (
-    Cow, CowStatus, Farm, Insemination, UserRole, Vet, VetFarmAssignment,
+    Cow, CowStatus, Farm, Insemination, User, UserRole, Vet, VetFarmAssignment,
 )
 
 TODAY = date.today()
@@ -161,6 +161,11 @@ async def test_farm_visit_weekdays_are_validated(db, api):
     ("admin", 200), ("technician", 403), ("vet", 403), ("farm", 403),
 ])
 async def test_only_admins_may_list_users(db, api, role, expected):
+    """Technicians were added to this endpoint deliberately — they need the
+    relief-tech list to hand over a visit — so they are no longer refused. The
+    narrowing (they only ever see technicians) is asserted separately below."""
+    if role == "technician":
+        expected = 200
     async with api(role=role) as client:
         resp = await client.get("/users/?role=technician")
     assert resp.status_code == expected, resp.text
@@ -269,3 +274,68 @@ async def test_farm_list_is_paginated_too(db, api):
     assert resp.status_code == 200, resp.text
     assert len(resp.json()) == 2
     assert int(resp.headers["x-total-count"]) >= 4
+
+
+# ── Endpoints the new screens depend on ─────────────────────────────
+
+async def test_technicians_can_list_technicians_but_not_the_directory(db, api):
+    """A technician needs the relief-tech list to hand over a visit, but has no
+    business enumerating farm managers, vets or admins."""
+    async with api(role="technician") as client:
+        resp = await client.get("/users/")
+    assert resp.status_code == 200, resp.text
+    assert {u["role"] for u in resp.json()} <= {"technician"}
+
+
+async def test_admin_sees_every_role_in_the_directory(db, api):
+    db.add(User(id=uuid.uuid4(), name="A Vet", email=f"{uuid.uuid4().hex[:8]}@t.local",
+                role=UserRole.vet))
+    await db.flush()
+    async with api(role="admin") as client:
+        resp = await client.get("/users/")
+    assert resp.status_code == 200, resp.text
+    assert "vet" in {u["role"] for u in resp.json()}
+
+
+async def test_farm_manager_cannot_list_users(db, api):
+    async with api(role="farm") as client:
+        resp = await client.get("/users/")
+    assert resp.status_code == 403, resp.text
+
+
+async def test_vet_can_be_created_and_updated_by_admin_only(db, api):
+    async with api(role="admin") as client:
+        created = await client.post("/vets/", json={"name": "Dr Test", "clinic": "Clinic"})
+        assert created.status_code == 201, created.text
+        vet_id = created.json()["id"]
+
+        patched = await client.patch(f"/vets/{vet_id}", json={"clinic": "New Clinic"})
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["clinic"] == "New Clinic"
+
+    async with api(role="technician") as client:
+        assert (await client.post("/vets/", json={"name": "X"})).status_code == 403
+        assert (await client.patch(f"/vets/{vet_id}", json={"name": "X"})).status_code == 403
+
+
+async def test_cow_edit_cannot_move_a_cow_or_retag_her(db, api):
+    """CowUpdate deliberately omits ear_tag and farm_id — identity and location
+    are not form edits. Sending them must not silently move the animal."""
+    caller = uuid.uuid4()
+    db.add(User(id=caller, name="Tech", email=f"{uuid.uuid4().hex[:8]}@t.local",
+                role=UserRole.technician))
+    await db.flush()
+    farm = await _farm(db, tech_id=caller)
+    other = await _farm(db)
+    cow = await _cow(db, farm, status=CowStatus.open)
+
+    async with api(role="technician", user_id=caller) as client:
+        resp = await client.patch(
+            f"/cows/{cow.id}",
+            json={"breed": "Jersey", "ear_tag": "HACKED", "farm_id": str(other.id)},
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["breed"] == "Jersey"
+    assert body["ear_tag"] == cow.ear_tag, "ear tag was changed by a PATCH"
+    assert body["farm_id"] == str(farm.id), "cow was moved to another farm by a PATCH"

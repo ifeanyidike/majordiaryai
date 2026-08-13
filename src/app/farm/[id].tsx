@@ -139,6 +139,15 @@ export default function FarmProfileScreen() {
             onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
             style={styles.flex1}
           />
+          {(role === 'admin' || role === 'technician') && (
+            <Button
+              variant="secondary"
+              label="Visits"
+              icon="calendar-outline"
+              onPress={() => router.push({ pathname: '/farm/visits', params: { id: farm.id } })}
+              style={styles.flex1}
+            />
+          )}
           {role === 'admin' && (
             <Button
               variant="secondary"

@@ -52,6 +52,7 @@ function guardApi(showError: (m: string) => void): boolean {
 // ── action list based on status ──────────────────────────────
 
 type ActionKey =
+  | 'health'
   | 'enroll'
   | 'inseminate'
   | 'heat_check'
@@ -70,6 +71,7 @@ interface ActionDef {
 }
 
 const ACTION_DEFS: Record<ActionKey, ActionDef> = {
+  health:           { key: 'health',           label: 'Health Check',    icon: 'pulse' },
   enroll:           { key: 'enroll',           label: 'Enroll Protocol', icon: 'list' },
   inseminate:       { key: 'inseminate',       label: 'Record AI',       icon: 'flask' },
   heat_check:       { key: 'heat_check',       label: 'Heat Check',      icon: 'flame' },
@@ -92,6 +94,8 @@ const ACTION_DEFS: Record<ActionKey, ActionDef> = {
  */
 const WORK_ROLES: UserRole[] = ['admin', 'technician'];
 const ROLE_RESTRICTED: Record<ActionKey, UserRole[]> = {
+  // POST /cows/{id}/health accepts vets too — they assess a cow's condition.
+  health: ['admin', 'technician', 'vet'],
   enroll: WORK_ROLES,
   inseminate: WORK_ROLES,
   heat_check: WORK_ROLES,
@@ -135,7 +139,8 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
       break;
   }
 
-  if (!['cull', 'sold', 'dead'].includes(cow.status)) keys.push('cull');
+  // Health can be recorded on any live animal, by any clinical role.
+  if (!['cull', 'sold', 'dead'].includes(cow.status)) keys.push('health', 'cull');
   return keys.filter((k) => ROLE_RESTRICTED[k].includes(role));
 }
 
@@ -639,6 +644,67 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   );
 }
 
+/**
+ * Record a health assessment on its own.
+ *
+ * The Open-cow flow asks the same question before choosing a protocol, but that
+ * path is technician-only. POST /cows/{id}/health also accepts vets, so this
+ * gives them the assessment without the breeding decision attached.
+ */
+export function HealthForm({ cow, onCancel, onComplete }: FormProps) {
+  const toast = useToast();
+  const [value, setValue] = useState<'healthy' | 'sick'>(cow.healthStatus ?? 'healthy');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    if (!guardApi(toast.error)) return;
+    setLoading(true);
+    try {
+      await api.post(`/cows/${cow.id}/health`, { health_status: value });
+      toast.show(
+        value === 'sick'
+          ? 'Marked sick — recheck her in 7 days; she stays on the Open list.'
+          : 'Marked healthy',
+        'medkit',
+        'success',
+      );
+      onComplete();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Failed to record health status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <FormLabel>Condition</FormLabel>
+      <SegmentedControl
+        options={[
+          { value: 'healthy', label: 'Healthy' },
+          { value: 'sick', label: 'Sick' },
+        ]}
+        value={value}
+        onChange={setValue}
+        style={styles.fieldGap}
+      />
+      {value === 'sick' && (
+        <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
+          She stays on the Open list and is re-checked in 7 days rather than every day.
+        </Text>
+      )}
+      <TechnicianRow />
+      <FormActions
+        onCancel={onCancel}
+        submitLabel="Save Health"
+        submitIcon="pulse"
+        onSubmit={submit}
+        loading={loading}
+      />
+    </>
+  );
+}
+
 export function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [date, setDate] = useState(todayISO());
@@ -1020,6 +1086,7 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
   if (actions.length === 0) return null;
 
   const MODAL_TITLES: Record<ActionKey, string> = {
+    health:          'Record Health Check',
     enroll:          'Enroll in Protocol',
     inseminate:      'Record Artificial Insemination',
     heat_check:      'Record Heat Check',
@@ -1046,6 +1113,7 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
       case 'pregnancy_check': return <PregnancyCheckForm {...formProps} />;
       case 'calving':         return <CalvingForm {...formProps} />;
       case 'vaccinate':       return <VaccinationForm {...formProps} />;
+      case 'health':          return <HealthForm {...formProps} />;
       case 'enroll':          return <EnrollForm {...formProps} />;
       case 'cull':            return <CullConfirm {...formProps} />;
       case 'mark_sold':       return <FinalStatusConfirm {...formProps} kind="sold" />;

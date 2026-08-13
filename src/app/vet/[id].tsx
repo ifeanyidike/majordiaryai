@@ -21,11 +21,13 @@ import {
 import { charcoal, colors, gradients, onDark, spacing, status } from '@/theme';
 import { dial } from '@/lib/contact';
 import { cowsByFarm, pregnancyCounts, useAppStore, vetById } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export default function VetProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const state = useAppStore();
+  const role = useAuthStore((s) => s.user?.role);
 
   useEffect(() => {
     // Same reason as the farm profile: unloaded work list would show 0 due.
@@ -144,14 +146,23 @@ export default function VetProfileScreen() {
           )}
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(360).duration(500)}>
+        <Animated.View entering={FadeInUp.delay(360).duration(500)} style={styles.footerRow}>
           <Button
             variant="secondary"
             label="View Reports"
             icon="bar-chart-outline"
             onPress={() => router.push('/(tabs)/reports')}
-            style={styles.reportsBtn}
+            style={styles.flex1}
           />
+          {role === 'admin' && (
+            <Button
+              variant="secondary"
+              label="Edit Vet"
+              icon="create-outline"
+              onPress={() => router.push({ pathname: '/vet/edit', params: { id: vet.id } })}
+              style={styles.flex1}
+            />
+          )}
         </Animated.View>
       </View>
     </Screen>
@@ -174,5 +185,6 @@ const styles = StyleSheet.create({
   },
   statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
   infoCard: { paddingVertical: spacing.sm },
-  reportsBtn: { marginTop: spacing.sm },
+  footerRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
+  flex1: { flex: 1 },
 });

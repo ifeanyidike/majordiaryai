@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.models.models import Farm, Vet, VetFarmAssignment
-from app.schemas.vets import VetCreate, VetOut
+from app.schemas.vets import VetCreate, VetOut, VetUpdate
 from typing import List
 import uuid
 
@@ -56,6 +56,30 @@ async def create_vet(
     await db.commit()
     await db.refresh(vet)
     return {**{c.key: getattr(vet, c.key) for c in vet.__table__.columns}, "farm_ids": []}
+
+
+@router.patch("/{vet_id}", response_model=VetOut)
+async def update_vet(
+    vet_id: uuid.UUID,
+    body: VetUpdate,
+    current_user: dict = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    vet = await db.get(Vet, vet_id)
+    if not vet:
+        raise HTTPException(status_code=404, detail="Vet not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if field == "name" and value is None:
+            continue  # name is non-nullable
+        setattr(vet, field, value)
+    await db.commit()
+
+    result = await db.execute(
+        select(Vet).where(Vet.id == vet_id).options(selectinload(Vet.farm_assignments))
+    )
+    vet = result.scalar_one()
+    return {**{c.key: getattr(vet, c.key) for c in vet.__table__.columns},
+            "farm_ids": [a.farm_id for a in vet.farm_assignments]}
 
 
 @router.post("/{vet_id}/assign/{farm_id}", status_code=status.HTTP_204_NO_CONTENT)

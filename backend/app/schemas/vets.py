@@ -12,6 +12,14 @@ class VetCreate(BaseModel):
     user_id: Optional[UUID] = None
 
 
+class VetUpdate(BaseModel):
+    name: Optional[str] = None
+    clinic: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    user_id: Optional[UUID] = None
+
+
 class VetOut(BaseModel):
     id: UUID
     user_id: Optional[UUID] = None
