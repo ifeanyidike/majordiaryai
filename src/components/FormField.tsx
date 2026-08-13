@@ -50,10 +50,11 @@ export function FormInput({
 /** Label + input + inline validation message, the common vertical unit. */
 export function FormRow({
   label, hint, error, ...input
-}: Omit<FormInputProps, 'error'> & { label: string; hint?: string; error?: string }) {
+}: Omit<FormInputProps, 'error'> & { label?: string; hint?: string; error?: string }) {
   return (
     <View style={styles.row}>
-      <FormLabel>{label}</FormLabel>
+      {/* Omitted when a SectionHeader above already names the field. */}
+      {label ? <FormLabel>{label}</FormLabel> : null}
       <FormInput {...input} error={!!error} />
       {error ? (
         <Text variant="caption" color={colors.danger} style={styles.hint}>{error}</Text>

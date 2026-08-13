@@ -276,7 +276,7 @@ export default function FarmEditScreen() {
         )}
 
         <SectionHeader title="Notes" />
-        <FormRow label="Notes" value={notes} onChangeText={setNotes}
+        <FormRow value={notes} onChangeText={setNotes}
                  placeholder="Gate codes, access instructions, preferences…"
                  multiline autoCapitalize="sentences" />
 

@@ -25,4 +25,4 @@ export { SectionHeader } from './SectionHeader';
 export { StatCard } from './StatCard';
 export { StatusPill } from './StatusPill';
 export { Text } from './Text';
-export { ToastHost, useToast } from './Toast';
+export { ModalToastHost, ToastHost, useToast } from './Toast';

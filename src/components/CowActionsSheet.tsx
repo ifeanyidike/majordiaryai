@@ -11,7 +11,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Button, SegmentedControl, SectionHeader, Text, useToast } from '@/components';
+import { Button, ModalToastHost, SegmentedControl, SectionHeader, Text, useToast } from '@/components';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormInput, FormLabel } from './FormField';
 import { api, isApiConfigured } from '@/lib/api';
 import { daysSince, isValidPastOrTodayDate, todayISO } from '@/lib/dates';
@@ -82,11 +83,25 @@ const ACTION_DEFS: Record<ActionKey, ActionDef> = {
 
 /**
  * Actions only certain roles may perform. Must mirror the backend's
- * `require_roles` — offering an action the API will reject with a 403 is worse
- * than not offering it. Pregnancy checks are recordable by technician or vet
- * (client decision, 2026-08-06), so nothing is restricted here today.
+ * `require_roles` (and report_catalog's WORK_ROLES/PREGNANCY_ROLES) — offering
+ * an action the API rejects with a 403 is worse than not offering it: a vet
+ * once filled in a whole insemination form only to be refused on submit.
+ *
+ * Everything is admin+technician except pregnancy checks, which vets share.
+ * A `farm` user records nothing, which is why they see no action buttons.
  */
-const ROLE_RESTRICTED: Partial<Record<ActionKey, UserRole[]>> = {};
+const WORK_ROLES: UserRole[] = ['admin', 'technician'];
+const ROLE_RESTRICTED: Record<ActionKey, UserRole[]> = {
+  enroll: WORK_ROLES,
+  inseminate: WORK_ROLES,
+  heat_check: WORK_ROLES,
+  pregnancy_check: ['admin', 'technician', 'vet'],
+  calving: WORK_ROLES,
+  vaccinate: WORK_ROLES,
+  cull: WORK_ROLES,
+  mark_sold: WORK_ROLES,
+  mark_dead: WORK_ROLES,
+};
 
 function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
   const keys: ActionKey[] = [];
@@ -121,7 +136,7 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
   }
 
   if (!['cull', 'sold', 'dead'].includes(cow.status)) keys.push('cull');
-  return keys.filter((k) => (ROLE_RESTRICTED[k] ?? []).length === 0 || ROLE_RESTRICTED[k]!.includes(role));
+  return keys.filter((k) => ROLE_RESTRICTED[k].includes(role));
 }
 
 // Form primitives are shared with the full-screen forms (FormField.tsx).
@@ -999,6 +1014,7 @@ interface Props {
 export function CowActionsSheet({ cow, onRefresh }: Props) {
   const [activeAction, setActiveAction] = useState<ActionKey | null>(null);
   const role = useAuthStore((s) => s.user?.role) ?? 'technician';
+  const insets = useSafeAreaInsets();
   const actions = getActions(cow, role);
 
   if (actions.length === 0) return null;
@@ -1085,7 +1101,9 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+            {/* Toasts must live inside the Modal or they render behind it. */}
+            {!!activeAction && <ModalToastHost />}
             <View style={styles.modalHandle} />
             <Text variant="heading" style={{ marginBottom: spacing.sm }}>
               {activeAction ? MODAL_TITLES[activeAction] : ''}
@@ -1096,7 +1114,9 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
             <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ gap: spacing.sm }}
+              /* Buttons sit at the end of the form; without this the last row
+                 is clipped by the sheet edge on gesture-bar devices. */
+              contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.lg }}
             >
               {renderForm()}
             </ScrollView>
@@ -1235,7 +1255,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: spacing.xxl,
-    paddingBottom: spacing.huge,
     maxHeight: '88%',
   },
   modalHandle: {

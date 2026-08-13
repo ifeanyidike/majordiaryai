@@ -505,3 +505,49 @@ async def test_worklist_flags_a_farm_handed_to_a_relief_technician(db):
         db, {"id": relief.id, "role": "technician", "farm_id": None}, TODAY
     )
     assert covering["farms"][0]["schedule"] == "covering"
+
+
+@pytest.mark.parametrize("report_type,role,can_record", [
+    # Vets record pregnancy results and nothing else — the API agrees.
+    ("pregnancy-check", "vet", True),
+    ("pregnancy-check", "technician", True),
+    ("pregnancy-check", "admin", True),
+    ("heat", "vet", False),
+    ("heat", "technician", True),
+    ("needling", "vet", False),
+    ("timed-breeding", "vet", False),
+    ("open-report", "vet", False),
+    # A farm manager records nothing anywhere.
+    ("heat", "farm", False),
+    ("pregnancy-check", "farm", False),
+])
+def test_record_forms_match_the_api_role_gates(report_type, role, can_record):
+    """A row must not offer a form the API rejects. A vet once filled in a whole
+    insemination and was refused on submit — record_roles here must mirror each
+    router's require_roles()."""
+    cows = [
+        _cow(status=CowStatus.inseminated,
+             last_insemination_date=TODAY - timedelta(days=40)),
+        _cow(status=CowStatus.inseminated,
+             last_insemination_date=TODAY - timedelta(days=22)),
+        _cow(status=CowStatus.open, last_calving_date=TODAY - timedelta(days=90)),
+        _cow(status=CowStatus.needling),
+    ]
+    ctx = _ctx(cows, role=role, needling={str(cows[3].id): {
+        "id": str(uuid.uuid4()), "treatment": "2cc PGF", "protocol_day": 7,
+        "protocol": "ovsynch", "days_overdue": 0, "enrollment_id": str(uuid.uuid4()),
+    }}, breeding={str(cows[3].id): {
+        "protocol": "ovsynch", "protocol_day": 10, "treatment": "2cc GnRH + Insemination",
+        "injection": "2cc GnRH", "needling_record_id": str(uuid.uuid4()),
+        "needling_completed": False, "days_overdue": 0,
+    }})
+
+    report = {r["type"]: r for r in build_reports(ctx)}.get(report_type)
+    if report is None:
+        pytest.skip(f"{report_type} has no rows in this fixture")
+    assert report["can_record"] is can_record
+    kinds = {c["record_kind"] for c in report["cows"]}
+    if can_record:
+        assert kinds != {None}, "recordable report offered no form"
+    else:
+        assert kinds == {None}, "offered a form the API would reject with 403"

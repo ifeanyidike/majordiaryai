@@ -89,6 +89,13 @@ class ReportRow:
         }
 
 
+# Who may record an outcome, mirroring each router's require_roles(). Offering
+# a form the API answers with 403 is worse than offering none — that mismatch
+# is exactly what made a vet fill in an insemination only to be refused.
+WORK_ROLES = ("admin", "technician")          # every recording route except…
+PREGNANCY_ROLES = ("admin", "technician", "vet")  # …pregnancy checks
+
+
 @dataclass
 class ReportDef:
     type: str
@@ -454,28 +461,35 @@ def _cull_list(ctx: WorklistContext) -> List[ReportRow]:
 
 REPORTS: List[ReportDef] = [
     ReportDef("heat", "Heat Report", "flame", "heat", True, _heat,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to check for heat"),
     ReportDef("timed-breeding", "Timed Breeding", "flask", "inseminated", True, _timed_breeding,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} insemination"),
     ReportDef("needling", "Needling Report", "fitness", "needling", True, _needling,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} injection"),
     ReportDef("insemination", "Insemination Program", "git-branch", "inseminated", True,
-              _insemination_program,
+              _insemination_program, record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} returned for breeding"),
     # Recordable by technician or vet (client decision, 2026-08-06) — hence no
     # record_roles restriction. POST /checks/pregnancy enforces the same.
     ReportDef("pregnancy-check", "Pregnancy Report", "medkit", "inseminated", True,
-              _pregnancy_check,
+              _pregnancy_check, record_roles=PREGNANCY_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} due for check"),
     ReportDef("vaccination", "Vaccination Report", "shield-checkmark", "fresh", True, _vaccination,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} scheduled {'vaccination' if n == 1 else 'vaccinations'} due"),
     ReportDef("dry-report", "Dry Report", "moon", "dry", True, _dry,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to dry off"),
     ReportDef("post-calving", "Post Calving Report", "bandage", "fresh", True, _post_calving,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} due the 2cc shot"),
     ReportDef("fresh", "Fresh / Calving Report", "heart", "fresh", True, _fresh,
               subtitle=lambda n: f"{n} freshly calved {'cow' if n == 1 else 'cows'}"),
     ReportDef("open-report", "Open Cow Report", "ellipse-outline", "open", True, _open,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to assess"),
     # ── reference lists (never counted as work) ──
     # Upcoming calvings are a heads-up, not a task: the spec's calving work is

@@ -62,3 +62,4 @@ PLAN.md
 test-accounts.txt
 *.credentials.txt
 *.secrets.txt
+issues.txt

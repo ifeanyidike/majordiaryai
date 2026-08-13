@@ -19,7 +19,8 @@ import {
   VaccinationForm,
 } from './CowActionsSheet';
 import { NeedlingCompleteForm } from './NeedlingCompleteForm';
-import { Button, Text } from '@/components';
+import { Button, ModalToastHost, Text } from '@/components';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '@/theme';
 import { RecordKind, WorklistCow } from '@/data/types';
 import { useAppStore } from '@/store/useAppStore';
@@ -68,6 +69,7 @@ function asTarget(cow: WorklistCow): RecordTarget {
  */
 export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }: Props) {
   const kind = cow?.recordKind ?? null;
+  const insets = useSafeAreaInsets();
   const { demoMode, completeWorklistCowDemo } = useAppStore();
 
   const done = () => {
@@ -157,7 +159,9 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
           accessibilityRole="button"
           accessibilityLabel="Dismiss"
         />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+          {/* Inside the Modal, or toasts render behind it. */}
+          {visible && <ModalToastHost />}
           <View style={styles.handle} />
           <Text variant="heading">{kind ? TITLES[kind] : ''}</Text>
           {cow ? (
@@ -168,7 +172,7 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
           <ScrollView
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ gap: spacing.sm }}
+            contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.lg }}
           >
             {renderForm()}
           </ScrollView>
@@ -201,7 +205,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: spacing.xxl,
-    paddingBottom: spacing.huge,
     maxHeight: '88%',
   },
   handle: {
