@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { api, isApiConfigured } from '@/lib/api';
 import { daysBetween, daysSince } from '@/lib/dates';
 import {
-  Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
+  Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
   VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
 } from '@/data/types';
 import {
@@ -35,6 +35,7 @@ interface ApiCow {
   last_calving_date?: string; last_insemination_date?: string;
   last_insemination_id?: string; bull_used?: string;
   due_date?: string; dry_date?: string;
+  is_milking?: boolean;
 }
 
 interface ApiNotification {
@@ -201,6 +202,7 @@ function mapCow(c: ApiCow): Cow {
     bullUsed: c.bull_used,
     dueDate: c.due_date, dryDate: c.dry_date,
     daysInMilk, daysOpen,
+    isMilking: c.is_milking ?? false,
     history: { inseminations: [], pregnancyChecks: [], vaccinations: [], treatments: [], calvings: [] },
   };
 }
@@ -354,6 +356,15 @@ interface AppState {
   saveCow: (input: CowInput, cowId?: string) => Promise<string>;
   /** Create or update a vet and sync its farm assignments (admin). */
   saveVet: (input: VetInput, vetId?: string) => Promise<string>;
+  /** Bulls stocked per farm, keyed by farm id. */
+  bulls: Record<string, Bull[]>;
+  fetchBulls: (farmId: string) => Promise<void>;
+  saveBull: (
+    farmId: string,
+    input: { name: string; code?: string; semenType?: string; notes?: string },
+    bullId?: string,
+  ) => Promise<void>;
+  retireBull: (farmId: string, bullId: string) => Promise<void>;
   /** Day-level visit overrides for a farm. */
   visitAssignments: Record<string, VisitAssignment[]>;
   fetchVisitAssignments: (farmId: string) => Promise<void>;
@@ -420,6 +431,7 @@ const initialData = {
   worklistFetchedOn: null as string | null,
   technicians: [] as StaffUser[],
   visitAssignments: {} as Record<string, VisitAssignment[]>,
+  bulls: {} as Record<string, Bull[]>,
   notifications: [] as AppNotification[],
   kpis: null as HerdKpis | null,
   farmsLoading: false,
@@ -697,6 +709,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     return saved.id;
   },
 
+  fetchBulls: async (farmId) => {
+    if (!isApiConfigured) return;
+    try {
+      const raw = await api.get<any[]>(`/bulls/farm/${farmId}`);
+      set((s) => ({
+        bulls: {
+          ...s.bulls,
+          [farmId]: raw.map((b) => ({
+            id: b.id, farmId: b.farm_id, name: b.name,
+            code: b.code ?? undefined,
+            semenType: b.semen_type ?? undefined,
+            active: b.active, notes: b.notes ?? undefined,
+          })),
+        },
+      }));
+    } catch {
+      // Non-fatal: the AI form falls back to typing the bull name.
+    }
+  },
+
+  saveBull: async (farmId, input, bullId) => {
+    const body = {
+      name: input.name,
+      code: input.code || null,
+      semen_type: input.semenType || null,
+      notes: input.notes || null,
+    };
+    if (bullId) await api.patch(`/bulls/${bullId}`, body);
+    else await api.post(`/bulls/farm/${farmId}`, body);
+    await get().fetchBulls(farmId);
+  },
+
+  retireBull: async (farmId, bullId) => {
+    // Retire, never delete: past inseminations reference the bull.
+    await api.patch(`/bulls/${bullId}`, { active: false });
+    await get().fetchBulls(farmId);
+  },
+
   fetchVisitAssignments: async (farmId) => {
     if (!isApiConfigured) return;
     try {
@@ -778,9 +828,13 @@ export interface HerdSummary {
   total: number; pregnant: number; open: number;
   dry: number; fresh: number; cull: number; heat: number;
   inseminated: number; needling: number;
+  /** Milk Cycle: in milk from calving until dry-off. */
+  milking: number;
 }
 
 export const summarize = (list: Cow[]): HerdSummary => ({
+  // Milk Cycle (Master Structure): derived server-side, never recomputed here.
+  milking: list.filter((c) => c.isMilking).length,
   total: list.filter((c) => !['sold', 'dead'].includes(c.status)).length,
   pregnant: list.filter((c) => c.status === 'pregnant').length,
   open: list.filter((c) => c.status === 'open').length,

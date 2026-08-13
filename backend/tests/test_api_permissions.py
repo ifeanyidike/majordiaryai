@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from app.services import status_engine
 from app.models.models import (
     Cow, CowStatus, Farm, Insemination, User, UserRole, Vet, VetFarmAssignment,
 )
@@ -339,3 +340,81 @@ async def test_cow_edit_cannot_move_a_cow_or_retag_her(db, api):
     assert body["breed"] == "Jersey"
     assert body["ear_tag"] == cow.ear_tag, "ear tag was changed by a PATCH"
     assert body["farm_id"] == str(farm.id), "cow was moved to another farm by a PATCH"
+
+
+# ── Bulls (per-farm assumption) and the derived milking status ───────
+
+async def test_bull_list_is_per_farm_and_names_are_unique_within_one(db, api):
+    """ASSUMPTION: bulls belong to a farm, because the spec says semen is
+    "selected by farmer". Two farms may stock the same bull; one farm may not
+    list it twice."""
+    a = await _farm(db)
+    b = await _farm(db)
+    async with api(role="admin") as client:
+        first = await client.post(f"/bulls/farm/{a.id}", json={"name": "Delta-Lambda"})
+        assert first.status_code == 201, first.text
+
+        dupe = await client.post(f"/bulls/farm/{a.id}", json={"name": "Delta-Lambda"})
+        assert dupe.status_code == 409, "the same bull was listed twice on one farm"
+
+        other = await client.post(f"/bulls/farm/{b.id}", json={"name": "Delta-Lambda"})
+        assert other.status_code == 201, "a second farm could not stock the same bull"
+
+        listed = await client.get(f"/bulls/farm/{a.id}")
+        assert [x["name"] for x in listed.json()] == ["Delta-Lambda"]
+
+
+async def test_retired_bulls_leave_the_picker_but_stay_for_history(db, api):
+    farm = await _farm(db)
+    async with api(role="admin") as client:
+        bull_id = (await client.post(f"/bulls/farm/{farm.id}", json={"name": "Old Boy"})).json()["id"]
+        await client.patch(f"/bulls/{bull_id}", json={"active": False})
+
+        assert (await client.get(f"/bulls/farm/{farm.id}")).json() == []
+        kept = await client.get(f"/bulls/farm/{farm.id}?include_inactive=true")
+        assert [x["name"] for x in kept.json()] == ["Old Boy"]
+
+
+async def test_insemination_rejects_a_bull_from_another_farm(db, api):
+    """Accepting one would silently corrupt per-bull conception figures."""
+    mine = await _farm(db)
+    theirs = await _farm(db)
+    cow = await _cow(db, mine, status=CowStatus.open)
+    async with api(role="admin") as client:
+        foreign = (await client.post(f"/bulls/farm/{theirs.id}", json={"name": "Foreign"})).json()["id"]
+        resp = await client.post("/inseminations/", json={
+            "cow_id": str(cow.id), "date": f"{TODAY}T09:00:00",
+            "bull_name": "Foreign", "bull_id": foreign,
+        })
+    assert resp.status_code == 422, resp.text
+
+
+async def test_insemination_records_the_code_and_the_bull(db, api):
+    farm = await _farm(db)
+    cow = await _cow(db, farm, status=CowStatus.open)
+    async with api(role="admin") as client:
+        bull_id = (await client.post(f"/bulls/farm/{farm.id}", json={"name": "Mogul"})).json()["id"]
+        resp = await client.post("/inseminations/", json={
+            "cow_id": str(cow.id), "date": f"{TODAY}T09:00:00",
+            "bull_name": "Mogul", "bull_id": bull_id, "insemination_code": "AI-77",
+        })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["insemination_code"] == "AI-77"
+    assert resp.json()["bull_id"] == bull_id
+
+
+@pytest.mark.parametrize("status,calved,milking", [
+    (CowStatus.fresh, True, True),
+    (CowStatus.pregnant, True, True),    # milks until dry-off at day 223
+    (CowStatus.dry, True, False),        # day 223-283: no milking
+    (CowStatus.heifer, False, False),    # never calved, never milked
+    (CowStatus.open, False, False),      # no calving on record yet
+    (CowStatus.cull, True, False),
+])
+def test_milking_follows_the_spec_milk_cycle(status, calved, milking):
+    """Master Structure: milk from calving to day 223, none until she calves
+    again, and a heifer never milks. Derived, so it cannot drift from status."""
+    cow = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag="T", lactation_number=1,
+              status=status,
+              last_calving_date=TODAY - timedelta(days=40) if calved else None)
+    assert status_engine.is_milking(cow) is milking

@@ -148,6 +148,15 @@ export default function FarmProfileScreen() {
               style={styles.flex1}
             />
           )}
+          {(role === 'admin' || role === 'technician') && (
+            <Button
+              variant="secondary"
+              label="Bulls"
+              icon="flask-outline"
+              onPress={() => router.push({ pathname: '/farm/bulls', params: { id: farm.id } })}
+              style={styles.flex1}
+            />
+          )}
           {role === 'admin' && (
             <Button
               variant="secondary"
@@ -167,6 +176,8 @@ export default function FarmProfileScreen() {
             <InfoRow label="Phone" value={farm.phone} />
             <InfoRow label="Email" value={farm.email} />
             <InfoRow label="Tracked Cows" value={summary.total} />
+            <InfoRow label="Milking" value={summary.milking} />
+            <InfoRow label="Not Milking (dry)" value={summary.dry} />
             <InfoRow label="Active (non-cull)" value={summary.total - summary.cull} />
             <InfoRow label="Reported Herd Size" value={farm.reportedHerdSize} hideIfEmpty />
             <InfoRow label="Technician" value={farm.assignedTechnician} hideIfEmpty />

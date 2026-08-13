@@ -174,6 +174,35 @@ class FarmVisitAssignment(Base):
     farm: Mapped["Farm"] = relationship("Farm", back_populates="visit_assignments")
 
 
+class Bull(Base):
+    """A bull on a farm's semen list.
+
+    Per-farm, not global: the spec says the cow is inseminated "with semen
+    selected by farmer", and semen is bought and held by the farm. Full
+    inventory tracking is listed as a future enhancement, so this is only the
+    pick list — no straw counts.
+
+    Recording an insemination still accepts a free-text bull name, so a straw
+    that is not on the list never blocks the technician mid-visit.
+    """
+
+    __tablename__ = "bulls"
+    __table_args__ = (UniqueConstraint("farm_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    farm_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("farms.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    # Industry/stud code, e.g. "7HO14454"
+    code: Mapped[Optional[str]] = mapped_column(String)
+    semen_type: Mapped[Optional[SemenType]] = mapped_column(Enum(SemenType, name="semen_type"))
+    # Retired bulls stay for history but drop off the picker.
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
 class Cow(Base):
     __tablename__ = "cows"
     __table_args__ = (
@@ -231,8 +260,14 @@ class Insemination(Base):
     date: Mapped[date_type] = mapped_column(Date, nullable=False)
     # Full date+time the insemination was performed (date column keeps the farm-local date).
     inseminated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # bull_name is kept as the recorded text (and for straws off the list);
+    # bull_id links to the farm's list when the technician picked from it.
     bull_name: Mapped[Optional[str]] = mapped_column(String)
+    bull_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("bulls.id"))
     dose_id: Mapped[Optional[str]] = mapped_column(String)
+    # "Insemination Code" (Programs.md). The spec gives no format, so it is a
+    # free-text reference the technician records alongside the dose.
+    insemination_code: Mapped[Optional[str]] = mapped_column(String)
     semen_type: Mapped[Optional[SemenType]] = mapped_column(Enum(SemenType, name="semen_type"))
     technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     attempt_number: Mapped[int] = mapped_column(Integer, default=1)

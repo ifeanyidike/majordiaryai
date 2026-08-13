@@ -33,7 +33,9 @@ _NON_NULLABLE_FIELDS = {"lactation_number", "status"}
 
 def _cow_dict(cow: Cow, farm_name=None) -> dict:
     return {**{c.key: getattr(cow, c.key) for c in cow.__table__.columns},
-            "farm_name": farm_name}
+            "farm_name": farm_name,
+            # Derived from status + calving (see status_engine.is_milking).
+            "is_milking": status_engine.is_milking(cow)}
 
 
 @router.get("/", response_model=List[CowOut])

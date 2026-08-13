@@ -156,9 +156,19 @@ async def herd_summary(
         n_conceived = conceptions.get(fid, 0)
         breeding_herd = (row["open"] + row["needling"] + row["inseminated"]
                          + row["pregnant"] + row["dry"] + row["fresh"])
-        row["pregnancy_rate"] = (
+        # ASSUMPTION (unanswered by the specs — flagged for the client): this
+        # is the SNAPSHOT share of the breeding herd currently pregnant, not the
+        # industry 21-day pregnancy rate ("how fast are cows getting pregnant").
+        # The two differ substantially; the field name says which this is.
+        row["pregnancy_rate_snapshot"] = (
             round((row["pregnant"] + row["dry"]) / breeding_herd, 3) if breeding_herd else None
         )
+        # Kept so existing clients do not break while they migrate to the
+        # explicit name above.
+        row["pregnancy_rate"] = row["pregnancy_rate_snapshot"]
+        # Milk Cycle (Master Structure): in milk from calving until dry-off.
+        row["milking"] = row["fresh"] + row["open"] + row["needling"] + row["inseminated"] + row["pregnant"]
+        row["not_milking"] = row["dry"]
         row["conception_rate"] = round(n_conceived / n_checked, 3) if n_checked else None
         row["services_per_conception"] = (
             round(n_services / n_conceived, 2) if n_conceived else None

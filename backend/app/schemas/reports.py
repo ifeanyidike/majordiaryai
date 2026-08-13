@@ -19,8 +19,15 @@ class HerdSummary(BaseModel):
     cull: int
     sold: int
     dead: int
+    # Milk Cycle (Master Structure): milking from calving until dry-off.
+    milking: int = 0
+    not_milking: int = 0
     # KPIs
+    # ASSUMPTION, unconfirmed: "pregnancy rate" here is the SNAPSHOT share of
+    # the breeding herd currently pregnant — NOT the industry 21-day rate. Both
+    # names carry the same value until the client confirms which they want.
     pregnancy_rate: Optional[float] = None
+    pregnancy_rate_snapshot: Optional[float] = None
     conception_rate: Optional[float] = None
     services_per_conception: Optional[float] = None
     upcoming_calvings_30d: int = 0

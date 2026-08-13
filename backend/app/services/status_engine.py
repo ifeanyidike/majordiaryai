@@ -84,6 +84,24 @@ def ensure_transition(cow: Cow, new_status: CowStatus) -> None:
         )
 
 
+# Master Structure, "Milk Cycle": milk runs from calving to day 223, stops
+# until she calves again, and a heifer never milks. Those are exactly the
+# statuses below, so milking is DERIVED — storing a flag would be a second
+# source of truth that drifts from status.
+NON_MILKING_STATUSES = {
+    CowStatus.dry, CowStatus.calf, CowStatus.heifer,
+    CowStatus.cull, CowStatus.sold, CowStatus.dead,
+}
+
+
+def is_milking(cow: Cow) -> bool:
+    """True when this cow is currently in milk."""
+    if cow.status in NON_MILKING_STATUSES:
+        return False
+    # She only milks once she has actually calved.
+    return cow.last_calving_date is not None
+
+
 def heat_check_timing_error(days_since: int, has_signal: bool) -> Optional[str]:
     """Why a heat check at `days_since` post-AI is not accepted, or None if it is.
 

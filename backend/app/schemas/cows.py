@@ -44,6 +44,8 @@ class CowUpdate(BaseModel):
 
 
 class CowOut(BaseModel):
+    # Derived: in milk from calving until dry-off (Master Structure, Milk Cycle)
+    is_milking: bool = False
     id: UUID
     ear_tag: str
     farm_id: UUID

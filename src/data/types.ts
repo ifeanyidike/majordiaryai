@@ -35,6 +35,8 @@ export interface Cow {
   cullReason?: string;
   daysInMilk: number;
   daysOpen: number;
+  /** Derived server-side: in milk from calving until dry-off. */
+  isMilking?: boolean;
   history: {
     inseminations: HistoryEvent[];
     pregnancyChecks: HistoryEvent[];
@@ -198,4 +200,15 @@ export interface VisitAssignment {
   assignedTechnicianId?: string;  // undefined = visit explicitly skipped
   assignedTechnicianName?: string;
   reason?: string;
+}
+
+/** A bull on a farm's semen list (the spec's "Bull Selection"). */
+export interface Bull {
+  id: string;
+  farmId: string;
+  name: string;
+  code?: string;
+  semenType?: 'sexed' | 'conventional' | 'beef';
+  active: boolean;
+  notes?: string;
 }

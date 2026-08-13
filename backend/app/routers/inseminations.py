@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import ensure_aware, local_today, to_local_date
-from app.models.models import Insemination, NeedlingEnrollment
+from app.models.models import Bull, Insemination, NeedlingEnrollment
 from app.services.protocols import TIMED_AI_PROTOCOLS
 from app.services.worklists import pending_final_record_stmt
 from app.schemas.inseminations import InseminationCreate, InseminationOut
@@ -45,6 +45,14 @@ async def record_insemination(
             detail=f"Cannot inseminate a cow with status '{cow.status.value}'",
         )
 
+    # A bull from another farm's list would silently corrupt per-bull analytics.
+    if body.bull_id is not None:
+        bull = await db.get(Bull, body.bull_id)
+        if bull is None or bull.farm_id != cow.farm_id:
+            raise HTTPException(
+                status_code=422, detail="bull_id is not on this cow's farm bull list"
+            )
+
     insemination_date = to_local_date(body.date)
     if insemination_date > local_today():
         raise HTTPException(status_code=422, detail="Insemination date cannot be in the future")
@@ -59,7 +67,9 @@ async def record_insemination(
         date=insemination_date,
         inseminated_at=ensure_aware(body.date),
         bull_name=body.bull_name,
+        bull_id=body.bull_id,
         dose_id=body.dose_id,
+        insemination_code=body.insemination_code,
         semen_type=body.semen_type,
         notes=body.notes,
         attempt_number=(prior_attempts or 0) + 1,

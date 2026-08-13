@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.services import scheduler
 from app.routers import (
     users, farms, cows, inseminations, needling, checks, calving,
-    reports, vets, vaccinations, notifications, admin, imports,
+    reports, vets, vaccinations, notifications, admin, imports, bulls,
 )
 
 logging.basicConfig(
@@ -75,6 +75,7 @@ app.include_router(vets.router,           prefix="/vets",           tags=["vets"
 app.include_router(notifications.router,  prefix="/notifications",  tags=["notifications"])
 app.include_router(admin.router,          prefix="/admin",          tags=["admin"])
 app.include_router(imports.router,        prefix="/imports",        tags=["imports"])
+app.include_router(bulls.router,          prefix="/bulls",          tags=["bulls"])
 
 
 @app.get("/health")

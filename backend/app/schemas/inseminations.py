@@ -13,7 +13,11 @@ class InseminationCreate(BaseModel):
     cow_id: UUID
     date: datetime  # date AND time of the insemination
     bull_name: Optional[str] = None
+    # Set when the technician picked from the farm's bull list; bull_name still
+    # carries the text so a straw that is not on the list is still recordable.
+    bull_id: Optional[UUID] = None
     dose_id: Optional[str] = None
+    insemination_code: Optional[str] = None
     semen_type: Optional[SemenType] = None
     notes: Optional[str] = None
 
@@ -24,7 +28,9 @@ class InseminationOut(BaseModel):
     date: date
     inseminated_at: Optional[datetime] = None
     bull_name: Optional[str] = None
+    bull_id: Optional[UUID] = None
     dose_id: Optional[str] = None
+    insemination_code: Optional[str] = None
     semen_type: Optional[str] = None
     technician_id: Optional[UUID] = None
     attempt_number: int

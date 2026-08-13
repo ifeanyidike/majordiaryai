@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -20,6 +20,7 @@ import { isPreferredStartDay, PROTOCOLS, protocolByValue } from '@/data/protocol
 import { Role as UserRole, useAuthStore } from '@/store/useAuthStore';
 import { colors, radius, shadows, spacing, typography } from '@/theme';
 import { Cow, CowStatus } from '@/data/types';
+import { useAppStore } from '@/store/useAppStore';
 
 // ── helpers ──────────────────────────────────────────────────
 
@@ -274,13 +275,24 @@ export function InseminationForm({
   // is exactly when she is closest to insemination.
   const canBleed = cow.status === 'needling';
   const toast = useToast();
+  const { bulls, fetchBulls, cows } = useAppStore();
+  // RecordTarget has no farmId, so resolve it from the loaded cow.
+  const farmId = cows.find((c) => c.id === cow.id)?.farmId;
+  const farmBulls = (farmId ? bulls[farmId] : undefined) ?? [];
+  useEffect(() => {
+    if (farmId) fetchBulls(farmId);
+  }, [farmId]);
   // Bleeding can be recorded on ANY protocol day, including the final one.
   // Bleeding means no insemination: the cow goes Open and restarts on Ovsynch.
   const [bleeding, setBleeding] = useState(false);
   const [date, setDate] = useState(todayISO());
   const [time, setTime] = useState(nowTime());
   const [bull, setBull] = useState('');
+  // Set when the technician picked from the farm's list; free text still works
+  // so a straw that is not listed never blocks the visit.
+  const [bullId, setBullId] = useState<string | undefined>();
   const [doseId, setDoseId] = useState('');
+  const [inseminationCode, setInseminationCode] = useState('');
   const [semenType, setSemenType] = useState<'sexed' | 'conventional' | 'beef' | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
@@ -318,7 +330,9 @@ export function InseminationForm({
         cow_id: cow.id,
         date: `${date}T${time}:00`,
         bull_name: bull.trim(),
+        bull_id: bullId ?? null,
         dose_id: doseId.trim() || null,
+        insemination_code: inseminationCode.trim() || null,
         semen_type: semenType,
         notes: notes.trim() || null,
       });
@@ -363,7 +377,37 @@ export function InseminationForm({
         <>
           <DateTimeFields date={date} time={time} onDate={setDate} onTime={setTime} dateLabel="Insemination Date" />
           <FormLabel>Bull Name</FormLabel>
-          <FormInput value={bull} onChangeText={setBull} placeholder="Required" />
+          {farmBulls.length > 0 && (
+            <View style={styles.bullRow}>
+              {farmBulls.map((b) => {
+                const on = bullId === b.id;
+                return (
+                  <Pressable
+                    key={b.id}
+                    onPress={() => {
+                      // Picking fills the name too, so what is stored matches
+                      // what the technician saw.
+                      setBullId(on ? undefined : b.id);
+                      setBull(on ? '' : b.name);
+                      if (!on && b.semenType) setSemenType(b.semenType);
+                    }}
+                    style={[styles.bullChip, on && styles.bullChipOn]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <Text variant="caption" color={on ? colors.primary : colors.textSecondary}>
+                      {b.name}{b.code ? ` · ${b.code}` : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+          <FormInput
+            value={bull}
+            onChangeText={(t) => { setBull(t); setBullId(undefined); }}
+            placeholder={farmBulls.length ? 'Pick above, or type another' : 'Required'}
+          />
           <FormLabel>Semen Type</FormLabel>
           <SegmentedControl
             options={[
@@ -377,6 +421,12 @@ export function InseminationForm({
           />
           <FormLabel>Dose ID</FormLabel>
           <FormInput value={doseId} onChangeText={setDoseId} placeholder="Optional" />
+          <FormLabel>Insemination Code</FormLabel>
+          <FormInput
+            value={inseminationCode}
+            onChangeText={setInseminationCode}
+            placeholder="Optional"
+          />
         </>
       )}
       <FormLabel>Notes</FormLabel>
@@ -1338,6 +1388,16 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginTop: spacing.md,
   },
+  bullRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm },
+  bullChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  bullChipOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   flex1: { flex: 1 },
   flex2: { flex: 2 },
 });
