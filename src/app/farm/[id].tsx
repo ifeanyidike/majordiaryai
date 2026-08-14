@@ -78,6 +78,29 @@ export default function FarmProfileScreen() {
     { icon: 'create', label: 'Note', onPress: () => setNoteOpen(true) },
   ];
 
+  const canManage = role === 'admin' || role === 'technician';
+  const manageActions: {
+    label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void;
+  }[] = [
+    ...(canManage ? [
+      {
+        label: 'Visits',
+        icon: 'calendar-outline' as const,
+        onPress: () => router.push({ pathname: '/farm/visits' as const, params: { id: farm.id } }),
+      },
+      {
+        label: 'Bulls',
+        icon: 'flask-outline' as const,
+        onPress: () => router.push({ pathname: '/farm/bulls' as const, params: { id: farm.id } }),
+      },
+    ] : []),
+    ...(role === 'admin' ? [{
+      label: 'Edit',
+      icon: 'create-outline' as const,
+      onPress: () => router.push({ pathname: '/farm/edit' as const, params: { id: farm.id } }),
+    }] : []),
+  ];
+
   const addressLine = [farm.address, farm.city, farm.province, farm.postalCode]
     .filter(Boolean)
     .join(', ');
@@ -132,39 +155,30 @@ export default function FarmProfileScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(220).duration(500)} style={styles.actionRow}>
+        {/* "View Herd" is the job; the rest are management. Four equal buttons
+            in one row squeezed every label — primary first, then a wrapping
+            row of compact actions that stays readable at any role. */}
+        <Animated.View entering={FadeInUp.delay(220).duration(500)}>
           <Button
             label="View Herd"
             icon="list"
             onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
-            style={styles.flex1}
+            style={styles.primaryAction}
           />
-          {(role === 'admin' || role === 'technician') && (
-            <Button
-              variant="secondary"
-              label="Visits"
-              icon="calendar-outline"
-              onPress={() => router.push({ pathname: '/farm/visits', params: { id: farm.id } })}
-              style={styles.flex1}
-            />
-          )}
-          {(role === 'admin' || role === 'technician') && (
-            <Button
-              variant="secondary"
-              label="Bulls"
-              icon="flask-outline"
-              onPress={() => router.push({ pathname: '/farm/bulls', params: { id: farm.id } })}
-              style={styles.flex1}
-            />
-          )}
-          {role === 'admin' && (
-            <Button
-              variant="secondary"
-              label="Edit"
-              icon="create-outline"
-              onPress={() => router.push({ pathname: '/farm/edit', params: { id: farm.id } })}
-              style={styles.flex1}
-            />
+          {manageActions.length > 0 && (
+            <View style={styles.manageRow}>
+              {manageActions.map((a) => (
+                <Button
+                  key={a.label}
+                  compact
+                  variant="secondary"
+                  label={a.label}
+                  icon={a.icon}
+                  onPress={a.onPress}
+                  style={styles.manageBtn}
+                />
+              ))}
+            </View>
           )}
         </Animated.View>
 
@@ -293,7 +307,15 @@ export default function FarmProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  actionRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.lg },
+  primaryAction: { marginBottom: spacing.sm },
+  manageRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  // grow to fill, but wrap rather than squeeze a label past legibility
+  manageBtn: { flexGrow: 1, flexBasis: '30%', minWidth: 104 },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   heroText: { flex: 1, gap: 2 },
   chipsRow: {

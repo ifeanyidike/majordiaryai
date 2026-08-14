@@ -148,19 +148,21 @@ export default function VetProfileScreen() {
 
         <Animated.View entering={FadeInUp.delay(360).duration(500)} style={styles.footerRow}>
           <Button
+            compact
             variant="secondary"
             label="View Reports"
             icon="bar-chart-outline"
             onPress={() => router.push('/(tabs)/reports')}
-            style={styles.flex1}
+            style={styles.footerBtn}
           />
           {role === 'admin' && (
             <Button
+              compact
               variant="secondary"
               label="Edit Vet"
               icon="create-outline"
               onPress={() => router.push({ pathname: '/vet/edit', params: { id: vet.id } })}
-              style={styles.flex1}
+              style={styles.footerBtn}
             />
           )}
         </Animated.View>
@@ -185,6 +187,11 @@ const styles = StyleSheet.create({
   },
   statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
   infoCard: { paddingVertical: spacing.sm },
-  footerRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
-  flex1: { flex: 1 },
+  footerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  footerBtn: { flexGrow: 1, flexBasis: '45%', minWidth: 140 },
 });
