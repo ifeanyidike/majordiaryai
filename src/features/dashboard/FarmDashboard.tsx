@@ -91,7 +91,16 @@ export function FarmDashboard() {
         <Animated.View entering={FadeInDown.delay(120).duration(500)} style={styles.chipsRow}>
           <PressableScale
             style={styles.chip}
-            onPress={() => toast.show('Contact your technician through the farm portal', 'construct')}
+            onPress={() =>
+              farm.assignedTechnicianPhone
+                ? dial(farm.assignedTechnicianPhone)
+                : toast.show(
+                    farm.assignedTechnician
+                      ? `${farm.assignedTechnician} has no phone number on file`
+                      : 'No technician is assigned to your farm yet',
+                    'construct',
+                  )
+            }
             accessibilityRole="button"
             accessibilityLabel="Contact technician"
           >
@@ -187,7 +196,17 @@ export function FarmDashboard() {
         <SectionHeader title="Your Team" />
         <Animated.View entering={FadeInUp.delay(310).duration(500)}>
           <Card style={styles.teamCard}>
-            <View style={styles.teamRow}>
+            <PressableScale
+              style={styles.teamRow}
+              onPress={() => farm.assignedTechnicianPhone && dial(farm.assignedTechnicianPhone)}
+              disabled={!farm.assignedTechnicianPhone}
+              accessibilityRole="button"
+              accessibilityLabel={
+                farm.assignedTechnicianPhone
+                  ? `Call ${farm.assignedTechnician}`
+                  : 'Technician contact unavailable'
+              }
+            >
               <IconCircle name="construct" size={40} />
               <View style={styles.teamText}>
                 <Text variant="bodyBold">
@@ -195,9 +214,13 @@ export function FarmDashboard() {
                 </Text>
                 <Text variant="caption" color={colors.textSecondary}>
                   Reproduction Technician
+                  {farm.assignedTechnicianPhone ? ` · ${farm.assignedTechnicianPhone}` : ''}
                 </Text>
               </View>
-            </View>
+              {farm.assignedTechnicianPhone ? (
+                <Ionicons name="call" size={18} color={colors.primary} />
+              ) : null}
+            </PressableScale>
             {vet ? (
               <PressableScale
                 style={[styles.teamRow, styles.teamDivider]}

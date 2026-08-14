@@ -118,6 +118,16 @@ export default function SettingsScreen() {
             />
           </View>
         ) : null}
+        {user?.role === 'admin' ? (
+          <View style={styles.divided}>
+            <Row
+              icon="people-outline"
+              label="People"
+              hint="Set roles and assign a farm manager to their farm"
+              onPress={() => router.push('/users')}
+            />
+          </View>
+        ) : null}
       </Card>
 
       <SectionHeader title="About" />

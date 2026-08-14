@@ -45,6 +45,9 @@ export function AdminDashboard() {
     { label: 'Reports', caption: 'System-wide', icon: 'bar-chart', onPress: () => router.push('/(tabs)/reports') },
     { label: 'Cow Search', caption: `${summary.total} cows`, icon: 'search', onPress: () => router.push('/cow-search') },
     { label: 'Veterinarians', caption: `${vets.length} partners`, icon: 'medkit', onPress: () => router.push('/vets') },
+    // Roles and farm assignment live here — it is the only way to make a Farm
+    // Manager, so it belongs on the admin's front screen, not buried.
+    { label: 'People', caption: 'Roles & access', icon: 'people', onPress: () => router.push('/users') },
   ];
 
   const kpiRow = [

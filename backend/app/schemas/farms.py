@@ -67,6 +67,7 @@ class FarmOut(BaseModel):
     assigned_technician_id: Optional[UUID] = None
     # resolved name of the assigned technician (for display; id above is the FK)
     assigned_technician_name: Optional[str] = None
+    assigned_technician_phone: Optional[str] = None
     visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
     # Human label for the schedule, e.g. "Mon–Sat"
     visit_schedule_label: Optional[str] = None
@@ -92,4 +93,5 @@ class VisitAssignmentOut(BaseModel):
     visit_date: date
     assigned_technician_id: Optional[UUID] = None
     assigned_technician_name: Optional[str] = None
+    assigned_technician_phone: Optional[str] = None
     reason: Optional[str] = None

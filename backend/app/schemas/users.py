@@ -21,6 +21,22 @@ class UserUpdate(BaseModel):
     region: Optional[str] = None
 
 
+class UserAdminUpdate(BaseModel):
+    """What an admin may change about ANOTHER user.
+
+    Separate from UserUpdate (self-service) because role and farm assignment are
+    exactly the fields a user must not be able to grant themselves.
+    """
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    employee_id: Optional[str] = None
+    region: Optional[str] = None
+    role: Optional[UserRole] = None
+    # Which farm a Farm Manager belongs to. Meaningless for other roles, and
+    # cleared automatically when the role changes away from `farm`.
+    farm_id: Optional[UUID] = None
+
+
 class UserOut(BaseModel):
     # Allow serialization straight from an ORM User object.
     model_config = ConfigDict(from_attributes=True)
@@ -33,4 +49,6 @@ class UserOut(BaseModel):
     employee_id: Optional[str] = None
     region: Optional[str] = None
     farm_id: Optional[UUID] = None
+    # Resolved for display so an admin sees "Green Valley Dairy", not a UUID.
+    farm_name: Optional[str] = None
     created_at: datetime

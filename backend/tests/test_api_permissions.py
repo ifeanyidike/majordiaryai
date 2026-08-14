@@ -418,3 +418,64 @@ def test_milking_follows_the_spec_milk_cycle(status, calved, milking):
               status=status,
               last_calving_date=TODAY - timedelta(days=40) if calved else None)
     assert status_engine.is_milking(cow) is milking
+
+
+# ── Making a Farm Manager (there was previously no way at all) ───────
+
+async def test_admin_can_assign_a_role_and_a_farm(db, api):
+    """Signup refuses the admin role and ignores farm_id, so this endpoint is
+    the only way an account becomes a Farm Manager attached to a farm."""
+    farm = await _farm(db)
+    target = uuid.uuid4()
+    db.add(User(id=target, name="New Person", email=f"{uuid.uuid4().hex[:8]}@t.local",
+                role=UserRole.technician))
+    await db.flush()
+
+    async with api(role="admin") as client:
+        resp = await client.patch(
+            f"/users/{target}", json={"role": "farm", "farm_id": str(farm.id)}
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["role"] == "farm"
+    assert body["farm_id"] == str(farm.id)
+    assert body["farm_name"] == farm.name
+
+
+async def test_farm_is_cleared_when_the_role_is_no_longer_farm_manager(db, api):
+    """A technician carrying a farm_id would scope confusingly — the field only
+    means something for a Farm Manager."""
+    farm = await _farm(db)
+    target = uuid.uuid4()
+    db.add(User(id=target, name="Moved On", email=f"{uuid.uuid4().hex[:8]}@t.local",
+                role=UserRole.farm, farm_id=farm.id))
+    await db.flush()
+
+    async with api(role="admin") as client:
+        resp = await client.patch(f"/users/{target}", json={"role": "technician"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["farm_id"] is None
+
+
+async def test_an_admin_cannot_demote_themselves(db, api):
+    """The last admin demoting themselves would lock everyone out of role
+    management permanently, with no way back in through the app."""
+    me = uuid.uuid4()
+    db.add(User(id=me, name="Only Admin", email=f"{uuid.uuid4().hex[:8]}@t.local",
+                role=UserRole.admin))
+    await db.flush()
+
+    async with api(role="admin", user_id=me) as client:
+        resp = await client.patch(f"/users/{me}", json={"role": "technician"})
+    assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.parametrize("role", ["technician", "farm", "vet"])
+async def test_only_admins_may_change_roles(db, api, role):
+    target = uuid.uuid4()
+    db.add(User(id=target, name="T", email=f"{uuid.uuid4().hex[:8]}@t.local",
+                role=UserRole.technician))
+    await db.flush()
+    async with api(role=role) as client:
+        resp = await client.patch(f"/users/{target}", json={"role": "admin"})
+    assert resp.status_code == 403, resp.text

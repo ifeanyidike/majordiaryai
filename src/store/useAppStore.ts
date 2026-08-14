@@ -22,6 +22,7 @@ interface ApiFarm {
   phone: string; email: string;
   herd_size: number; cow_count?: number;
   assigned_technician_id?: string; assigned_technician_name?: string | null;
+  assigned_technician_phone?: string | null;
   visit_weekdays?: number[]; visit_schedule_label?: string | null;
   notes?: string | null;
 }
@@ -147,6 +148,7 @@ function mapFarm(f: ApiFarm): Farm {
     // Display the technician's name, not the raw user id.
     assignedTechnician: f.assigned_technician_name ?? '',
     assignedTechnicianId: f.assigned_technician_id ?? undefined,
+    assignedTechnicianPhone: f.assigned_technician_phone ?? undefined,
     visitWeekdays: f.visit_weekdays ?? [0, 1, 2, 3, 4, 5],
     visitScheduleLabel: f.visit_schedule_label ?? undefined,
     vetId: '', upcomingActivities: [],
@@ -375,6 +377,13 @@ interface AppState {
   /** Technicians available to assign to a farm (admin only endpoint). */
   technicians: StaffUser[];
   fetchTechnicians: () => Promise<void>;
+  /** Every account (admin only) — the People screen. */
+  staff: StaffUser[];
+  staffLoading: boolean;
+  fetchStaff: () => Promise<void>;
+  updateStaffUser: (
+    userId: string, patch: { role?: string; farmId?: string },
+  ) => Promise<void>;
   addFarmNote: (farmId: string, note: string) => void;
   reset: () => void;
 }
@@ -430,6 +439,8 @@ const initialData = {
   worklist: null as Worklist | null,
   worklistFetchedOn: null as string | null,
   technicians: [] as StaffUser[],
+  staff: [] as StaffUser[],
+  staffLoading: false,
   visitAssignments: {} as Record<string, VisitAssignment[]>,
   bulls: {} as Record<string, Bull[]>,
   notifications: [] as AppNotification[],
@@ -782,6 +793,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     await api.delete(`/farms/${farmId}/visit-assignments/${visitDate}`);
     await get().fetchVisitAssignments(farmId);
     await get().fetchWorklist();
+  },
+
+  fetchStaff: async () => {
+    if (!isApiConfigured) {
+      set({ staff: [] });
+      return;
+    }
+    set({ staffLoading: true });
+    try {
+      const raw = await api.get<any[]>('/users/');
+      set({
+        staff: raw.map((u) => ({
+          id: u.id, name: u.name, email: u.email, role: u.role,
+          farmId: u.farm_id ?? undefined,
+          farmName: u.farm_name ?? undefined,
+          phone: u.phone ?? undefined,
+        })),
+        staffLoading: false,
+      });
+    } catch {
+      set({ staffLoading: false });
+    }
+  },
+
+  updateStaffUser: async (userId, patch) => {
+    await api.patch(`/users/${userId}`, {
+      ...(patch.role !== undefined ? { role: patch.role } : {}),
+      // Explicit null clears the farm when the role is no longer Farm Manager.
+      ...(patch.role === 'farm' ? { farm_id: patch.farmId ?? null } : { farm_id: null }),
+    });
+    await get().fetchStaff();
+    // A farm manager's scope changed, so anything farm-scoped may differ.
+    await get().fetchFarms();
   },
 
   fetchTechnicians: async () => {

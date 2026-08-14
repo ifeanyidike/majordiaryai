@@ -37,6 +37,8 @@ def _with_counts(stmt):
             # Resolve the assigned technician's name so clients show a name,
             # not a raw user id. max() avoids adding it to GROUP BY (one tech/farm).
             func.max(User.name).label("assigned_technician_name"),
+            # The farm portal's "Technician" action needs something to dial.
+            func.max(User.phone).label("assigned_technician_phone"),
         )
         .outerjoin(Cow, Cow.farm_id == Farm.id)
         .outerjoin(User, User.id == Farm.assigned_technician_id)
@@ -52,6 +54,7 @@ def _row_to_dict(row):
     d["pregnant_count"] = row.pregnant_count
     d["open_count"] = row.open_count
     d["assigned_technician_name"] = row.assigned_technician_name
+    d["assigned_technician_phone"] = row.assigned_technician_phone
     return d
 
 

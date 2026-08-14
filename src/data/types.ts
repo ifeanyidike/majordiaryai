@@ -63,6 +63,7 @@ export interface Farm {
   assignedTechnician: string;
   /** FK for editing; `assignedTechnician` above is the resolved display name. */
   assignedTechnicianId?: string;
+  assignedTechnicianPhone?: string;
   /** Weekdays this farm is visited, Mon=0 … Sun=6 (5-day = Mon–Fri). */
   visitWeekdays: number[];
   /** Display label for the schedule, e.g. "Mon–Sat". */
@@ -191,6 +192,10 @@ export interface StaffUser {
   name: string;
   email: string;
   role: string;
+  /** Which farm a Farm Manager belongs to — without it they see nothing. */
+  farmId?: string;
+  farmName?: string;
+  phone?: string;
 }
 
 /** A day-level override of who visits a farm (relief technician cover). */
