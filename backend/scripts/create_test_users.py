@@ -84,6 +84,18 @@ async def main() -> int:
     parser.add_argument("--password", default=DEFAULT_PASSWORD)
     args = parser.parse_args()
 
+    import os
+    if os.getenv("ALLOW_TEST_USERS") != "1":
+        print(
+            "REFUSING TO RUN: this creates known-password accounts INCLUDING A "
+            "FULL ADMIN.\n"
+            f"It would run against {settings.supabase_url}.\n\n"
+            "If that is a disposable environment, re-run with:\n"
+            "    ALLOW_TEST_USERS=1 .venv/bin/python -m scripts.create_test_users",
+            file=sys.stderr,
+        )
+        return 1
+
     if not settings.supabase_service_key or not settings.supabase_url:
         print("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.", file=sys.stderr)
         return 1

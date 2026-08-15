@@ -11,6 +11,8 @@ They drive the real service functions, not re-implementations.
 from datetime import date
 
 import pytest
+
+from app.core.timeutils import local_today
 from sqlalchemy import select
 
 from app.models.models import (
@@ -22,7 +24,9 @@ from app.services.worklists import (
     pending_final_record_stmt, timed_breeding_stmt,
 )
 
-TODAY = date.today()
+# The app computes 'today' in the farm timezone; using the machine's
+# UTC date made boundary tests flake on CI between 00:00 and 04:00.
+TODAY = local_today()
 
 FINAL_TODAY = (10, 0, "2cc GnRH + Insemination", True, False)
 PGF_FINAL_TODAY = (5, 0, "Heat Observation + Insemination if in heat", True, False)

@@ -380,11 +380,12 @@ interface AppState {
   /** Every account (admin only) — the People screen. */
   staff: StaffUser[];
   staffLoading: boolean;
+  staffError: string | null;
   fetchStaff: () => Promise<void>;
   updateStaffUser: (
     userId: string, patch: { role?: string; farmId?: string },
   ) => Promise<void>;
-  addFarmNote: (farmId: string, note: string) => void;
+  addFarmNote: (farmId: string, note: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -441,6 +442,7 @@ const initialData = {
   technicians: [] as StaffUser[],
   staff: [] as StaffUser[],
   staffLoading: false,
+  staffError: null as string | null,
   visitAssignments: {} as Record<string, VisitAssignment[]>,
   bulls: {} as Record<string, Bull[]>,
   notifications: [] as AppNotification[],
@@ -501,16 +503,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!isApiConfigured) return;
     try {
       const raw = await api.get<ApiCow>(`/cows/${id}`);
-      const updated = mapCow(raw);
+      const fresh = mapCow(raw);
       set((s) => ({
-        cows: s.cows.map((c) =>
-          c.id === id
-            ? { ...updated, history: c.history } // keep loaded history
-            : c,
-        ),
+        // map() silently dropped a cow that was not already loaded, so a deep
+        // link to a newly created cow dead-ended on "Cow not found".
+        cows: s.cows.some((c) => c.id === fresh.id)
+          ? s.cows.map((c) => (c.id === fresh.id ? { ...c, ...fresh, history: c.history } : c))
+          : [...s.cows, fresh],
       }));
     } catch {
-      // non-fatal: profile keeps showing the cached cow
+      // Leave whatever is cached; the screen shows its own error state.
     }
   },
 
@@ -800,7 +802,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ staff: [] });
       return;
     }
-    set({ staffLoading: true });
+    set({ staffLoading: true, staffError: null });
     try {
       const raw = await api.get<any[]>('/users/');
       set({
@@ -812,8 +814,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
         staffLoading: false,
       });
-    } catch {
-      set({ staffLoading: false });
+    } catch (e: any) {
+      // An empty list here reads as "no accounts exist", which is a different
+      // and much more alarming statement than "could not load".
+      set({ staffLoading: false, staffError: e?.message ?? 'Could not load people' });
     }
   },
 
@@ -844,10 +848,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  addFarmNote: (farmId, note) =>
-    set((s) => ({
-      farms: s.farms.map((f) => (f.id === farmId ? { ...f, notes: [note, ...(f.notes ?? [])] } : f)),
-    })),
+  addFarmNote: async (farmId, note) => {
+    // Was local-only: it toasted success and the next refetch erased the note.
+    // farms.notes is a single text column, so notes append into it.
+    const farm = get().farms.find((f) => f.id === farmId);
+    const existing = farm?.notes?.[0];
+    const merged = existing ? `${note}\n${existing}` : note;
+    if (!isApiConfigured) {
+      set((s) => ({
+        farms: s.farms.map((f) => (f.id === farmId ? { ...f, notes: [merged] } : f)),
+      }));
+      return;
+    }
+    await api.patch(`/farms/${farmId}`, { notes: merged });
+    await get().fetchFarms();
+  },
 
   reset: () => set({ ...initialData, demoMode: !isApiConfigured }),
 }));

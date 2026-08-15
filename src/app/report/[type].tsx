@@ -15,7 +15,7 @@ import {
 import { colors, radius, shadows, spacing } from '@/theme';
 import { emptyReport, knownReportType } from '@/data/reports';
 import { WorklistCow } from '@/data/types';
-import { farmWorklist, reportFromWorklist, useAppStore } from '@/store/useAppStore';
+import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/store/useAppStore';
 
 /**
  * Layer 3 — the report itself: every cow on it, the exact action for each, and
@@ -60,8 +60,17 @@ export default function ReportDetailScreen() {
 
   // A farm handed to someone else today is reference, not work — recording on
   // it would double-enter against whoever is actually covering the visit.
-  const reassignedAway =
-    farm != null && (farm.schedule === 'reassigned' || farm.schedule === 'skipped');
+  //
+  // Rows carry their own farmId, so the gate is evaluated PER ROW rather than
+  // from the screen's optional farmId param: opened from the Reports hub or a
+  // dashboard there is no farmId, and the gate silently never fired.
+  const handedOff = new Set(
+    worklistFarms(state)
+      .filter((f) => f.schedule === 'reassigned' || f.schedule === 'skipped')
+      .map((f) => f.farmId),
+  );
+  const isHandedOff = (cowFarmId: string) => handedOff.has(cowFarmId);
+  const reassignedAway = farm != null && handedOff.has(farm.farmId);
   const canRecord = report.canRecord && !reassignedAway;
 
   return (
@@ -117,7 +126,7 @@ export default function ReportDetailScreen() {
             <Pressable
               style={styles.row}
               onPress={() =>
-                !reassignedAway && cow.recordKind
+                !isHandedOff(cow.farmId) && cow.recordKind
                   ? setActive(cow)
                   : router.push({ pathname: '/cow/[id]', params: { id: cow.cowId } })
               }
@@ -149,7 +158,7 @@ export default function ReportDetailScreen() {
                   {cow.detail}
                 </Text>
                 <Text variant="caption" color={colors.primary}>
-                  {!reassignedAway && cow.recordKind ? 'Tap to record' : 'Open profile'}
+                  {!isHandedOff(cow.farmId) && cow.recordKind ? 'Tap to record' : 'Open profile'}
                 </Text>
               </View>
             </Pressable>

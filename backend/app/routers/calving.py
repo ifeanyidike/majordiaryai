@@ -56,7 +56,12 @@ async def record_calving(
 ):
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)
 
-    if cow.status not in (CowStatus.pregnant, CowStatus.dry):
+    # Calving is EVENT-triggered (spec: "Fresh / Calving Report — triggered by
+    # event not day"). Gating on pregnant/dry meant a cow whose pregnancy check
+    # was never recorded — a bred heifer, or one the vet missed — could not have
+    # her calving recorded at all: the technician got a 409 standing next to a
+    # live calf. The birth is the fact; the missing check is the anomaly.
+    if cow.status in (CowStatus.calf, CowStatus.sold, CowStatus.dead):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot record calving for a cow with status '{cow.status.value}'",

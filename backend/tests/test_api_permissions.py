@@ -14,12 +14,16 @@ from datetime import date, timedelta
 
 import pytest
 
+from app.core.timeutils import local_today
+
 from app.services import status_engine
 from app.models.models import (
     Cow, CowStatus, Farm, Insemination, User, UserRole, Vet, VetFarmAssignment,
 )
 
-TODAY = date.today()
+# The app computes 'today' in the farm timezone; using the machine's
+# UTC date made boundary tests flake on CI between 00:00 and 04:00.
+TODAY = local_today()
 
 
 async def _farm(db, tech_id=None) -> Farm:

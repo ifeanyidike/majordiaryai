@@ -57,6 +57,37 @@ async def record_insemination(
     if insemination_date > local_today():
         raise HTTPException(status_code=422, detail="Insemination date cannot be in the future")
 
+    # A double-tap creates two attempts for one physical breeding, which
+    # corrupts attempt_number and every conception-rate figure derived from it.
+    same_day = await db.scalar(
+        select(func.count(Insemination.id)).where(
+            Insemination.cow_id == cow.id,
+            Insemination.date == insemination_date,
+        )
+    )
+    if same_day:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{cow.ear_tag} already has an insemination recorded on "
+                f"{insemination_date}. Recording it twice would count as two "
+                "services."
+            ),
+        )
+
+    # Recording a forgotten OLDER insemination would move last_insemination_date
+    # backwards, shifting the heat window, pregnancy check and due/dry dates for
+    # a cow already past them.
+    if cow.last_insemination_date and insemination_date < cow.last_insemination_date:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{cow.ear_tag}'s most recent insemination is "
+                f"{cow.last_insemination_date}; an earlier one cannot be added "
+                "afterwards because every downstream date is measured from it."
+            ),
+        )
+
     # attempt_number is always computed server-side
     prior_attempts = await db.scalar(
         select(func.count(Insemination.id)).where(Insemination.cow_id == cow.id)

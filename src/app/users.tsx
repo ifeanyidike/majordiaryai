@@ -1,7 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView,
+  StyleSheet, View,
+} from 'react-native';
 import {
   Button,
   EmptyState,
@@ -101,6 +104,11 @@ export default function UsersScreen() {
 
   return (
     <Screen scroll={false} padded={false}>
+      {/* Without this the bottom fields sit under the iOS keyboard. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.flex1}
+      >
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -207,6 +215,7 @@ export default function UsersScreen() {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

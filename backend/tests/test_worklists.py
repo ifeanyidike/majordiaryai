@@ -15,6 +15,8 @@ Run:  cd backend && .venv/bin/python -m pytest tests/ -q
 from datetime import date
 
 import pytest
+
+from app.core.timeutils import local_today
 from sqlalchemy import and_, or_, select
 
 from app.models.models import (
@@ -24,7 +26,9 @@ from app.services.worklists import needling_due_stmt, timed_breeding_stmt
 
 pytestmark = pytest.mark.asyncio
 
-TODAY = date.today()
+# The app computes 'today' in the farm timezone; using the machine's
+# UTC date made boundary tests flake on CI between 00:00 and 04:00.
+TODAY = local_today()
 
 # (protocol_day, day_offset, treatment, is_final, completed)
 DAY1_DONE = (1, -9, "2cc GnRH", False, True)

@@ -21,6 +21,8 @@ import uuid
 from datetime import date, timedelta
 
 import pytest
+
+from app.core.timeutils import local_today
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -32,7 +34,9 @@ from app.models.models import (
     ProtocolType, User, UserRole,
 )
 
-TODAY = date.today()
+# The app computes 'today' in the farm timezone; using the machine's
+# UTC date made boundary tests flake on CI between 00:00 and 04:00.
+TODAY = local_today()
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "").strip()
 

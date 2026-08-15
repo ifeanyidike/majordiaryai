@@ -362,29 +362,36 @@ async def import_cows(
         )
 
         try:
-            fields = _extract_cow_fields(raw)
-            result = await db.execute(
-                select(Cow)
-                .where(Cow.farm_id == target_farm_id, Cow.ear_tag == ear_tag)
-                .with_for_update()
-            )
-            existing = result.scalar_one_or_none()
-            if existing is not None:
-                for name, value in fields.items():
-                    if name == "ear_tag":
-                        continue
-                    setattr(existing, name, value)
-                updated += 1
-            else:
-                cow = Cow(farm_id=target_farm_id, **fields)
-                db.add(cow)
-                await db.flush()
-                created += 1
+            # SAVEPOINT per row. A plain rollback() here discarded EVERY row
+            # staged so far while the counters kept counting, so a 200-row file
+            # with one bad row at 150 persisted only the rows after it and
+            # still reported ~199 successes. begin_nested unwinds this row only.
+            async with db.begin_nested():
+                fields = _extract_cow_fields(raw)
+                result = await db.execute(
+                    select(Cow)
+                    .where(Cow.farm_id == target_farm_id, Cow.ear_tag == ear_tag)
+                    .with_for_update()
+                )
+                existing = result.scalar_one_or_none()
+                if existing is not None:
+                    for name, value in fields.items():
+                        if name == "ear_tag":
+                            continue
+                        setattr(existing, name, value)
+                    updated += 1
+                else:
+                    cow = Cow(farm_id=target_farm_id, **fields)
+                    db.add(cow)
+                    await db.flush()
+                    created += 1
         except Exception as exc:  # noqa: BLE001 -- per-row isolation
-            await db.rollback()
             skipped += 1
             errors.append(ImportRowError(
-                row=row_number, ear_tag=ear_tag, message=str(exc),
+                row=row_number, ear_tag=ear_tag,
+                # Raw driver text can leak schema details; keep it short and
+                # attributable without echoing the whole exception chain.
+                message=str(exc).splitlines()[0][:200],
             ))
             continue
 

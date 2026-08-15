@@ -15,7 +15,7 @@ from app.schemas.reports import (
     Worklist,
 )
 from app.services.access import get_allowed_farm_ids, scope_to_farms
-from app.services.status_engine import run_transitions_for_user
+from app.services.status_engine import HEAT_WINDOW, run_transitions_for_user
 from app.services.worklist_builder import build_worklist
 from app.services.worklists import timed_breeding_stmt
 from datetime import date, timedelta
@@ -136,6 +136,23 @@ async def herd_summary(
     )
     conceptions = {r.farm_id: r.n for r in (await db.execute(conceptions_q)).all()}
 
+    # Milking, by the same rule as status_engine.is_milking: she has calved and
+    # is not dry/calf/heifer/terminal. Expressed once, in SQL, so the dashboard
+    # cannot drift from the per-cow flag.
+    milking_q = (
+        select(Cow.farm_id, func.count(Cow.id).label("n"))
+        .where(
+            Cow.farm_id.in_(farm_ids),
+            Cow.last_calving_date.isnot(None),
+            Cow.status.notin_([
+                CowStatus.dry, CowStatus.calf, CowStatus.heifer,
+                CowStatus.cull, CowStatus.sold, CowStatus.dead,
+            ]),
+        )
+        .group_by(Cow.farm_id)
+    )
+    milking_counts = {r.farm_id: r.n for r in (await db.execute(milking_q)).all()}
+
     # Upcoming calvings within 30 days
     calvings_q = (
         select(Cow.farm_id, func.count(Cow.id).label("n"))
@@ -166,9 +183,12 @@ async def herd_summary(
         # Kept so existing clients do not break while they migrate to the
         # explicit name above.
         row["pregnancy_rate"] = row["pregnancy_rate_snapshot"]
-        # Milk Cycle (Master Structure): in milk from calving until dry-off.
-        row["milking"] = row["fresh"] + row["open"] + row["needling"] + row["inseminated"] + row["pregnant"]
-        row["not_milking"] = row["dry"]
+        # Milk Cycle (Master Structure). Counted from the same rule as
+        # status_engine.is_milking (calved AND not dry/terminal) rather than a
+        # second status list here — the two disagreed, this one counting
+        # never-calved bred heifers as milking.
+        row["milking"] = milking_counts.get(fid, 0)
+        row["not_milking"] = max(row["total"] - row["milking"], 0)
         row["conception_rate"] = round(n_conceived / n_checked, 3) if n_checked else None
         row["services_per_conception"] = (
             round(n_services / n_conceived, 2) if n_conceived else None
@@ -286,8 +306,11 @@ async def heat_check_due(
     """Cows inseminated 20-25 days ago — due for heat check."""
     await _run_transitions_scoped(db, current_user)
     today = local_today()
-    window_start = today - timedelta(days=25)
-    window_end = today - timedelta(days=20)
+    # From status_engine.HEAT_WINDOW — re-typing the literals here is exactly
+    # the drift the worklists module warns about.
+    _lo, _hi = HEAT_WINDOW
+    window_start = today - timedelta(days=_hi)
+    window_end = today - timedelta(days=_lo)
 
     stmt = (
         select(Cow)
@@ -445,8 +468,9 @@ async def daily_task_summary(
             Cow.status.notin_(TERMINAL_STATUSES),
         )
     )
-    heat_window_start = today - timedelta(days=25)
-    heat_window_end = today - timedelta(days=20)
+    _lo, _hi = HEAT_WINDOW
+    heat_window_start = today - timedelta(days=_hi)
+    heat_window_end = today - timedelta(days=_lo)
     heat_q = select(func.count(Cow.id)).where(
         Cow.status == CowStatus.inseminated,
         Cow.last_insemination_date >= heat_window_start,

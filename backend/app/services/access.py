@@ -35,14 +35,20 @@ def farm_ids_select(current_user: dict):
         # Standing assignment, plus any farm they have been given a visit for.
         # A relief technician covering someone's route must be able to open the
         # farm and record work there, or the reassignment is cosmetic.
-        # Bounded to recent/future dates so an old cover doesn't grant access
-        # forever, with a few days' slack for late data entry.
-        cutoff = local_today() - timedelta(days=RELIEF_ACCESS_GRACE_DAYS)
+        #
+        # Bounded on BOTH sides. Without an upper bound a visit dated years
+        # ahead granted access from the moment it was created — and anyone who
+        # can create an assignment could grant themselves indefinite access to
+        # any farm. Access starts on the day of the visit and lasts
+        # RELIEF_ACCESS_GRACE_DAYS afterwards for late data entry.
+        today = local_today()
+        cutoff = today - timedelta(days=RELIEF_ACCESS_GRACE_DAYS)
         covering = (
             select(FarmVisitAssignment.farm_id)
             .where(
                 FarmVisitAssignment.assigned_technician_id == current_user["id"],
                 FarmVisitAssignment.visit_date >= cutoff,
+                FarmVisitAssignment.visit_date <= today,
             )
         )
         return select(Farm.id).where(

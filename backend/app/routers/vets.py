@@ -18,9 +18,23 @@ async def list_vets(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Vet).options(selectinload(Vet.farm_assignments)).order_by(Vet.name)
-    )
+    # Scoped like every other list: a farm manager sees the vets covering their
+    # farm, a vet sees themselves. Returning the whole directory (with each
+    # vet's farm_ids) to any authenticated caller leaked the customer list and
+    # defeated the 404-anti-enumeration design used elsewhere.
+    stmt = select(Vet).options(selectinload(Vet.farm_assignments)).order_by(Vet.name)
+    role = current_user["role"]
+    if role == "farm":
+        stmt = stmt.where(
+            Vet.id.in_(
+                select(VetFarmAssignment.vet_id).where(
+                    VetFarmAssignment.farm_id == current_user["farm_id"]
+                )
+            )
+        )
+    elif role == "vet":
+        stmt = stmt.where(Vet.user_id == current_user["id"])
+    result = await db.execute(stmt)
     vets = result.scalars().all()
     return [
         {**{c.key: getattr(v, c.key) for c in v.__table__.columns},

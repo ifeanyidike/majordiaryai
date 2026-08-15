@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
+} from 'react-native';
 import {
   Button,
   EmptyState,
@@ -126,6 +128,11 @@ export default function VetEditScreen() {
 
   return (
     <Screen scroll={false} padded={false}>
+      {/* Without this the bottom fields sit under the iOS keyboard. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.flex1}
+      >
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -199,6 +206,7 @@ export default function VetEditScreen() {
           />
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

@@ -59,12 +59,18 @@ INSEMINABLE_STATUSES = {
 # Legal status transition map. dead/sold are terminal; sold only from cull.
 LEGAL_TRANSITIONS = {
     CowStatus.calf:        {CowStatus.heifer, CowStatus.cull, CowStatus.dead},
+    # fresh: a heifer can calve before anyone records a pregnancy check.
     CowStatus.heifer:      {CowStatus.open, CowStatus.needling, CowStatus.inseminated,
+                            CowStatus.fresh, CowStatus.cull, CowStatus.dead},
+    CowStatus.fresh:       {CowStatus.open, CowStatus.inseminated, CowStatus.fresh,
                             CowStatus.cull, CowStatus.dead},
-    CowStatus.fresh:       {CowStatus.open, CowStatus.inseminated, CowStatus.cull, CowStatus.dead},
-    CowStatus.open:        {CowStatus.needling, CowStatus.inseminated, CowStatus.cull, CowStatus.dead},
-    CowStatus.needling:    {CowStatus.open, CowStatus.inseminated, CowStatus.cull, CowStatus.dead},
-    CowStatus.inseminated: {CowStatus.open, CowStatus.pregnant, CowStatus.cull, CowStatus.dead},
+    CowStatus.open:        {CowStatus.needling, CowStatus.inseminated, CowStatus.fresh,
+                            CowStatus.cull, CowStatus.dead},
+    CowStatus.needling:    {CowStatus.open, CowStatus.inseminated, CowStatus.fresh,
+                            CowStatus.cull, CowStatus.dead},
+    # fresh: she calved without the pregnancy check ever being recorded.
+    CowStatus.inseminated: {CowStatus.open, CowStatus.pregnant, CowStatus.fresh,
+                            CowStatus.cull, CowStatus.dead},
     CowStatus.pregnant:    {CowStatus.open, CowStatus.dry, CowStatus.fresh, CowStatus.cull, CowStatus.dead},
     CowStatus.dry:         {CowStatus.fresh, CowStatus.cull, CowStatus.dead},
     CowStatus.cull:        {CowStatus.sold, CowStatus.dead},
@@ -286,7 +292,15 @@ async def on_bleeding_before_insemination(cow: Cow, db: AsyncSession, start_date
 
 
 async def on_calving(cow: Cow, calving_date: date, db: AsyncSession) -> None:
-    """Called when calving is recorded."""
+    """Called when calving is recorded.
+
+    Calving is an observed event, so it is accepted from any live status — a
+    cow can calve while the system still believes she is inseminated (nobody
+    recorded the pregnancy check) or heifer (bred before she was ever
+    enrolled). Any open enrollment is closed out, since she is plainly no
+    longer in a breeding protocol.
+    """
+    await cancel_active_enrollments(cow, db, EnrollmentStatus.completed)
     cow.status = CowStatus.fresh
     cow.lactation_number = (cow.lactation_number or 0) + 1
     cow.last_calving_date = calving_date

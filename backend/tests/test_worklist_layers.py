@@ -11,6 +11,8 @@ from datetime import date, timedelta
 
 import pytest
 
+from app.core.timeutils import local_today
+
 from app.models.models import (
     Cow, CowStatus, Farm, FarmVisitAssignment, HealthStatus, User, UserRole,
 )
@@ -21,7 +23,9 @@ from app.services.visits import (
 )
 from app.services.worklist_builder import build_worklist
 
-TODAY = date.today()
+# The app computes 'today' in the farm timezone; using the machine's
+# UTC date made boundary tests flake on CI between 00:00 and 04:00.
+TODAY = local_today()
 
 
 def _farm(days_per_week=6, tech=None, weekdays=None) -> Farm:

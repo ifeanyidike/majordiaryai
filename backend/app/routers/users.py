@@ -126,10 +126,20 @@ async def create_profile(
     if body.role not in SELF_SERVE_ROLES:
         raise HTTPException(status_code=403, detail="Role not allowed at signup")
 
+    # The email must come from the verified token, never the request body:
+    # otherwise anyone can register under somebody else's address, which is
+    # what the rest of the system uses to identify a person.
+    verified_email = claims.get("email")
+    if not verified_email:
+        raise HTTPException(
+            status_code=422,
+            detail="Your sign-in provider did not supply a verified email address",
+        )
+
     user = User(
         id=claims["id"],
         name=body.name,
-        email=body.email,
+        email=verified_email,
         role=body.role,
         phone=body.phone,
         employee_id=body.employee_id,

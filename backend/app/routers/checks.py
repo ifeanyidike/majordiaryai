@@ -49,6 +49,15 @@ async def record_heat_check(
     if not cow.last_insemination_date:
         raise HTTPException(status_code=409, detail="Cow has no recorded insemination")
 
+    # The day count below is measured from her CURRENT insemination, so a check
+    # filed against an older attempt would be timed by one AI and attributed to
+    # another.
+    if cow.last_insemination_id and body.insemination_id != cow.last_insemination_id:
+        raise HTTPException(
+            status_code=409,
+            detail="This check must be recorded against the cow's most recent insemination",
+        )
+
     if cow.status != CowStatus.inseminated:
         raise HTTPException(
             status_code=409,
@@ -130,6 +139,15 @@ async def record_pregnancy_check(
     insemination = await db.get(Insemination, body.insemination_id)
     if not insemination or insemination.cow_id != cow.id:
         raise HTTPException(status_code=422, detail="insemination_id does not belong to this cow")
+
+    # The 30-day gate uses the LAST insemination while due/dry dates are computed
+    # from the one passed in. Against an older attempt those disagree, and a
+    # confirmed pregnancy would dry her off months early.
+    if cow.last_insemination_id and body.insemination_id != cow.last_insemination_id:
+        raise HTTPException(
+            status_code=409,
+            detail="This check must be recorded against the cow's most recent insemination",
+        )
 
     if not cow.last_insemination_date or \
             (body.check_date - cow.last_insemination_date).days < 30:

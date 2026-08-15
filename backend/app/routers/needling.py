@@ -123,6 +123,17 @@ async def complete_record(
 
     if record.completed:
         raise HTTPException(status_code=409, detail="Record is already completed")
+    if record.scheduled_date > local_today():
+        # Mis-tapping a future step (e.g. Double Ovsynch day 27 on day 1) flipped
+        # the enrollment to completed_pending_ai and hid every remaining shot
+        # from /needling/today until the real date arrived.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"That injection is scheduled for {record.scheduled_date} — it "
+                "cannot be completed before it is due."
+            ),
+        )
     if enrollment.status == EnrollmentStatus.cancelled:
         raise HTTPException(status_code=409, detail="Enrollment has been cancelled")
     if enrollment.status == EnrollmentStatus.completed:
@@ -133,7 +144,9 @@ async def complete_record(
     record.bleeding_event = body.bleeding_event
     record.technician_id = current_user["id"]
     if body.notes:
-        record.notes = body.notes
+        # Append like every other endpoint; overwriting discarded whatever the
+        # bleeding/observation path had already recorded on this row.
+        record.notes = f"{record.notes}\n{body.notes}" if record.notes else body.notes
 
     # Advance the enrollment to this protocol day.
     enrollment.current_day = max(enrollment.current_day or 1, record.protocol_day)

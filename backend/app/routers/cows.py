@@ -171,8 +171,22 @@ async def update_cow(
 
     data = body.model_dump(exclude_unset=True)
     new_status = data.get("status")
-    if new_status is not None:
-        status_engine.ensure_transition(cow, new_status)
+    if new_status is not None and new_status != cow.status:
+        # A legal transition is not the same as a complete one. Setting
+        # inseminated -> pregnant here left due_date/dry_date NULL so she never
+        # dried off; -> needling with no enrollment stranded her on no report.
+        # Those side effects live in the event endpoints (record a pregnancy
+        # check, enroll in a protocol), which is where a status change belongs.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Status cannot be changed here ({cow.status.value} -> "
+                f"{new_status.value}). Record the event instead — a pregnancy "
+                "check, insemination, calving, enrolment or cull — so the "
+                "dates and records that go with it are written too."
+            ),
+        )
+    data.pop("status", None)
 
     for field, value in data.items():
         if value is None and field in _NON_NULLABLE_FIELDS:
@@ -229,6 +243,10 @@ async def cull_cow(
     db: AsyncSession = Depends(get_db),
 ):
     cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
+    # ensure_transition treats same-status as a no-op, so culling an already
+    # culled cow slipped through and inserted a SECOND CullRecord.
+    if cow.status == CowStatus.cull:
+        raise HTTPException(status_code=409, detail="Cow is already culled")
     status_engine.ensure_transition(cow, CowStatus.cull)
 
     body = body or CullBody()
@@ -257,6 +275,10 @@ async def mark_sold(
 ):
     """Mark a culled cow as sold (only legal from cull status)."""
     cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
+    # Same-status is a no-op in ensure_transition, so a second call silently
+    # overwrote the recorded exit date and reason.
+    if cow.status == CowStatus.sold:
+        raise HTTPException(status_code=409, detail="Cow is already marked sold")
     status_engine.ensure_transition(cow, CowStatus.sold)
 
     body = body or ExitBody()
@@ -281,6 +303,8 @@ async def mark_dead(
 ):
     """Mark a cow as dead (legal from any non-terminal status)."""
     cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
+    if cow.status == CowStatus.dead:
+        raise HTTPException(status_code=409, detail="Cow is already marked dead")
     status_engine.ensure_transition(cow, CowStatus.dead)
 
     body = body or ExitBody()

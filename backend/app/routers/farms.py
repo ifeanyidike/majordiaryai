@@ -286,9 +286,14 @@ async def clear_visit_assignment(
             status_code=403,
             detail="Only the farm's standing technician or an admin can change visit assignments",
         )
-    if visit_date < local_today():
-        # Past overrides are history (and access-grant records) — immutable.
-        raise HTTPException(status_code=422, detail="Cannot delete a past visit assignment")
+    # Past assignments still carry an access grant for RELIEF_ACCESS_GRACE_DAYS,
+    # so an admin must be able to withdraw a mistaken one. Technicians keep the
+    # history rule; only they are restricted.
+    if visit_date < local_today() and current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=422,
+            detail="Only an admin can remove a past visit assignment",
+        )
 
     await db.execute(
         delete(FarmVisitAssignment).where(

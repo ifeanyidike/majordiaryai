@@ -313,16 +313,23 @@ def _post_calving(ctx: WorklistContext) -> List[ReportRow]:
         if cow.status != CowStatus.fresh:
             continue
         d = _days_since(cow.last_calving_date, ctx.today)
-        if d is None or not (lo <= d <= hi):
+        # No upper bound. Windowing this at day 50 meant a cow whose mandatory
+        # 2cc shot was never given silently dropped off every work list on day
+        # 51 — the miss disappeared instead of escalating.
+        if d is None or d < lo:
             continue
         done = ctx.post_calving.get(str(cow.id))
         if done and cow.last_calving_date and \
                 done["completed_on"] >= cow.last_calving_date:
             continue
+        late = d > hi
         rows.append(ReportRow(
             cow=cow,
-            action=f"Give 2cc vaccine shot (Day {d} post calving — complete by day {hi})",
-            detail=f"Day {d} post calving · complete by day {hi}",
+            action=(f"OVERDUE: 2cc vaccine shot still not given (Day {d} — was due by day {hi})"
+                    if late
+                    else f"Give 2cc vaccine shot (Day {d} post calving — complete by day {hi})"),
+            detail=(f"Day {d} post calving · {d - hi} days past the day-{hi} deadline"
+                    if late else f"Day {d} post calving · complete by day {hi}"),
             record_kind="vaccination",
             overdue=d >= hi - 5,
         ))
@@ -494,7 +501,11 @@ REPORTS: List[ReportDef] = [
     # ── reference lists (never counted as work) ──
     # Upcoming calvings are a heads-up, not a task: the spec's calving work is
     # the Fresh / Calving Report, triggered by the birth itself.
-    ReportDef("calving-due", "Upcoming Calvings", "alarm", "pregnant", False, _calving_due),
+    ReportDef("calving-due", "Upcoming Calvings", "alarm", "pregnant", False, _calving_due,
+              # record_kind is "calving" here, and POST /calving is
+              # admin+technician — without this a vet filled in the form and
+              # was 403'd, the same mismatch reported from testing.
+              record_roles=WORK_ROLES),
     ReportDef("pregnant", "Pregnant Cow List", "heart-circle", "pregnant", False, _pregnant_list),
     ReportDef("open", "Open Cow List", "list-circle", "open", False, _open_list),
     ReportDef("cull", "Cull Cow List", "alert-circle", "cull", False, _cull_list),

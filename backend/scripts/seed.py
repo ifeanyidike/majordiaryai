@@ -75,6 +75,30 @@ def make_farm(name, owner, address, city, postal, phone, email, herd_size, note,
     )
 
 
+def _guard_destructive() -> None:
+    """Refuse to wipe a database that is not explicitly marked as disposable.
+
+    This script DELETEs every table against whatever .env points at, which is
+    the production database by default. The test suite has such a guard; this
+    did not, and it is far more destructive.
+
+    Set SEED_ALLOW_DESTRUCTIVE=1 to proceed.
+    """
+    import os
+    import sys
+
+    if os.getenv("SEED_ALLOW_DESTRUCTIVE") == "1":
+        return
+    print(
+        "REFUSING TO RUN: seed.py deletes every row in every table.\n"
+        f"It would run against {settings.db_host}/{settings.db_name}.\n\n"
+        "If that really is a disposable database, re-run with:\n"
+        "    SEED_ALLOW_DESTRUCTIVE=1 .venv/bin/python -m scripts.seed",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
 async def seed(session: AsyncSession) -> None:
     # ── Farms ──────────────────────────────────────────────
     gv = make_farm("Green Valley Dairy", "John Smith", "2841 Concession Rd 6", "London",
@@ -293,6 +317,7 @@ async def seed(session: AsyncSession) -> None:
 
 
 async def main() -> None:
+    _guard_destructive()
     # Use the SESSION pooler (port 5432) rather than the app's TRANSACTION
     # pooler (6543): session mode supports prepared statements, which asyncpg
     # needs. This is Supabase's recommended endpoint for migrations/seeds.
