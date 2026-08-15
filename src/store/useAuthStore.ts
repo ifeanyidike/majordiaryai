@@ -11,7 +11,13 @@ export interface UserProfile {
   role: Role;
   phone?: string;
   farm_id?: string;
+  /** False while a signed-up account waits for an admin to approve it. */
+  is_active?: boolean;
 }
+
+export const AWAITING_APPROVAL_MSG =
+  'Your account is waiting for an administrator to approve it. ' +
+  "You'll be able to sign in as soon as they do.";
 
 interface AuthState {
   user: UserProfile | null;
@@ -130,6 +136,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   loadProfile: async () => {
     try {
       const profile = await api.get<UserProfile>('/users/me');
+      // Signup is open, so a new account exists but reaches nothing until an
+      // admin activates it. Say so here rather than letting them into an app
+      // where every single request comes back 403 with no explanation.
+      if (profile.is_active === false) {
+        set({ user: null, loading: false, error: AWAITING_APPROVAL_MSG });
+        return;
+      }
       set({ user: profile, loading: false, error: null });
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 404) {
@@ -137,7 +150,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
           const created = await createProfileFromMetadata();
           if (created) {
-            set({ user: created, loading: false, error: null });
+            // A freshly created profile is always pending approval.
+            set({
+              user: created.is_active === false ? null : created,
+              loading: false,
+              error: created.is_active === false ? AWAITING_APPROVAL_MSG : null,
+            });
             return;
           }
           set({ loading: false, error: 'Could not create your profile. Please try again.' });

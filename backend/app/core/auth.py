@@ -118,14 +118,28 @@ async def get_current_user(
 
     result = await db.execute(
         text(
-            "SELECT id, name, email, role, phone, employee_id, region, farm_id, created_at "
-            "FROM users WHERE id = :id"
+            "SELECT id, name, email, role, phone, employee_id, region, farm_id, "
+            "is_active, created_at FROM users WHERE id = :id"
         ),
         {"id": payload["user_id"]},
     )
     user = result.mappings().first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # Signup is open to anyone who can complete Supabase auth, so a claimed
+    # role is a request, not a grant. Until an admin activates the account it
+    # reaches nothing — not the herd, not the staff directory, not the vet
+    # list. GET /users/me deliberately bypasses this (it uses token-only auth)
+    # so the app can tell the person they are waiting rather than showing them
+    # an empty system with no explanation.
+    if not user["is_active"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account is waiting for an administrator to approve it. "
+                "You will be able to sign in normally once they do."
+            ),
+        )
     return dict(user)
 
 

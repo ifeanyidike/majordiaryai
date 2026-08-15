@@ -32,6 +32,9 @@ class UserAdminUpdate(BaseModel):
     employee_id: Optional[str] = None
     region: Optional[str] = None
     role: Optional[UserRole] = None
+    # Activating a signed-up account. Signup writes false; this is the only
+    # way it becomes true. See migration 0013.
+    is_active: Optional[bool] = None
     # Which farm a Farm Manager belongs to. Meaningless for other roles, and
     # cleared automatically when the role changes away from `farm`.
     farm_id: Optional[UUID] = None
@@ -51,4 +54,6 @@ class UserOut(BaseModel):
     farm_id: Optional[UUID] = None
     # Resolved for display so an admin sees "Green Valley Dairy", not a UUID.
     farm_name: Optional[str] = None
+    # False while a signed-up account waits for an admin to approve it.
+    is_active: bool = True
     created_at: datetime

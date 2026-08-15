@@ -77,15 +77,17 @@ export default function FarmProfileScreen() {
     openDirections(formatAddress(farm.address, farm.city, farm.province));
 
   const canManage = role === 'admin' || role === 'technician';
+  const canNote = canManage || role === 'farm';
 
   const contactChips: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }[] = [
     { icon: 'call', label: 'Call', onPress: call },
     { icon: 'mail', label: 'Email', onPress: email },
     { icon: 'navigate', label: 'Directions', onPress: directions },
-    // Note sat alongside Call/Email/Directions, so it was offered to farm
-    // managers and vets whose write the API refuses. Same roles as the rest of
-    // the manage actions.
-    ...(canManage
+    // Note sat alongside Call/Email/Directions and was offered to every role,
+    // including vets, whose write the API refuses. A farm manager CAN note
+    // their own farm — that is how they tell the technician something — so the
+    // gate is "may record on this farm", not "may manage it".
+    ...(canNote
       ? [{ icon: 'create' as const, label: 'Note', onPress: () => setNoteOpen(true) }]
       : []),
   ];

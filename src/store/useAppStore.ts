@@ -388,7 +388,7 @@ interface AppState {
   staffError: string | null;
   fetchStaff: () => Promise<void>;
   updateStaffUser: (
-    userId: string, patch: { role?: string; farmId?: string },
+    userId: string, patch: { role?: string; farmId?: string; isActive?: boolean },
   ) => Promise<void>;
   addFarmNote: (farmId: string, note: string) => Promise<void>;
   reset: () => void;
@@ -816,6 +816,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           farmId: u.farm_id ?? undefined,
           farmName: u.farm_name ?? undefined,
           phone: u.phone ?? undefined,
+          isActive: u.is_active !== false,
         })),
         staffLoading: false,
       });
@@ -829,6 +830,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateStaffUser: async (userId, patch) => {
     await api.patch(`/users/${userId}`, {
       ...(patch.role !== undefined ? { role: patch.role } : {}),
+      ...(patch.isActive !== undefined ? { is_active: patch.isActive } : {}),
       // Explicit null clears the farm when the role is no longer Farm Manager.
       ...(patch.role === 'farm' ? { farm_id: patch.farmId ?? null } : { farm_id: null }),
     });
@@ -843,10 +845,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     try {
-      const raw = await api.get<{ id: string; name: string; email: string; role: string }[]>(
-        '/users/?role=technician',
-      );
-      set({ technicians: raw.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role })) });
+      const raw = await api.get<
+        { id: string; name: string; email: string; role: string; is_active?: boolean }[]
+      >('/users/?role=technician');
+      // Only accounts an admin has approved can actually be assigned a farm —
+      // assigning one to a pending account leaves the farm with a technician
+      // who cannot sign in.
+      set({
+        technicians: raw
+          .filter((u) => u.is_active !== false)
+          .map((u) => ({
+            id: u.id, name: u.name, email: u.email, role: u.role, isActive: true,
+          })),
+      });
     } catch {
       // Non-fatal: the farm form still saves, just without a picker.
       set({ technicians: [] });

@@ -68,6 +68,15 @@ async def admin_update_user(
             detail="You cannot change your own role — ask another admin",
         )
 
+    # Same reasoning for deactivation: an admin switching themselves off has
+    # no way back in, and if they were the only admin nobody can approve
+    # anyone ever again.
+    if data.get("is_active") is False and user_id == current_user["id"]:
+        raise HTTPException(
+            status_code=409,
+            detail="You cannot deactivate your own account — ask another admin",
+        )
+
     if data.get("name") is None:
         data.pop("name", None)  # non-nullable
 
@@ -145,6 +154,10 @@ async def create_profile(
         employee_id=body.employee_id,
         region=body.region,
         farm_id=None,  # admin assigns via PATCH
+        # Inert until an admin activates it. Signup is open to anyone who can
+        # complete Supabase auth, so the role above is a request rather than a
+        # grant — see migration 0013 and core/auth.get_current_user.
+        is_active=False,
     )
     db.add(user)
     try:

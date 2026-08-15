@@ -27,6 +27,15 @@ from app.services.status_engine import HEAT_WINDOW  # single source with checks.
 PREGNANCY_REPORT_DAY = 30       # appears on the Pregnancy Report
 PREGNANCY_WARNING_DAY = 50      # Pregnancy Check Warning
 VACCINATION_WINDOW = (30, 50)   # days post calving
+
+# Statuses in which the post-calving 2cc shot is still owed. She has calved and
+# has not calved again, so the shot is still this lactation's outstanding work
+# — whether she is fresh, back to open, on a protocol, or already re-bred.
+# Confirming a pregnancy (or drying her off) closes it: the window is months
+# past by then and keeping her on the list only makes the list less trusted.
+POST_CALVING_STATUSES = (
+    CowStatus.fresh, CowStatus.open, CowStatus.needling, CowStatus.inseminated,
+)
 DRY_LEAD_DAYS = 7               # surfaced this far before day 223
 CALVING_LEAD_DAYS = 3           # due-to-calve heads-up
 FRESH_WINDOW_DAYS = 1           # "just calved" — day 0/1
@@ -310,13 +319,20 @@ def _post_calving(ctx: WorklistContext) -> List[ReportRow]:
     lo, hi = VACCINATION_WINDOW
     rows = []
     for cow in ctx.cows:
-        # `open` as well as `fresh`. Removing the day-50 cap was not enough on
-        # its own: the lifecycle sweep flips fresh -> open at day 70, so a cow
-        # whose mandatory shot was never given still vanished from every work
-        # list — twenty days later than before, but just as silently. She stays
-        # visible until the shot is recorded or she calves again (which moves
-        # last_calving_date and re-arms the check below).
-        if cow.status not in (CowStatus.fresh, CowStatus.open):
+        # Every status in this lactation, not just fresh.
+        #
+        # Removing the day-50 cap was not enough on its own: the sweep flips
+        # fresh -> open at day 70, and enrolling or breeding her moves her on
+        # again. Each hop dropped a cow whose mandatory shot was never given
+        # off every work list — later than before, but just as silently.
+        #
+        # The shot belongs to the lactation, so she stays visible for the whole
+        # of it: until it is recorded, or she calves again (which moves
+        # last_calving_date and re-arms the check below). Terminal statuses and
+        # animals that have not calved are excluded, and `dry`/`pregnant` are
+        # too — by then the window is long past and chasing it is noise on a
+        # list that has to stay actionable.
+        if cow.status not in POST_CALVING_STATUSES:
             continue
         d = _days_since(cow.last_calving_date, ctx.today)
         # No upper bound. Windowing this at day 50 meant a cow whose mandatory

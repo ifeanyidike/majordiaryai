@@ -52,6 +52,7 @@ export default function UsersScreen() {
   const { staff, staffLoading, fetchStaff, updateStaffUser, farms, fetchFarms } = state;
   const me = useAuthStore((s) => s.user);
 
+  const [approving, setApproving] = useState<string | null>(null);
   const [editing, setEditing] = useState<StaffUser | null>(null);
   const [role, setRole] = useState<Role>('technician');
   const [farmId, setFarmId] = useState<string | undefined>();
@@ -74,6 +75,25 @@ export default function UsersScreen() {
       </Screen>
     );
   }
+
+  const pending = staff.filter((u) => !u.isActive);
+  const active = staff.filter((u) => u.isActive);
+
+  const roleLabel = (value: string) =>
+    ROLES.find((r) => r.value === value)?.label ?? value;
+
+  const approve = async (u: StaffUser) => {
+    setApproving(u.id);
+    try {
+      // Approve with the role they asked for. Changing it is the row below.
+      await updateStaffUser(u.id, { role: u.role, farmId: u.farmId, isActive: true });
+      toast.success(`${u.name} can now sign in`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Could not approve this account');
+    } finally {
+      setApproving(null);
+    }
+  };
 
   const open = (u: StaffUser) => {
     setEditing(u);
@@ -125,8 +145,34 @@ export default function UsersScreen() {
             message="People appear here once they sign up in the app."
           />
         ) : (
-          ROLES.map((r) => {
-            const group = staff.filter((u) => u.role === r.value);
+          <>
+          {/* Signup is open, so a new account is inert until it is approved
+              here. Pending accounts lead — an unapproved person cannot use the
+              app at all, and has no way to tell anyone except by asking. */}
+          {pending.length > 0 && (
+            <View>
+              <SectionHeader title={`Waiting for approval (${pending.length})`} />
+              {pending.map((u) => (
+                <View key={u.id} style={[styles.row, styles.pendingRow]}>
+                  <View style={styles.flex1}>
+                    <Text variant="bodyBold">{u.name}</Text>
+                    <Text variant="caption" color={colors.textMuted} numberOfLines={1}>
+                      {u.email} · asked for {roleLabel(u.role)}
+                    </Text>
+                  </View>
+                  <Button
+                    compact
+                    label="Approve"
+                    icon="checkmark"
+                    loading={approving === u.id}
+                    onPress={() => approve(u)}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+          {ROLES.map((r) => {
+            const group = active.filter((u) => u.role === r.value);
             if (group.length === 0) return null;
             return (
               <View key={r.value}>
@@ -155,7 +201,8 @@ export default function UsersScreen() {
                 ))}
               </View>
             );
-          })
+          })}
+          </>
         )}
 
         {editing && (
@@ -259,5 +306,6 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   farmRowOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  pendingRow: { borderColor: colors.warning, backgroundColor: colors.surfaceSoft },
   actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
 });

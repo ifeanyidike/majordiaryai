@@ -229,7 +229,38 @@ async def api(db):
     from app.core.database import get_db
     from main import app
 
-    def _make(role: str = "admin", user_id=None, farm_id=None) -> "httpx.AsyncClient":
+    def _make(
+        role: str = "admin", user_id=None, farm_id=None,
+        *, real_auth: bool = False, token_only_email: str = None,
+    ) -> "httpx.AsyncClient":
+        # real_auth=True stubs ONLY the token layer and lets get_current_user
+        # run its real query. Needed for anything the dependency itself decides
+        # -- the activation gate lives inside it, so overriding the whole
+        # dependency (the default below) would step straight past the thing
+        # under test.
+        if real_auth or token_only_email:
+            import app.core.auth as auth_mod
+            from fastapi.security import HTTPAuthorizationCredentials
+
+            uid = user_id or uuid.uuid4()
+            claims = {"user_id": uid, "id": uid,
+                      "email": token_only_email or f"{role}@test.local"}
+
+            async def _fake_decode(_token):
+                return claims
+
+            auth_mod._decode_token = _fake_decode
+            app.dependency_overrides[auth_mod.bearer_scheme] = (
+                lambda: HTTPAuthorizationCredentials(scheme="Bearer", credentials="x")
+            )
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides[get_db] = lambda: db
+            return httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://test",
+                headers={"Authorization": "Bearer x"},
+            )
+
         # Recorded work carries technician_id FKs, so the caller must be a real
         # users row. When the test supplies an id it owns that row already;
         # otherwise create one here (autoflush persists it before the first

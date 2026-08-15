@@ -163,7 +163,7 @@ async def update_farm(
 async def append_farm_note(
     farm_id: uuid.UUID,
     body: FarmNoteCreate,
-    current_user: dict = Depends(require_roles("admin", "technician")),
+    current_user: dict = Depends(require_roles("admin", "technician", "farm")),
     db: AsyncSession = Depends(get_db),
 ):
     """Append a note to a farm.
@@ -173,6 +173,12 @@ async def append_farm_note(
     farm record. The app routed it through PATCH /farms, which is admin-only,
     so the button was offered to every role and answered with a 403 for most
     of them.
+
+    Farm managers are included — for their own farm only, which
+    check_farm_access already enforces. A note is how the farm tells the
+    technician something ("gate code changed", "cow 3120 is limping"), and
+    they are the ones who know it. Vets are not: their relationship is with
+    the cow, and the pregnancy check already carries their notes.
 
     Appending server-side also closes a lost-update race: the client used to
     read the notes column, concatenate, and write the whole thing back, so two

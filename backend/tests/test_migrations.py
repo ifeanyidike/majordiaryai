@@ -108,3 +108,41 @@ def test_the_app_and_the_api_agree_on_every_protocol_step():
         assert [(int(d), t) for d, t in found] == [
             (s["day"], s["treatment"]) for s in steps
         ], f"{name} differs between the app and the API"
+
+
+def test_the_rls_helper_uses_the_same_grace_period_and_timezone_as_the_api():
+    """`get_my_farm_ids()` decides farm access inside the database, and it must
+    agree with services/access.py — otherwise PostgREST and the API hand out
+    different answers for the same technician.
+
+    Two seams were held together by a comment alone: the 7-day grace period was
+    duplicated in SQL, and `current_date` is the DATABASE's timezone (UTC),
+    while every API date comes from the farm timezone. Between local midnight
+    and UTC midnight the two disagreed about what day it was.
+    """
+    from app.core.config import settings
+    from app.services.access import RELIEF_ACCESS_GRACE_DAYS
+
+    sql = _schema_text()
+    body = next(
+        (b for b in sql.split("CREATE FUNCTION ")
+         if b.startswith("public.get_my_farm_ids")), "",
+    )
+    assert body, "get_my_farm_ids is missing from schema.sql"
+    assert f"'{RELIEF_ACCESS_GRACE_DAYS} days'" in body, (
+        "the RLS grace period no longer matches RELIEF_ACCESS_GRACE_DAYS "
+        f"({RELIEF_ACCESS_GRACE_DAYS}) — add a migration"
+    )
+    assert "current_date" not in body, (
+        "get_my_farm_ids is back on the database timezone; it must use "
+        "farm_today()"
+    )
+    assert "farm_today()" in body
+
+    zone = next(
+        (b for b in sql.split("CREATE FUNCTION ")
+         if b.startswith("public.farm_today")), "",
+    )
+    assert f"'{settings.farm_timezone}'" in zone, (
+        f"farm_today() does not use FARM_TIMEZONE ({settings.farm_timezone})"
+    )

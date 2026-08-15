@@ -10,7 +10,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict UesLn1zR6wuhcgK9dWn8pg3B9cTtzbkk5PGHWepOHXxphUbApoSd3TRJJsxxFCj
+\restrict AQQT8donUtvdiMLnrIYt0DEL9RlcmoLQfwmHfNMm6eNyM4iQfL55rmPYbniJjoe
 
 -- Dumped from database version 16.14
 -- Dumped by pg_dump version 16.14
@@ -139,6 +139,15 @@ CREATE TYPE public.user_role AS ENUM (
 
 
 --
+-- Name: farm_today(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.farm_today() RETURNS date
+    LANGUAGE sql STABLE
+    AS $$ select (now() at time zone 'America/Toronto')::date $$;
+
+
+--
 -- Name: get_my_farm_id(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -159,16 +168,15 @@ CREATE FUNCTION public.get_my_farm_ids() RETURNS SETOF uuid
     AS $$
             select f.id from farms f
             where
-                -- Admins and vets are not narrowed here; callers combine this
-                -- with get_my_role() as they need.
                 f.assigned_technician_id = auth.uid()
              or f.id = (select u.farm_id from users u where u.id = auth.uid())
              or exists (
                     select 1 from farm_visit_assignments a
                     where a.farm_id = f.id
                       and a.assigned_technician_id = auth.uid()
-                      and a.visit_date <= current_date
-                      and a.visit_date >= current_date - interval '7 days'
+                      and a.visit_date <= farm_today()
+                      and a.visit_date >= farm_today()
+                          - interval '7 days'
                 )
         $$;
 
@@ -454,7 +462,8 @@ CREATE TABLE public.users (
     employee_id text,
     region text,
     farm_id uuid,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    is_active boolean DEFAULT true NOT NULL
 );
 
 
@@ -887,6 +896,13 @@ CREATE INDEX ix_notification_reads_user ON public.notification_reads USING btree
 --
 
 CREATE INDEX ix_notifications_email_status ON public.notifications USING btree (email_status, created_at);
+
+
+--
+-- Name: ix_users_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_users_pending ON public.users USING btree (is_active) WHERE (is_active = false);
 
 
 --
@@ -1512,5 +1528,5 @@ CREATE POLICY vets_read ON public.vets FOR SELECT USING ((public.get_my_role() =
 -- PostgreSQL database dump complete
 --
 
-\unrestrict UesLn1zR6wuhcgK9dWn8pg3B9cTtzbkk5PGHWepOHXxphUbApoSd3TRJJsxxFCj
+\unrestrict AQQT8donUtvdiMLnrIYt0DEL9RlcmoLQfwmHfNMm6eNyM4iQfL55rmPYbniJjoe
 

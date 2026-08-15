@@ -196,6 +196,8 @@ export interface StaffUser {
   farmId?: string;
   farmName?: string;
   phone?: string;
+  /** False while a signed-up account is waiting for an admin to approve it. */
+  isActive: boolean;
 }
 
 /** A day-level override of who visits a farm (relief technician cover). */

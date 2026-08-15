@@ -553,8 +553,11 @@ export const demoWorklist: Worklist = {
             cowId: 'MR-3120', earTag: 'CA 131 209 3120', farmId: 'f3',
             status: 'inseminated',
             action: 'Requires checking for heat',
-            detail: 'Day 22 of 20–25',
-            lactationNumber: 4, daysInMilk: 140, daysPostAi: 22,
+            // Must agree with the MR-3120 cow record above — the demo shows
+            // both screens, and lactation 4 / 140 DIM here against lactation 2
+            // / 175 DIM there made the app look like it was making numbers up.
+            detail: 'Day 21 of 20–25',
+            lactationNumber: 2, daysInMilk: 175, daysPostAi: 21,
             recordKind: 'heat', needlingCompleted: false, overdue: false, missedShots: 0, alsoPending: 0,
           }],
         },

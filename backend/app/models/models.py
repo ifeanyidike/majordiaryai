@@ -83,6 +83,13 @@ class User(Base):
     employee_id: Mapped[Optional[str]] = mapped_column(String)
     region: Mapped[Optional[str]] = mapped_column(String)
     farm_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("farms.id"))
+    # Signup is open, so a new account is inert until an admin turns it on.
+    # It can read its own profile (to be told it is waiting) and nothing else.
+    # Defaults true so admin-created and pre-existing accounts are unaffected —
+    # only POST /users/me writes false. See migration 0013.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
     farm: Mapped[Optional["Farm"]] = relationship("Farm", foreign_keys=[farm_id], back_populates="farm_users")

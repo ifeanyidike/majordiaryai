@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.models.models import Farm, Vet, VetFarmAssignment
 from app.schemas.vets import VetCreate, VetOut, VetUpdate
+from app.services.access import get_allowed_farm_ids
 from typing import List
 import uuid
 
@@ -34,6 +35,19 @@ async def list_vets(
         )
     elif role == "vet":
         stmt = stmt.where(Vet.user_id == current_user["id"])
+    elif role == "technician":
+        # Technicians were the one role left unscoped, so any technician —
+        # including a freshly self-registered one — could read the whole vet
+        # directory with each vet's farm coverage, which is the customer list.
+        # They see the vets covering farms they actually work.
+        allowed = await get_allowed_farm_ids(db, current_user)
+        stmt = stmt.where(
+            Vet.id.in_(
+                select(VetFarmAssignment.vet_id).where(
+                    VetFarmAssignment.farm_id.in_(allowed)
+                )
+            )
+        )
     result = await db.execute(stmt)
     vets = result.scalars().all()
     return [
