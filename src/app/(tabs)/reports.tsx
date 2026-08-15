@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    gap: 2,
+    gap: spacing.hairline,
   },
   chart: { gap: spacing.md },
   chartRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
@@ -219,5 +219,5 @@ const styles = StyleSheet.create({
     borderTopColor: onDark.divider,
     paddingTop: spacing.lg,
   },
-  kpiItem: { flex: 1, alignItems: 'center', gap: 2 },
+  kpiItem: { flex: 1, alignItems: 'center', gap: spacing.hairline },
 });

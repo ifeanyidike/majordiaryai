@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { EmptyState, ErrorBanner, Header, ListRow, Screen, StatusPill } from '@/components';
-import { colors, spacing } from '@/theme';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { EmptyState, ErrorBanner, Header, ListRow, Screen, StatusPill, SkeletonList } from '@/components';
+import { colors, spacing, useMotion } from '@/theme';
 import { cowsByFarm, farmById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function HerdScreen() {
+  const motion = useMotion();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const state = useAppStore();
@@ -62,7 +63,7 @@ export default function HerdScreen() {
             />
             {cowsError ? <ErrorBanner message={cowsError} onRetry={() => fetchCows(id)} /> : null}
             {loading ? (
-              <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+              <View style={{ marginTop: spacing.lg }}><SkeletonList count={6} /></View>
             ) : null}
           </>
         }
@@ -70,7 +71,7 @@ export default function HerdScreen() {
           loading || cowsError ? null : <EmptyState title="No cows tracked yet" message={canEdit ? 'Add one with the + button above.' : undefined} />
         }
         renderItem={({ item: cow, index }) => (
-          <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 50).duration(400)}>
+          <Animated.View entering={motion.down(index)}>
             <ListRow
               icon="analytics-outline"
               title={cow.earTag}

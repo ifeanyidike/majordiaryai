@@ -26,3 +26,5 @@ export { StatCard } from './StatCard';
 export { StatusPill } from './StatusPill';
 export { Text } from './Text';
 export { ModalToastHost, ToastHost, useToast } from './Toast';
+
+export { Skeleton, SkeletonCard, SkeletonList, SkeletonRow, SkeletonStats } from './Skeleton';

@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import {
   EmptyState,
   ErrorBanner,
   Header,
   Screen,
   Text,
+  SkeletonList,
 } from '@/components';
 import { colors, radius, shadows, spacing } from '@/theme';
 import { formatAddress, openDirections } from '@/lib/maps';
@@ -72,12 +73,13 @@ export default function TasksScreen() {
       )}
 
       {loading ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+        <View style={{ marginTop: spacing.lg }}><SkeletonList count={3} variant="card" /></View>
       ) : !worklistError && farms.length === 0 ? (
         <EmptyState
           icon="checkmark-done-outline"
           title="No visits today"
-          message="No farm is on your rotation today. Pull to refresh."
+          message="No farm is on your rotation today."
+          action={{ label: 'Refresh', icon: 'refresh', onPress: () => fetchWorklist() }}
         />
       ) : null}
 

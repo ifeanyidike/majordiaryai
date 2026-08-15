@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   readonly: {
-    gap: 2,
+    gap: spacing.hairline,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingTop: spacing.md,

@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { create } from 'zustand';
 import { charcoal, colors, radius, red, shadows, spacing, status } from '@/theme';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { Text } from './Text';
 
 type ToastVariant = 'info' | 'success' | 'error';
@@ -27,14 +29,41 @@ interface ToastState {
   popModal: () => void;
 }
 
+/**
+ * Every outcome in the app arrives through this store, which makes it the one
+ * place worth spending a haptic. A notification haptic (not the light impact
+ * used for a press) is how the platform says "that finished, and here is how
+ * it went" — so a technician recording a shot with the phone at their side
+ * knows it landed without looking, and knows a refusal from a success.
+ *
+ * Honours the same Settings toggle as press feedback; failures to vibrate are
+ * ignored, since a device without a taptic engine must not break a toast.
+ */
+function outcomeHaptic(variant: ToastVariant) {
+  if (!useSettingsStore.getState().hapticsEnabled) return;
+  const type =
+    variant === 'success' ? Haptics.NotificationFeedbackType.Success
+    : variant === 'error' ? Haptics.NotificationFeedbackType.Error
+    : null;
+  if (type) Haptics.notificationAsync(type).catch(() => {});
+}
+
 export const useToast = create<ToastState>((set) => ({
   message: null,
   icon: 'information-circle',
   variant: 'info',
-  show: (message, icon = 'information-circle', variant = 'info') =>
-    set({ message, icon, variant }),
-  success: (message) => set({ message, icon: 'checkmark-circle', variant: 'success' }),
-  error: (message) => set({ message, icon: 'alert-circle', variant: 'error' }),
+  show: (message, icon = 'information-circle', variant = 'info') => {
+    outcomeHaptic(variant);
+    set({ message, icon, variant });
+  },
+  success: (message) => {
+    outcomeHaptic('success');
+    set({ message, icon: 'checkmark-circle', variant: 'success' });
+  },
+  error: (message) => {
+    outcomeHaptic('error');
+    set({ message, icon: 'alert-circle', variant: 'error' });
+  },
   hide: () => set({ message: null }),
   modalDepth: 0,
   pushModal: () => set((s) => ({ modalDepth: s.modalDepth + 1 })),

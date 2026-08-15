@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import {
   Button,
   Card,
   ErrorBanner,
+  SkeletonList,
   HeroHeader,
   HeroStats,
   ListRow,
@@ -81,7 +82,9 @@ export function VetDashboard() {
           <ErrorBanner message={worklistError} onRetry={() => fetchWorklist()} />
         ) : null}
         {loading ? (
-          <ActivityIndicator color={colors.primary} style={styles.loading} />
+          <View style={styles.loading}>
+            <SkeletonList count={2} variant="card" />
+          </View>
         ) : null}
 
         {/* Overdue warning */}

@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { EmptyState, ErrorBanner, Header, ListRow, Screen } from '@/components';
-import { colors, spacing } from '@/theme';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { EmptyState, ErrorBanner, Header, ListRow, Screen, SkeletonList } from '@/components';
+import { colors, spacing, useMotion } from '@/theme';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function VetsScreen() {
+  const motion = useMotion();
   const router = useRouter();
   const { vets, vetsLoading, vetsError, fetchVets } = useAppStore();
   const role = useAuthStore((s) => s.user?.role);
@@ -36,7 +37,7 @@ export default function VetsScreen() {
       />
       {vetsError ? <ErrorBanner message={vetsError} onRetry={fetchVets} /> : null}
       {vetsLoading && vets.length === 0 ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+        <View style={{ marginTop: spacing.lg }}><SkeletonList count={4} /></View>
       ) : !vetsError && vets.length === 0 ? (
         <EmptyState
           icon="medkit-outline"
@@ -47,7 +48,7 @@ export default function VetsScreen() {
         />
       ) : (
         vets.map((v, i) => (
-          <Animated.View key={v.id} entering={FadeInDown.delay(Math.min(i, 8) * 70).duration(450)}>
+          <Animated.View key={v.id} entering={motion.down(i)}>
             <ListRow
               icon="medkit"
               iconColor={colors.primary}

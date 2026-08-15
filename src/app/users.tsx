@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView,
+  KeyboardAvoidingView, Platform, Pressable, ScrollView,
   StyleSheet, View,
 } from 'react-native';
 import {
@@ -14,6 +14,7 @@ import {
   SegmentedControl,
   Text,
   useToast,
+  SkeletonList,
 } from '@/components';
 import { colors, radius, spacing } from '@/theme';
 import { StaffUser } from '@/data/types';
@@ -137,7 +138,7 @@ export default function UsersScreen() {
         <Header back title="People" subtitle={`${staff.length} accounts`} />
 
         {staffLoading && staff.length === 0 ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+          <View style={{ marginTop: spacing.lg }}><SkeletonList count={5} /></View>
         ) : staff.length === 0 ? (
           <EmptyState
             icon="people-outline"

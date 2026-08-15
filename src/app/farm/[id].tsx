@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import {
   Button,
   Card,
@@ -21,7 +21,7 @@ import {
   useToast,
   FocusedStatusBar,
 } from '@/components';
-import { colors, gradients, onDark, radius, spacing, status } from '@/theme';
+import { colors, gradients, onDark, radius, spacing, status, useMotion } from '@/theme';
 import { dial, emailTo } from '@/lib/contact';
 import { formatAddress, openDirections } from '@/lib/maps';
 import {
@@ -40,6 +40,7 @@ const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 export default function FarmProfileScreen() {
+  const motion = useMotion();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -122,7 +123,7 @@ export default function FarmProfileScreen() {
       <FocusedStatusBar style="light" />
       {/* Farm identity hero */}
       <HeroHeader gradient={gradients.primary} back>
-        <Animated.View entering={FadeInDown.duration(500)} style={styles.heroRow}>
+        <Animated.View entering={motion.downAt(0, 500)} style={styles.heroRow}>
           <Monogram name={farm.name} size={64} bg={onDark.panelBorder} color={colors.cream.base} />
           <View style={styles.heroText}>
             <Text variant="title" color={onDark.text}>
@@ -134,7 +135,7 @@ export default function FarmProfileScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(120).duration(500)} style={styles.chipsRow}>
+        <Animated.View entering={motion.downAt(120, 500)} style={styles.chipsRow}>
           {contactChips.map((c) => (
             <PressableScale
               key={c.label}
@@ -154,7 +155,7 @@ export default function FarmProfileScreen() {
 
       <View style={styles.body}>
         {/* Summary stats overlapping hero */}
-        <Animated.View entering={FadeInUp.delay(150).duration(500)}>
+        <Animated.View entering={motion.upAt(150, 500)}>
           <View style={styles.statRow}>
             <StatCard value={summary.total} label="Tracked Cows" />
             <StatCard value={summary.pregnant} label="Pregnant" accent={status.pregnant.fg} />
@@ -170,7 +171,7 @@ export default function FarmProfileScreen() {
         {/* "View Herd" is the job; the rest are management. Four equal buttons
             in one row squeezed every label — primary first, then a wrapping
             row of compact actions that stays readable at any role. */}
-        <Animated.View entering={FadeInUp.delay(220).duration(500)}>
+        <Animated.View entering={motion.upAt(220, 500)}>
           <Button
             label="View Herd"
             icon="list"
@@ -196,7 +197,7 @@ export default function FarmProfileScreen() {
 
         {/* Farm information */}
         <SectionHeader title="Farm Information" />
-        <Animated.View entering={FadeInUp.delay(280).duration(500)}>
+        <Animated.View entering={motion.upAt(280, 500)}>
           <Card style={styles.infoCard}>
             <InfoRow label="Address" value={addressLine} />
             <InfoRow label="Phone" value={farm.phone} />
@@ -212,7 +213,7 @@ export default function FarmProfileScreen() {
 
         {/* Vet link */}
         {vet ? (
-          <Animated.View entering={FadeInUp.delay(340).duration(500)}>
+          <Animated.View entering={motion.upAt(340, 500)}>
             <PressableScale
               style={styles.vetRow}
               onPress={() => router.push({ pathname: '/vet/[id]', params: { id: vet.id } })}
@@ -233,7 +234,7 @@ export default function FarmProfileScreen() {
 
         {/* Pregnancy checks — cows due for vet diagnosis (Day 30+, warning at Day 50+) */}
         <SectionHeader title="Pregnancy Checks" />
-        <Animated.View entering={FadeInUp.delay(370).duration(500)}>
+        <Animated.View entering={motion.upAt(370, 500)}>
           <PressableScale
             scaleTo={0.98}
             onPress={() => router.push({ pathname: '/report/[type]', params: { type: 'pregnancy-check' } })}
@@ -261,7 +262,7 @@ export default function FarmProfileScreen() {
 
         {/* Upcoming activities */}
         <SectionHeader title="Upcoming Activities" />
-        <Animated.View entering={FadeInUp.delay(400).duration(500)}>
+        <Animated.View entering={motion.upAt(400, 500)}>
           <Card style={styles.activityCard}>
             {upcoming.length === 0 ? (
               <Text variant="body" color={colors.textMuted}>

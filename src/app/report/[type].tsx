@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import {
   CowRecordSheet,
   EmptyState,
@@ -11,8 +11,9 @@ import {
   Screen,
   StatusPill,
   Text,
+  SkeletonList,
 } from '@/components';
-import { colors, radius, shadows, spacing } from '@/theme';
+import { colors, radius, shadows, spacing, useMotion } from '@/theme';
 import { emptyReport, knownReportType } from '@/data/reports';
 import { WorklistCow } from '@/data/types';
 import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/store/useAppStore';
@@ -26,6 +27,7 @@ import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/
  * offering one the API would answer with a 403 is worse than offering none.
  */
 export default function ReportDetailScreen() {
+  const motion = useMotion();
   const { type, farmId } = useLocalSearchParams<{ type: string; farmId?: string }>();
   const router = useRouter();
   const state = useAppStore();
@@ -100,7 +102,7 @@ export default function ReportDetailScreen() {
             />
             {worklistError ? <ErrorBanner message={worklistError} onRetry={refresh} /> : null}
             {loading ? (
-              <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+              <View style={{ marginTop: spacing.lg }}><SkeletonList count={4} variant="card" /></View>
             ) : null}
             {!canRecord && list.length > 0 ? (
               <View style={styles.readOnly}>
@@ -122,7 +124,7 @@ export default function ReportDetailScreen() {
           )
         }
         renderItem={({ item: cow, index }) => (
-          <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 50).duration(400)}>
+          <Animated.View entering={motion.down(index)}>
             <Pressable
               style={styles.row}
               onPress={() =>

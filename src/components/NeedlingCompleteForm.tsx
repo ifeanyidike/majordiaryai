@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Button } from './Button';
+import { Skeleton } from './Skeleton';
 import { Text } from './Text';
 import { useToast } from './Toast';
 import { api } from '@/lib/api';
@@ -133,7 +134,11 @@ export function NeedlingCompleteForm({
       ) : null}
       {/* Injection history — what has and has not been given on this protocol. */}
       {historyFailed ? null : history === null ? (
-        <ActivityIndicator color={colors.primary} style={{ marginBottom: spacing.md }} />
+        <View style={styles.historyCard}>
+          <Skeleton width="40%" height={12} />
+          <Skeleton width="80%" height={13} />
+          <Skeleton width="70%" height={13} />
+        </View>
       ) : history.length > 0 ? (
         <View style={styles.historyCard}>
           <Text variant="label" color={colors.textSecondary}>Injection history</Text>
@@ -235,7 +240,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     padding: spacing.md,
     marginBottom: spacing.md,
-    gap: 2,
+    gap: spacing.hairline,
   },
   historyCard: {
     backgroundColor: colors.surfaceSoft,

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import {
   Button,
   Card,
@@ -18,12 +18,13 @@ import {
   Text,
   FocusedStatusBar,
 } from '@/components';
-import { charcoal, colors, gradients, onDark, spacing, status } from '@/theme';
+import { charcoal, colors, gradients, onDark, spacing, status, useMotion } from '@/theme';
 import { dial } from '@/lib/contact';
 import { cowsByFarm, pregnancyCounts, useAppStore, vetById } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function VetProfileScreen() {
+  const motion = useMotion();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const state = useAppStore();
@@ -61,7 +62,7 @@ export default function VetProfileScreen() {
       <FocusedStatusBar style="light" />
       {/* Deep-red clinical identity hero — brand palette only */}
       <HeroHeader gradient={gradients.vet} back>
-        <Animated.View entering={FadeInDown.duration(500)} style={styles.heroRow}>
+        <Animated.View entering={motion.downAt(0, 500)} style={styles.heroRow}>
           <Monogram name={vet.name.replace('Dr. ', '')} size={64} bg={onDark.panelBorder} color={colors.cream.base} />
           <View style={styles.heroText}>
             <Text variant="title" color={onDark.text}>
@@ -76,7 +77,7 @@ export default function VetProfileScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(120).duration(500)} style={styles.heroActions}>
+        <Animated.View entering={motion.downAt(120, 500)} style={styles.heroActions}>
           <Button
             label="Contact Vet"
             icon="call"
@@ -98,7 +99,7 @@ export default function VetProfileScreen() {
 
       <View style={styles.body}>
         {/* Summary — overlapping stats (pregnancy-diagnosis focused) */}
-        <Animated.View entering={FadeInUp.delay(150).duration(500)}>
+        <Animated.View entering={motion.upAt(150, 500)}>
           <View style={styles.statRow}>
             <StatCard value={assignedFarms.length} label="Active Farms" accent={colors.primary} />
             <StatCard value={herd.length} label="Cows Under Care" accent={charcoal[600]} />
@@ -111,7 +112,7 @@ export default function VetProfileScreen() {
 
         {/* Vet information */}
         <SectionHeader title="Vet Information" />
-        <Animated.View entering={FadeInUp.delay(220).duration(500)}>
+        <Animated.View entering={motion.upAt(220, 500)}>
           <Card style={styles.infoCard}>
             <InfoRow label="Phone" value={vet.phone} />
             <InfoRow label="Email" value={vet.email} />
@@ -121,7 +122,7 @@ export default function VetProfileScreen() {
 
         {/* Assigned farms with per-farm due counts */}
         <SectionHeader title="Assigned Farms" />
-        <Animated.View entering={FadeInUp.delay(290).duration(500)}>
+        <Animated.View entering={motion.upAt(290, 500)}>
           {assignedFarms.length === 0 ? (
             <Card style={styles.infoCard}>
               <Text variant="body" color={colors.textMuted}>
@@ -146,7 +147,7 @@ export default function VetProfileScreen() {
           )}
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(360).duration(500)} style={styles.footerRow}>
+        <Animated.View entering={motion.upAt(360, 500)} style={styles.footerRow}>
           <Button
             compact
             variant="secondary"

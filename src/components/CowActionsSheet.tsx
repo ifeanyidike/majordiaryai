@@ -1303,12 +1303,14 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
             {/* Toasts must live inside the Modal or they render behind it. */}
             {!!activeAction && <ModalToastHost />}
             <View style={styles.modalHandle} />
-            <Text variant="heading" style={{ marginBottom: spacing.sm }}>
-              {activeAction ? MODAL_TITLES[activeAction] : ''}
-            </Text>
-            <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.xl }}>
-              {cow.earTag}
-            </Text>
+            <View style={styles.sheetHeader}>
+              <Text variant="heading">
+                {activeAction ? MODAL_TITLES[activeAction] : ''}
+              </Text>
+              <Text variant="caption" color={colors.textSecondary}>
+                {cow.earTag}
+              </Text>
+            </View>
             <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -1455,6 +1457,9 @@ const styles = StyleSheet.create({
     padding: spacing.xxl,
     maxHeight: '88%',
   },
+  // Title and ear tag are one unit; the gap below them separates that
+  // unit from the form, which is a different kind of break.
+  sheetHeader: { gap: spacing.hairline, marginBottom: spacing.xl },
   modalHandle: {
     width: 36,
     height: 4,

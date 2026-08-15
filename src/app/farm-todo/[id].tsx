@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import {
   Button,
   EmptyState,
@@ -10,6 +10,7 @@ import {
   ListRow,
   Screen,
   Text,
+  SkeletonList,
 } from '@/components';
 import { colors, radius, spacing, status, StatusKey } from '@/theme';
 import { formatAddress, openDirections } from '@/lib/maps';
@@ -41,7 +42,7 @@ export default function FarmTodoScreen() {
           <ErrorBanner message={worklistError} onRetry={() => fetchWorklist()} />
         ) : worklistLoading || !worklist ? (
           // Still loading — don't claim the farm isn't on the route.
-          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.huge }} />
+          <View style={{ marginTop: spacing.lg }}><SkeletonList count={4} variant="card" /></View>
         ) : (
           <EmptyState
             title="Not on today's route"

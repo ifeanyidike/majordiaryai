@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Button, Card, Header, Screen, SectionHeader, Text, useToast } from '@/components';
 import { api, isApiConfigured } from '@/lib/api';
 import { colors, radius, spacing, status } from '@/theme';

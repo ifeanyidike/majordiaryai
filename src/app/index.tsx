@@ -4,10 +4,10 @@ import { StatusBar } from 'expo-status-bar';
 import { VideoView } from 'expo-video';
 import React, { useRef, useState } from 'react';
 import { Image, StyleSheet, TextInput, View, KeyboardAvoidingView, Platform } from 'react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, PressableScale, Text, useToast } from '@/components';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, radius, spacing, typography, useMotion } from '@/theme';
 import { useAmbientVideo } from '@/hooks/useAmbientVideo';
 import { useAuthStore } from '@/store/useAuthStore';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +17,7 @@ const poster = require('@/assets/images/login-poster.jpg');
 const logoImage = require('@/assets/images/logo.png');
 
 export default function LoginScreen() {
+  const motion = useMotion();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const showToast = useToast((s) => s.show);
@@ -83,7 +84,7 @@ export default function LoginScreen() {
 
       <View style={[styles.content, { paddingTop: insets.top + spacing.huge, paddingBottom: insets.bottom + spacing.xl }]}>
         {/* Brand */}
-        <Animated.View entering={FadeInDown.duration(700).springify()} style={styles.brand}>
+        <Animated.View entering={motion.downSpring(0, 700)} style={styles.brand}>
           <Image source={logoImage} style={styles.logoImage} resizeMode="contain" />
           <View style={styles.taglineRule} />
           <Text variant="subheading" color="rgba(252,251,249,0.92)" style={styles.tagline}>
@@ -94,7 +95,7 @@ export default function LoginScreen() {
         <View style={styles.spacer} />
 
         {/* Login form */}
-        <Animated.View entering={FadeInUp.delay(250).duration(700).springify()} style={styles.actions}>
+        <Animated.View entering={motion.upSpring(250, 700)} style={styles.actions}>
           <TextInput
             style={styles.input}
             placeholder="Email address"

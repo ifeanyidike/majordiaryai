@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import {
   EmptyState,
   ErrorBanner,
@@ -11,6 +11,7 @@ import {
   Screen,
   SearchBar,
   Text,
+  SkeletonList,
 } from '@/components';
 import { charcoal, colors, cream, radius, red, shadows, spacing, touch } from '@/theme';
 import { dial } from '@/lib/contact';
@@ -114,9 +115,22 @@ export default function FarmsScreen() {
       <View style={styles.list}>
         {farmsError ? <ErrorBanner message={farmsError} onRetry={fetchFarms} /> : null}
         {farmsLoading && farms.length === 0 ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+          <View style={{ marginTop: spacing.lg }}><SkeletonList count={5} /></View>
         ) : !farmsError && results.length === 0 ? (
-          <EmptyState icon="business-outline" title="No farms found" message={query ? `Nothing matches "${query}".` : 'No farms assigned yet.'} />
+          <EmptyState
+            icon="business-outline"
+            title={query ? 'No matches' : 'No farms yet'}
+            message={query
+              ? `Nothing matches "${query}".`
+              : role === 'admin'
+                ? 'Add the first farm to start tracking a herd.'
+                : 'No farms are assigned to you yet — an administrator assigns them.'}
+            action={query
+              ? { label: 'Clear search', icon: 'close', onPress: () => setQuery('') }
+              : role === 'admin'
+                ? { label: 'Add farm', icon: 'add', onPress: () => router.push('/farm/edit') }
+                : undefined}
+          />
         ) : (
           results.map((farm) => {
             const accent = accentFor(farm);

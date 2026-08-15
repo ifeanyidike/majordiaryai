@@ -1,7 +1,7 @@
 import React from 'react';
-import { ActivityIndicator } from 'react-native';
-import { Screen } from '@/components';
-import { colors, spacing } from '@/theme';
+import { View } from 'react-native';
+import { Screen, SkeletonList, SkeletonStats } from '@/components';
+import { spacing } from '@/theme';
 import { AdminDashboard } from '@/features/dashboard/AdminDashboard';
 import { FarmDashboard } from '@/features/dashboard/FarmDashboard';
 import { TechnicianDashboard } from '@/features/dashboard/TechnicianDashboard';
@@ -26,7 +26,10 @@ export default function DashboardScreen() {
       // home screen — and its technician-scoped fetches fired on their behalf.
       return (
         <Screen>
-          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.huge }} />
+          <View style={{ gap: spacing.xl, marginTop: spacing.xl }}>
+            <SkeletonStats />
+            <SkeletonList count={3} variant="card" />
+          </View>
         </Screen>
       );
   }

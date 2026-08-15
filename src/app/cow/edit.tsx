@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
     marginBottom: spacing.md,
-    gap: 2,
+    gap: spacing.hairline,
   },
   farmList: { gap: spacing.xs, marginBottom: spacing.md },
   farmRow: {

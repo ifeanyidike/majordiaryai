@@ -15,7 +15,7 @@ import {
   Text,
   useToast,
 } from '@/components';
-import { colors, radius, spacing } from '@/theme';
+import { colors, radius, spacing, touch } from '@/theme';
 import { addDays, todayISO } from '@/lib/dates';
 import { farmById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -291,7 +291,9 @@ const styles = StyleSheet.create({
   day: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    minHeight: 40,
+    // touch.iconButton: below 44 a chip is hard to hit accurately, and these
+    // are tapped seven at a time to build a rotation.
+    minHeight: touch.iconButton,
     justifyContent: 'center',
     borderRadius: radius.sm,
     borderWidth: 1,

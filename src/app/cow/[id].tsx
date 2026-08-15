@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import {
   Button,
   Card,
@@ -19,7 +19,7 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { useAuthStore } from '@/store/useAuthStore';
-import { colors, gradients, onDark, radius, spacing } from '@/theme';
+import { colors, gradients, onDark, radius, spacing, touch, useMotion } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { HistoryEvent } from '@/data/types';
 import { cowById, farmById, useAppStore } from '@/store/useAppStore';
@@ -49,6 +49,7 @@ const HISTORY_TABS: { key: HistoryTab; label: string; icon: keyof typeof Ionicon
 ];
 
 export default function CowProfileScreen() {
+  const motion = useMotion();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const state = useAppStore();
@@ -84,7 +85,7 @@ export default function CowProfileScreen() {
       <FocusedStatusBar style="light" />
       {/* Livestock record hero — charcoal */}
       <HeroHeader gradient={gradients.charcoal} back>
-        <Animated.View entering={FadeInDown.duration(500)}>
+        <Animated.View entering={motion.downAt(0, 500)}>
           <View style={styles.heroTop}>
             <View style={styles.heroTitleCol}>
               <Text variant="display" color={onDark.text}>
@@ -112,7 +113,7 @@ export default function CowProfileScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(120).duration(500)} style={{ marginTop: spacing.xxl }}>
+        <Animated.View entering={motion.downAt(120, 500)} style={{ marginTop: spacing.xxl }}>
           <HeroStats
             tone="panel"
             items={[
@@ -137,7 +138,7 @@ export default function CowProfileScreen() {
 
         {/* Cow information */}
         <SectionHeader title="Cow Information" />
-        <Animated.View entering={FadeInUp.delay(150).duration(500)}>
+        <Animated.View entering={motion.upAt(150, 500)}>
           <Card style={styles.infoCard}>
             <InfoRow label="Breed" value={cow.breed} />
             <InfoRow label="Date of Birth" value={fmt(cow.dateOfBirth)} />
@@ -150,7 +151,7 @@ export default function CowProfileScreen() {
 
         {/* Reproductive information */}
         <SectionHeader title="Reproductive Information" />
-        <Animated.View entering={FadeInUp.delay(220).duration(500)}>
+        <Animated.View entering={motion.upAt(220, 500)}>
           <Card style={styles.infoCard}>
             <InfoRow label="Last Calving Date" value={fmt(cow.lastCalvingDate)} />
             <InfoRow label="Last Insemination" value={fmt(cow.lastInseminationDate)} />
@@ -197,7 +198,7 @@ export default function CowProfileScreen() {
 
         {/* History */}
         <SectionHeader title="History" />
-        <Animated.View entering={FadeInUp.delay(290).duration(500)}>
+        <Animated.View entering={motion.upAt(290, 500)}>
           <View style={styles.tabsRow} accessibilityRole="tablist">
             {HISTORY_TABS.map((t) => {
               const active = t.key === tab;
@@ -256,14 +257,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.md,
   },
-  heroTitleCol: { gap: 3, flex: 1 },
+  heroTitleCol: { gap: spacing.hairline, flex: 1 },
   farmLink: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     marginTop: spacing.xs,
-    minHeight: 32,
-    paddingVertical: spacing.xs,
+    // A navigation target: it takes you to another screen, so it gets a full
+    // hit area rather than the height of its own text.
+    minHeight: touch.iconButton,
+    paddingVertical: spacing.sm,
     alignSelf: 'flex-start',
   },
   pills: { gap: spacing.xs, alignItems: 'flex-end' },
@@ -322,5 +325,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     marginTop: 6,
   },
-  eventText: { flex: 1, gap: 1 },
+  eventText: { flex: 1, gap: spacing.hairline },
 });

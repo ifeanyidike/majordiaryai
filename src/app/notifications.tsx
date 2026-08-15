@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { EmptyState, Header, Screen, Text } from '@/components';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { EmptyState, Header, Screen, Text, SkeletonList } from '@/components';
 import { colors, radius, spacing, status } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { AppNotification, useAppStore } from '@/store/useAppStore';
@@ -83,7 +83,7 @@ export default function NotificationsScreen() {
               subtitle={unread > 0 ? `${unread} unread` : 'All caught up'}
             />
             {notificationsLoading && notifications.length === 0 ? (
-              <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+              <View style={{ marginTop: spacing.lg }}><SkeletonList count={5} /></View>
             ) : null}
             {hiddenCount > 0 ? (
               <Pressable onPress={() => router.push('/settings')} style={styles.hiddenNote}>

@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import {
   Button,
   Card,
   EmptyState,
   ErrorBanner,
+  SkeletonList,
   Header,
   HeroHeader,
   IconCircle,
@@ -20,7 +21,7 @@ import {
   useToast,
   FocusedStatusBar,
 } from '@/components';
-import { colors, gradients, onDark, radius, spacing, status } from '@/theme';
+import { colors, gradients, onDark, radius, spacing, status, useMotion } from '@/theme';
 import { dial } from '@/lib/contact';
 import { farmUpcomingActivities, summarize, useAppStore } from '@/store/useAppStore';
 
@@ -33,6 +34,7 @@ const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 /** Farm owner — their farm IS the home screen. Brand-red identity. */
 export function FarmDashboard() {
+  const motion = useMotion();
   const router = useRouter();
   const toast = useToast();
   const { farms, cows, vets, kpis, farmsLoading, farmsError, fetchFarms, fetchKpis } = useAppStore();
@@ -53,7 +55,9 @@ export function FarmDashboard() {
         {farmsError ? (
           <ErrorBanner message={farmsError} onRetry={fetchFarms} />
         ) : farmsLoading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.huge }} />
+          <View style={{ marginTop: spacing.lg }}>
+            <SkeletonList count={3} variant="card" />
+          </View>
         ) : (
           <EmptyState
             icon="business-outline"
@@ -76,7 +80,7 @@ export function FarmDashboard() {
     <Screen padded={false} topInset={false}>
       <FocusedStatusBar style="light" />
       <HeroHeader gradient={gradients.primary}>
-        <Animated.View entering={FadeInDown.duration(500)} style={styles.heroRow}>
+        <Animated.View entering={motion.downAt(0, 500)} style={styles.heroRow}>
           <Monogram name={farm.name} size={64} bg={onDark.panelBorder} color={colors.cream.base} />
           <View style={styles.heroText}>
             <Text variant="caption" color={onDark.textSecondary}>
@@ -91,7 +95,7 @@ export function FarmDashboard() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(120).duration(500)} style={styles.chipsRow}>
+        <Animated.View entering={motion.downAt(120, 500)} style={styles.chipsRow}>
           <PressableScale
             style={styles.chip}
             onPress={() =>
@@ -141,7 +145,7 @@ export function FarmDashboard() {
 
       <View style={styles.body}>
         {/* Herd summary */}
-        <Animated.View entering={FadeInUp.delay(150).duration(500)}>
+        <Animated.View entering={motion.upAt(150, 500)}>
           <View style={styles.statRow}>
             <StatCard value={summary.total} label="Tracked Cows" />
             <StatCard value={summary.pregnant} label="Pregnant" accent={status.pregnant.fg} />
@@ -156,7 +160,7 @@ export function FarmDashboard() {
 
         {/* Doc-required KPIs */}
         <SectionHeader title="Performance" />
-        <Animated.View entering={FadeInUp.delay(200).duration(500)}>
+        <Animated.View entering={motion.upAt(200, 500)}>
           <Card style={styles.kpiCard}>
             {kpiRow.map((k) => (
               <View key={k.label} style={styles.kpiItem}>
@@ -173,7 +177,7 @@ export function FarmDashboard() {
 
         {/* Upcoming on the farm */}
         <SectionHeader title="Upcoming On Your Farm" />
-        <Animated.View entering={FadeInUp.delay(240).duration(500)}>
+        <Animated.View entering={motion.upAt(240, 500)}>
           <Card style={styles.activityCard}>
             {upcoming.length === 0 ? (
               <Text variant="body" color={colors.textMuted}>
@@ -197,7 +201,7 @@ export function FarmDashboard() {
 
         {/* Your team */}
         <SectionHeader title="Your Team" />
-        <Animated.View entering={FadeInUp.delay(310).duration(500)}>
+        <Animated.View entering={motion.upAt(310, 500)}>
           <Card style={styles.teamCard}>
             <PressableScale
               style={styles.teamRow}
@@ -244,7 +248,7 @@ export function FarmDashboard() {
           </Card>
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(380).duration(500)}>
+        <Animated.View entering={motion.upAt(380, 500)}>
           <Button
             label="View Herd Reports"
             icon="bar-chart"

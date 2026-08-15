@@ -1,12 +1,13 @@
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { EmptyState, ErrorBanner, Header, ListRow, Screen, SearchBar, StatusPill, Text } from '@/components';
-import { colors, spacing } from '@/theme';
+import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { EmptyState, ErrorBanner, Header, ListRow, Screen, SearchBar, StatusPill, Text, SkeletonList } from '@/components';
+import { colors, spacing, useMotion } from '@/theme';
 import { farmById, useAppStore, visibleCows } from '@/store/useAppStore';
 
 export default function CowSearchScreen() {
+  const motion = useMotion();
   const router = useRouter();
   const state = useAppStore();
   const cows = visibleCows(state);
@@ -35,10 +36,10 @@ export default function CowSearchScreen() {
         autoFocus
       />
 
-      <Animated.View entering={FadeInDown.delay(80).duration(450)} style={styles.list}>
+      <Animated.View entering={motion.downAt(80, 450)} style={styles.list}>
         {cowsError ? <ErrorBanner message={cowsError} onRetry={() => fetchCows()} /> : null}
         {cowsLoading && cows.length === 0 ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+          <View style={{ marginTop: spacing.lg }}><SkeletonList count={5} /></View>
         ) : !cowsError && results.length === 0 ? (
           <EmptyState
             icon="search-outline"

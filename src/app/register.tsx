@@ -11,10 +11,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, PressableScale, Text, useToast } from '@/components';
-import { alpha, colors, radius, spacing, typography } from '@/theme';
+import { alpha, colors, radius, spacing, typography, useMotion } from '@/theme';
 import { useAmbientVideo } from '@/hooks/useAmbientVideo';
 import { Role, useAuthStore } from '@/store/useAuthStore';
 
@@ -33,6 +33,7 @@ const ROLES: RoleOption[] = [
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RegisterScreen() {
+  const motion = useMotion();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const showToast = useToast((s) => s.show);
@@ -84,7 +85,7 @@ export default function RegisterScreen() {
           style={StyleSheet.absoluteFill}
         />
         <Animated.View
-          entering={FadeInDown.duration(600).springify()}
+          entering={motion.downSpring(0, 600)}
           style={[styles.confirmCard, { paddingBottom: insets.bottom + spacing.xl, paddingTop: insets.top + spacing.huge }]}
         >
           <Text style={styles.confirmEmoji}>📬</Text>
@@ -138,11 +139,11 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Brand */}
-        <Animated.View entering={FadeInDown.duration(600).springify()} style={styles.brand}>
+        <Animated.View entering={motion.downSpring(0, 600)} style={styles.brand}>
           <Image source={logoImage} style={styles.logoImage} resizeMode="contain" />
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(150).duration(600).springify()} style={styles.form}>
+        <Animated.View entering={motion.upSpring(150, 600)} style={styles.form}>
           <Text variant="title" color={colors.cream.base} style={styles.formTitle}>
             Create Account
           </Text>

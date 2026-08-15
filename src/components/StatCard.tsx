@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
     alignItems: 'center',
-    gap: 3,
+    gap: spacing.hairline,
     ...shadows.card,
   },
   labelRow: {

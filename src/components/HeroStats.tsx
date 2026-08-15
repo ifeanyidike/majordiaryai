@@ -48,7 +48,7 @@ const styles = StyleSheet.create({
   item: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
+    gap: spacing.hairline,
   },
   divider: {
     width: 1,

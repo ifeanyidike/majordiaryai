@@ -165,13 +165,13 @@ const styles = StyleSheet.create({
     width: '33.3%',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    gap: 1,
+    gap: spacing.hairline,
   },
   kpiItem: {
     width: '25%',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    gap: 1,
+    gap: spacing.hairline,
   },
   summaryDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 2 },
 });

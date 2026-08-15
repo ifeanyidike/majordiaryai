@@ -3,10 +3,20 @@ import { ViewStyle } from 'react-native';
 export { colors, red, charcoal, cream, status, statusFallback, onDark, alpha } from './colors';
 export type { StatusKey } from './colors';
 export { typography } from './typography';
+export { duration, stagger, staggerFor, useMotion, useReduceMotion } from './motion';
 export type { TextVariant } from './typography';
 
-/** 4pt spacing grid */
+/**
+ * 4pt spacing grid.
+ *
+ * `hairline` is the one deliberate exception: the gap between two lines that
+ * belong to the same element (a title and its subtitle, a stat and its label).
+ * On the grid that pair reads as two separate things; below it they read as
+ * one. It was written inline as 1, 2 or 3 depending on the file, so the same
+ * pattern sat at three different tightnesses across the app.
+ */
 export const spacing = {
+  hairline: 2,
   xs: 4,
   sm: 8,
   md: 12,
