@@ -6,22 +6,24 @@ import { EmptyState, Header, Screen, Text, SkeletonList } from '@/components';
 import { colors, radius, spacing, status } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { AppNotification, useAppStore } from '@/store/useAppStore';
-import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
+import {
+  NotificationType, notificationTypeEnabled, useSettingsStore,
+} from '@/store/useSettingsStore';
 
 /** Notification type → icon + accent, drawn from the semantic status palette. */
-const TYPE_META: Record<string, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
-  dry_off:        { icon: 'moon', color: status.dry.fg },
-  calving:        { icon: 'heart', color: status.fresh.fg },
-  fresh:          { icon: 'heart', color: status.fresh.fg },
-  open:           { icon: 'ellipse-outline', color: status.open.fg },
-  heat:           { icon: 'flame', color: status.heat.fg },
-  pregnancy:      { icon: 'medkit', color: status.pregnant.fg },
-  breeding:       { icon: 'flask', color: status.inseminated.fg },
-  vaccination:    { icon: 'shield-checkmark', color: status.fresh.fg },
+// One entry per type the backend actually emits (NOTIFICATION_TYPES). This
+// table used to list `calving`, `heat`, `pregnancy`, `breeding` and
+// `vaccination` — none of which anything has ever sent — while missing
+// `breeding_due`, which IS sent, and so drew a generic bell.
+const TYPE_META: Record<NotificationType, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
+  dry_off:      { icon: 'moon', color: status.dry.fg },
+  breeding_due: { icon: 'flame', color: status.heat.fg },
+  open:         { icon: 'ellipse-outline', color: status.open.fg },
 };
 
 function metaFor(type: string) {
-  return TYPE_META[type] ?? { icon: 'notifications' as const, color: colors.primary };
+  return TYPE_META[type as NotificationType]
+    ?? { icon: 'notifications' as const, color: colors.primary };
 }
 
 function relativeTime(iso: string): string {
@@ -37,7 +39,7 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const {
     notifications: allNotifications, notificationsLoading, farms,
-    fetchNotifications, markNotificationRead,
+    fetchNotifications, markNotificationRead, markAllNotificationsRead,
   } = useAppStore();
   const prefs = useSettingsStore((s) => s.notifications);
 
@@ -81,6 +83,16 @@ export default function NotificationsScreen() {
               back
               title="Notifications"
               subtitle={unread > 0 ? `${unread} unread` : 'All caught up'}
+              right={unread > 0 ? (
+                <Pressable
+                  onPress={markAllNotificationsRead}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark all ${unread} as read`}
+                >
+                  <Text variant="label" color={colors.primary}>Mark all read</Text>
+                </Pressable>
+              ) : undefined}
             />
             {notificationsLoading && notifications.length === 0 ? (
               <View style={{ marginTop: spacing.lg }}><SkeletonList count={5} /></View>
@@ -96,11 +108,19 @@ export default function NotificationsScreen() {
           </>
         }
         ListEmptyComponent={
-          notificationsLoading ? null : (
+          notificationsLoading ? null : hiddenCount > 0 ? (
+            <EmptyState
+              icon="filter"
+              title="All filtered out"
+              message={`You have ${hiddenCount} ${hiddenCount === 1 ? 'notification' : 'notifications'}, but the topics they belong to are switched off.`}
+              action={{ label: 'Notification settings', icon: 'options-outline',
+                        onPress: () => router.push('/settings') }}
+            />
+          ) : (
             <EmptyState
               icon="notifications-off-outline"
               title="No notifications"
-              message="Program events like dry-offs and calvings will show up here."
+              message="Dry-offs, cows ready to breed and cows needing a decision show up here."
             />
           )
         }
@@ -162,7 +182,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  body: { flex: 1, gap: 3 },
+  body: { flex: 1, gap: spacing.hairline },
   dot: {
     width: 9,
     height: 9,

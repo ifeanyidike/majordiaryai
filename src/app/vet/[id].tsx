@@ -174,7 +174,7 @@ export default function VetProfileScreen() {
 
 const styles = StyleSheet.create({
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  heroText: { flex: 1, gap: 3 },
+  heroText: { flex: 1, gap: spacing.hairline },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   heroActions: {
     flexDirection: 'row',

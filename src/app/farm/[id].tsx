@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   // grow to fill, but wrap rather than squeeze a label past legibility
   manageBtn: { flexGrow: 1, flexBasis: '30%', minWidth: 104 },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  heroText: { flex: 1, gap: 2 },
+  heroText: { flex: 1, gap: spacing.hairline },
   chipsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.md,
   },
-  vetText: { flex: 1, gap: 1 },
+  vetText: { flex: 1, gap: spacing.hairline },
   activityCard: { gap: 0, paddingVertical: spacing.sm },
   pregCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   flex1: { flex: 1 },
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  activityText: { flex: 1, gap: 1 },
+  activityText: { flex: 1, gap: spacing.hairline },
   notesCard: { gap: spacing.sm },
   noteRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   noteText: { flex: 1 },

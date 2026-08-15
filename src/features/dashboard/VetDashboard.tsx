@@ -168,7 +168,7 @@ export function VetDashboard() {
 const styles = StyleSheet.create({
   loading: { marginVertical: spacing.lg },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  heroText: { flex: 1, gap: 2 },
+  heroText: { flex: 1, gap: spacing.hairline },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   heroStats: { marginTop: spacing.xxl },
   body: { paddingHorizontal: spacing.xl, marginTop: -spacing.xxxl },
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingVertical: spacing.md,
   },
-  reportStat: { flex: 1, alignItems: 'center', gap: 1 },
+  reportStat: { flex: 1, alignItems: 'center', gap: spacing.hairline },
   reportDivider: { width: 1, backgroundColor: colors.border },
   hint: { marginTop: spacing.sm, marginBottom: spacing.sm },
   reportsBtn: { marginTop: spacing.lg },

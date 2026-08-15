@@ -146,3 +146,38 @@ def test_the_rls_helper_uses_the_same_grace_period_and_timezone_as_the_api():
     assert f"'{settings.farm_timezone}'" in zone, (
         f"farm_today() does not use FARM_TIMEZONE ({settings.farm_timezone})"
     )
+
+
+def test_the_app_knows_every_notification_type_the_backend_sends():
+    """The Settings toggles filter the in-app notification list by type, and
+    the list draws an icon per type. Both tables were hand-maintained on the
+    client and had drifted badly: they listed `calving`, `heat`, `pregnancy`,
+    `breeding` and `vaccination`, none of which anything has ever emitted,
+    while missing `breeding_due`, which is emitted. The practical effect was
+    four of five toggles filtering nothing and one real notification drawing a
+    generic bell.
+
+    This pins the client's list to the `create_notification` calls themselves.
+    """
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+
+    backend_src = "\n".join(
+        p.read_text() for p in (root / "backend/app").rglob("*.py")
+    )
+    emitted = set(re.findall(
+        r"create_notification\(\s*[^)]*?,\s*\"([a-z_]+)\"", backend_src, re.S,
+    ))
+    assert emitted, "no create_notification calls found — has it been renamed?"
+
+    ts = (root / "src/store/useSettingsStore.ts").read_text()
+    declared = set(re.findall(
+        r"'([a-z_]+)'", re.search(r"NOTIFICATION_TYPES = \[([^\]]*)\]", ts).group(1),
+    ))
+
+    assert declared == emitted, (
+        "src/store/useSettingsStore.ts NOTIFICATION_TYPES is out of step with "
+        f"the backend.\n  only in the app: {sorted(declared - emitted)}\n"
+        f"  only in the API: {sorted(emitted - declared)}"
+    )

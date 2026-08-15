@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api, isApiConfigured, isDemoMode } from '@/lib/api';
 import { daysBetween, daysSince, todayISO } from '@/lib/dates';
+import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
 import {
   Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
   VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
@@ -357,6 +358,8 @@ interface AppState {
   fetchKpis: () => Promise<void>;
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
+  /** Mark every notification the user can currently see as read. */
+  markAllNotificationsRead: () => Promise<void>;
   /** Create or update a farm (admin). Returns the saved farm's id. */
   saveFarm: (input: FarmInput, farmId?: string) => Promise<string>;
   /** Create or update a cow (admin/technician). Returns the saved cow's id. */
@@ -643,7 +646,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   markNotificationRead: async (id) => {
-    // Optimistic — the bell badge shouldn't lag the tap.
+    // Optimistic — the badge shouldn't lag the tap.
+    const wasRead = get().notifications.find((n) => n.id === id)?.read;
     set((s) => ({
       notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
     }));
@@ -651,7 +655,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.patch(`/notifications/${id}/read`, {});
     } catch {
-      // non-fatal; a refetch will reconcile
+      // Put it back. Leaving it optimistically read meant the row faded, then
+      // silently returned to unread on the next refetch with no explanation —
+      // which reads as the app losing track of what you have seen.
+      if (!wasRead) {
+        set((s) => ({
+          notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: false } : n)),
+        }));
+      }
+    }
+  },
+
+  markAllNotificationsRead: async () => {
+    // Only what the user can actually see: clearing notifications they have
+    // filtered out of view would be acting on their behalf without showing
+    // them what was cleared.
+    const prefs = useSettingsStore.getState().notifications;
+    const targets = get().notifications.filter(
+      (n) => !n.read && notificationTypeEnabled(n.type, prefs),
+    );
+    if (targets.length === 0) return;
+
+    const ids = new Set(targets.map((n) => n.id));
+    set((s) => ({
+      notifications: s.notifications.map((n) => (ids.has(n.id) ? { ...n, read: true } : n)),
+    }));
+    if (!isApiConfigured) return;
+    try {
+      await Promise.all(
+        targets.map((n) => api.patch(`/notifications/${n.id}/read`, {})),
+      );
+    } catch {
+      await get().fetchNotifications();
     }
   },
 
@@ -941,8 +976,18 @@ export const farmUpcomingActivities = (
   return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, limit);
 };
 
+/**
+ * Unread notifications the user would actually SEE.
+ *
+ * This counted everything, including types the user had switched off in
+ * Settings, so the badge promised unread items that the notifications screen
+ * then filtered away — a count you can never clear.
+ */
 export const unreadNotificationCount = (s: AppState) =>
-  s.notifications.filter((n) => !n.read).length;
+  s.notifications.filter(
+    (n) => !n.read
+      && notificationTypeEnabled(n.type, useSettingsStore.getState().notifications),
+  ).length;
 
 /** API already scopes by role, so just return all cows */
 export const visibleCows = (s: AppState) => s.cows;

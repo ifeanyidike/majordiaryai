@@ -75,5 +75,5 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm + 2,
     ...shadows.card,
   },
-  textCol: { flex: 1, gap: 1 },
+  textCol: { flex: 1, gap: spacing.hairline },
 });

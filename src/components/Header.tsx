@@ -66,5 +66,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  titleCol: { flex: 1, gap: 2 },
+  titleCol: { flex: 1, gap: spacing.hairline },
 });

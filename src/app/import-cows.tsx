@@ -263,9 +263,9 @@ const styles = StyleSheet.create({
   },
   importBtn: { marginTop: spacing.lg },
   statsRow: { flexDirection: 'row' },
-  stat: { flex: 1, alignItems: 'center', gap: 2 },
+  stat: { flex: 1, alignItems: 'center', gap: spacing.hairline },
   resultMeta: { marginTop: spacing.md },
-  errors: { marginTop: spacing.md, gap: 2 },
+  errors: { marginTop: spacing.md, gap: spacing.hairline },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
     backgroundColor: colors.surfaceSoft,

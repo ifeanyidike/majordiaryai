@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     ...shadows.card,
   },
-  ribbonItem: { flex: 1, alignItems: 'center', gap: 1 },
+  ribbonItem: { flex: 1, alignItems: 'center', gap: spacing.hairline },
   ribbonDivider: { borderLeftWidth: 1, borderLeftColor: colors.border },
   list: { marginTop: spacing.xl },
   farmRow: {
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  farmText: { flex: 1, gap: 2 },
+  farmText: { flex: 1, gap: spacing.hairline },
   cowChip: {
     flexDirection: 'row',
     alignItems: 'center',

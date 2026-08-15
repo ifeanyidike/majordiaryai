@@ -1,12 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Linking, StyleSheet, Switch, View } from 'react-native';
 import Constants from 'expo-constants';
-import { Button, Card, Header, Screen, SectionHeader, Text } from '@/components';
+import {
+  Button, Card, Header, PressableScale, Screen, SectionHeader, Text,
+} from '@/components';
 import { colors, radius, spacing } from '@/theme';
 import { NOTIFICATION_TOPICS, useSettingsStore } from '@/store/useSettingsStore';
 import { useAuthStore } from '@/store/useAuthStore';
+
+/**
+ * Where support mail goes.
+ *
+ * This was hardcoded to help@majordairy.ai, a domain with no MX record — the
+ * row opened a mail composer addressed to a mailbox that cannot receive
+ * anything, and the send would bounce silently some time later. Offering no
+ * support row is better than offering one that quietly fails, so an unset
+ * value hides it rather than substituting a guess.
+ */
+const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim() || null;
 
 function Row({
   icon, label, hint, right, onPress,
@@ -33,9 +46,15 @@ function Row({
   );
   if (onPress) {
     return (
-      <Pressable style={styles.row} onPress={onPress} accessibilityRole="button" accessibilityLabel={label}>
+      <PressableScale
+        scaleTo={0.98}
+        style={styles.row}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+      >
         {content}
-      </Pressable>
+      </PressableScale>
     );
   }
   return <View style={styles.row}>{content}</View>;
@@ -132,13 +151,15 @@ export default function SettingsScreen() {
 
       <SectionHeader title="About" />
       <Card style={styles.card}>
-        <Row
-          icon="help-buoy-outline"
-          label="Support"
-          hint="help@majordairy.ai"
-          onPress={() => Linking.openURL('mailto:help@majordairy.ai')}
-        />
-        <View style={styles.divided}>
+        {SUPPORT_EMAIL ? (
+          <Row
+            icon="help-buoy-outline"
+            label="Support"
+            hint={SUPPORT_EMAIL}
+            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+          />
+        ) : null}
+        <View style={SUPPORT_EMAIL ? styles.divided : undefined}>
           <Row icon="information-circle-outline" label="Version" right={
             <Text variant="body" color={colors.textSecondary}>{version}</Text>
           } />
@@ -168,7 +189,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   rowIcon: { width: 24, textAlign: 'center' },
-  rowText: { flex: 1, gap: 2 },
+  rowText: { flex: 1, gap: spacing.hairline },
   divided: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,

@@ -130,7 +130,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  heroText: { flex: 1, gap: 2 },
+  heroText: { flex: 1, gap: spacing.hairline },
   body: { paddingHorizontal: spacing.xl, marginTop: -spacing.xxxl },
   statRow: { flexDirection: 'row', gap: spacing.md },
   infoCard: { paddingVertical: spacing.sm },

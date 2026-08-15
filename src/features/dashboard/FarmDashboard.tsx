@@ -263,7 +263,7 @@ export function FarmDashboard() {
 
 const styles = StyleSheet.create({
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  heroText: { flex: 1, gap: 2 },
+  heroText: { flex: 1, gap: spacing.hairline },
   chipsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xxl },
   chip: {
     flex: 1,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   },
   statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
   kpiCard: { flexDirection: 'row', paddingVertical: spacing.lg },
-  kpiItem: { flex: 1, alignItems: 'center', gap: 1 },
+  kpiItem: { flex: 1, alignItems: 'center', gap: spacing.hairline },
   activityCard: { gap: 0, paddingVertical: spacing.sm },
   activityRow: {
     flexDirection: 'row',
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  activityText: { flex: 1, gap: 1 },
+  activityText: { flex: 1, gap: spacing.hairline },
   teamCard: { gap: 0, paddingVertical: spacing.sm },
   teamRow: {
     flexDirection: 'row',
@@ -305,6 +305,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  teamText: { flex: 1, gap: 1 },
+  teamText: { flex: 1, gap: spacing.hairline },
   reportsBtn: { marginTop: spacing.sm },
 });
