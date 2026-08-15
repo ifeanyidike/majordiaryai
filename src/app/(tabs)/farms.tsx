@@ -16,7 +16,7 @@ import { charcoal, colors, cream, radius, red, shadows, spacing, touch } from '@
 import { dial } from '@/lib/contact';
 import { Farm } from '@/data/types';
 import { useAppStore } from '@/store/useAppStore';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore, useRole } from '@/store/useAuthStore';
 
 /**
  * Per-farm identity accents drawn from the brand ramps only — semantic
@@ -44,7 +44,7 @@ export default function FarmsScreen() {
 
   useEffect(() => { fetchFarms(); }, []);
 
-  const role = user?.role ?? 'technician';
+  const role = useRole();
 
   const totalCows = farms.reduce((n, f) => n + f.herdSize, 0);
   const cities = new Set(farms.map((f) => f.city)).size;

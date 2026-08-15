@@ -85,3 +85,26 @@ def test_empty_visit_schedule_is_rejected_by_the_constraint():
         "the weekday constraint still uses array_length, which lets an empty "
         f"array through: {constraint.strip()}"
     )
+
+
+def test_the_app_and_the_api_agree_on_every_protocol_step():
+    """src/data/protocols.ts previews the schedule when enrolling; the backend
+    writes the treatment onto each scheduled record. They are two hand-kept
+    copies of the same table, and PGF Heat had already drifted — the enrol
+    screen promised "Heat observation + AI if in heat" for day 5 while the
+    needling card, built from the backend, said something else."""
+    import re
+
+    from app.services.protocols import PROTOCOLS
+
+    ts = (pathlib.Path(__file__).resolve().parents[2] / "src/data/protocols.ts").read_text()
+
+    for name, steps in PROTOCOLS.items():
+        block = re.search(
+            rf"value: '{name}',(.*?)\n  \}}", ts, re.S,
+        )
+        assert block, f"{name} is missing from src/data/protocols.ts"
+        found = re.findall(r"\{ day: (\d+), treatment: '([^']*)'", block.group(1))
+        assert [(int(d), t) for d, t in found] == [
+            (s["day"], s["treatment"]) for s in steps
+        ], f"{name} differs between the app and the API"

@@ -62,12 +62,28 @@ if TEST_DATABASE_URL:
         pass
 
 
+# Fixtures that need the throwaway Postgres. A test asking for none of these is
+# a pure unit test and must still run without it.
+_DB_FIXTURES = frozenset({
+    "db", "engine", "api", "farm", "make_cow", "technician", "records_of",
+})
+
+
 def pytest_collection_modifyitems(config, items):
-    """Skip everything (loudly) when no test database is configured."""
+    """Skip only the tests that actually need a database.
+
+    This used to skip the WHOLE suite, which made `pytest` on a machine
+    without the Docker container exit 0 having asserted nothing at all — the
+    spec constants, the schema-freshness guards, the import parsing rules and
+    the scheduler tests all reported as passing-by-absence. A green run that
+    verified nothing is worse than a red one.
+    """
     if TEST_DATABASE_URL:
         return
     skip = pytest.mark.skip(reason=_SKIP_REASON)
     for item in items:
+        if not (_DB_FIXTURES & set(getattr(item, "fixturenames", ()))):
+            continue  # pure unit test — runs anywhere
         item.add_marker(skip)
 
 

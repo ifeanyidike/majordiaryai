@@ -15,7 +15,7 @@ import {
 } from '@/components';
 import { colors, gradients, onDark, spacing, status } from '@/theme';
 import { summarize, unreadNotificationCount, useAppStore, worklistTotal } from '@/store/useAppStore';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore, useRole } from '@/store/useAuthStore';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -25,7 +25,9 @@ export default function ProfileScreen() {
   const unread = unreadNotificationCount(store);
   const [signingOut, setSigningOut] = useState(false);
 
-  const role = user?.role ?? 'technician';
+  // Never defaulted: the role is the caption on the user's own profile,
+  // so guessing labels a farm manager 'Field Technician' to their face.
+  const role = useRole();
   // Cows still needing work today, from the same payload the To-Do list renders
   // — a separate count here would drift from the list it claims to describe.
   const outstanding = worklistTotal(store);
@@ -40,7 +42,8 @@ export default function ProfileScreen() {
     role === 'admin' ? 'System Administrator'
     : role === 'farm' ? 'Farm Manager'
     : role === 'vet' ? 'Veterinarian'
-    : 'Field Technician';
+    : role === 'technician' ? 'Field Technician'
+    : '—';
 
   const contact = [
     { label: 'Email', value: user?.email ?? '—' },

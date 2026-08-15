@@ -17,7 +17,7 @@ import {
   DAILY_REPORT_TYPES, emptyReport, LIST_REPORT_TYPES, PROGRAM_REPORT_TYPES,
 } from '@/data/reports';
 import { mergedReports, summarize, useAppStore } from '@/store/useAppStore';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore, useRole } from '@/store/useAuthStore';
 
 export default function ReportsScreen() {
   const router = useRouter();
@@ -40,7 +40,7 @@ export default function ReportsScreen() {
     fetchKpis();
   };
 
-  const role = user?.role ?? 'technician';
+  const role = useRole();
   const scopeLabel =
     role === 'farm'
       ? 'Your herd performance'

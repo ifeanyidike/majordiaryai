@@ -192,3 +192,65 @@ async def test_the_standing_technician_keeps_access_regardless(db):
     farm, _relief = await _relief_setup(db, 0)
     owner = await db.get(User, farm.assigned_technician_id)
     assert await _may_access(db, owner, farm) is True
+
+
+# ── Calving must not reverse a cull ──────────────────────────────────
+
+async def test_calving_is_refused_on_a_culled_cow(db, api, farm):
+    """The gate blocked calf/sold/dead but not cull, and on_calving wrote
+    `fresh` directly — past the guard that forbids cull -> fresh. Recording a
+    calving therefore un-culled the cow, with nothing recording that the cull
+    decision had been reversed."""
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="CULLED-1",
+              status=CowStatus.cull, lactation_number=2)
+    db.add(cow)
+    await db.flush()
+
+    async with api(role="admin") as client:
+        resp = await client.post("/calving/", json={
+            "cow_id": str(cow.id), "calving_date": str(TODAY),
+            "live_birth": True, "still_birth": False, "calf_sex": "female",
+        })
+    assert resp.status_code == 409, resp.text
+
+    await db.refresh(cow)
+    assert cow.status == CowStatus.cull, "a calving silently un-culled her"
+
+
+@pytest.mark.parametrize("status", [CowStatus.sold, CowStatus.dead, CowStatus.calf])
+async def test_calving_is_refused_on_the_other_terminal_statuses(db, api, farm, status):
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag=f"T-{status.value}",
+              status=status, lactation_number=1)
+    db.add(cow)
+    await db.flush()
+
+    async with api(role="admin") as client:
+        resp = await client.post("/calving/", json={
+            "cow_id": str(cow.id), "calving_date": str(TODAY),
+            "live_birth": True, "still_birth": False, "calf_sex": "female",
+        })
+    assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.parametrize("status", [
+    CowStatus.pregnant, CowStatus.dry, CowStatus.inseminated,
+    CowStatus.heifer, CowStatus.open, CowStatus.needling,
+])
+async def test_calving_is_still_accepted_from_every_live_status(db, api, farm, status):
+    """Calving is event-triggered: a cow can calve while the system believes
+    she is only inseminated (nobody recorded the check) or still a heifer.
+    Tightening the terminal gate must not re-break that."""
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag=f"L-{status.value}",
+              status=status, lactation_number=1)
+    db.add(cow)
+    await db.flush()
+
+    async with api(role="admin") as client:
+        resp = await client.post("/calving/", json={
+            "cow_id": str(cow.id), "calving_date": str(TODAY),
+            "live_birth": True, "still_birth": False, "calf_sex": "male",
+        })
+    assert resp.status_code == 201, resp.text
+
+    await db.refresh(cow)
+    assert cow.status == CowStatus.fresh

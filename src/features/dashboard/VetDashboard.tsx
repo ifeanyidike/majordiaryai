@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import {
   Button,
   Card,
+  ErrorBanner,
   HeroHeader,
   HeroStats,
   ListRow,
@@ -26,12 +27,24 @@ import { useAuthStore } from '@/store/useAuthStore';
 export function VetDashboard() {
   const router = useRouter();
   const store = useAppStore();
-  const { farms, cows } = store;
+  const { farms, cows, worklist, worklistLoading, worklistError, ensureWorklist, fetchWorklist } = store;
   const { user } = useAuthStore();
   const { due, warning } = pregnancyCounts(store);
 
+  useEffect(() => { ensureWorklist(); }, []);
+
+  // Both counts are derived from the worklist, so a failed fetch renders as a
+  // confident "0 due" — on the one screen that IS the vet's entire job. An
+  // empty herd and an unreachable server must not look identical.
+  const loading = worklistLoading && !worklist;
+
   return (
-    <Screen padded={false} topInset={false}>
+    <Screen
+      padded={false}
+      topInset={false}
+      refreshing={worklistLoading && !!worklist}
+      onRefresh={() => fetchWorklist()}
+    >
       <FocusedStatusBar style="light" />
       <HeroHeader gradient={gradients.vet}>
         <View style={styles.heroRow}>
@@ -64,6 +77,13 @@ export function VetDashboard() {
       </HeroHeader>
 
       <View style={styles.body}>
+        {worklistError ? (
+          <ErrorBanner message={worklistError} onRetry={() => fetchWorklist()} />
+        ) : null}
+        {loading ? (
+          <ActivityIndicator color={colors.primary} style={styles.loading} />
+        ) : null}
+
         {/* Overdue warning */}
         {warning > 0 ? (
           <View style={styles.warnBanner}>
@@ -143,6 +163,7 @@ export function VetDashboard() {
 }
 
 const styles = StyleSheet.create({
+  loading: { marginVertical: spacing.lg },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   heroText: { flex: 1, gap: 2 },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },

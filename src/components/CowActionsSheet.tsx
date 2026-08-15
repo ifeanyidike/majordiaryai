@@ -461,9 +461,15 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [heatDetected, setHeatDetected] = useState(false);
   const [bloodOnTail, setBloodOnTail] = useState(false);
+  // Backdatable. The date was hardcoded to today, which contradicts the whole
+  // reason the backend keeps a relief technician's access open for a week:
+  // work gets written up after the visit, not during it. Recording yesterday's
+  // check today also mis-stated the day count the timing rule is judged on.
+  const [checkDate, setCheckDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const days = daysPostInsemination(cow) ?? 0;
+  const dateValid = isValidPastOrTodayDate(checkDate);
 
   const submit = async () => {
     if (!cow.lastInseminationId) {
@@ -478,7 +484,7 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
       await api.post('/checks/heat', {
         cow_id: cow.id,
         insemination_id: cow.lastInseminationId,
-        check_date: todayISO(),
+        check_date: checkDate,
         heat_detected: effectiveHeat,
         bleeding_event: bloodOnTail,
         notes: notes.trim() || null,
@@ -503,6 +509,19 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
       <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.md }}>
         Day {days} post insemination (heat window: days 20–25)
       </Text>
+      <FormLabel>Check Date</FormLabel>
+      <FormInput
+        value={checkDate}
+        onChangeText={setCheckDate}
+        placeholder="YYYY-MM-DD"
+        keyboardType="numbers-and-punctuation"
+        error={checkDate.length > 0 && !dateValid}
+      />
+      {checkDate.length > 0 && !dateValid && (
+        <Text variant="caption" color={colors.danger} style={styles.fieldError}>
+          Use YYYY-MM-DD, today or earlier
+        </Text>
+      )}
       <FormToggle label="Heat Detected?" value={heatDetected} onChange={setHeatDetected} />
       <FormToggle label="Blood on Tail?" value={bloodOnTail} onChange={setBloodOnTail} />
       {bloodOnTail && (
@@ -519,6 +538,7 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="flame"
         onSubmit={submit}
         loading={loading}
+        disabled={!dateValid}
       />
     </>
   );
@@ -529,8 +549,12 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
   const [result, setResult] = useState<'pregnant' | 'not_pregnant'>('pregnant');
   const [infection, setInfection] = useState(false);
   const [cysts, setCysts] = useState(false);
+  // Backdatable — a vet writes up a round of checks after the visit, and the
+  // date decides the +283 due date and the +223 dry-off.
+  const [checkDate, setCheckDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  const dateValid = isValidPastOrTodayDate(checkDate);
 
   const submit = async () => {
     if (!cow.lastInseminationId) {
@@ -543,7 +567,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
       await api.post('/checks/pregnancy', {
         cow_id: cow.id,
         insemination_id: cow.lastInseminationId,
-        check_date: todayISO(),
+        check_date: checkDate,
         result,
         has_infection: infection,
         has_cysts: cysts,
@@ -571,6 +595,19 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
 
   return (
     <>
+      <FormLabel>Check Date</FormLabel>
+      <FormInput
+        value={checkDate}
+        onChangeText={setCheckDate}
+        placeholder="YYYY-MM-DD"
+        keyboardType="numbers-and-punctuation"
+        error={checkDate.length > 0 && !dateValid}
+      />
+      {checkDate.length > 0 && !dateValid && (
+        <Text variant="caption" color={colors.danger} style={styles.fieldError}>
+          Use YYYY-MM-DD, today or earlier
+        </Text>
+      )}
       <FormLabel>Result</FormLabel>
       <SegmentedControl
         options={[
@@ -597,6 +634,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="medkit"
         onSubmit={submit}
         loading={loading}
+        disabled={!dateValid}
       />
     </>
   );
@@ -675,9 +713,16 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
         options={[
           { value: 'female', label: 'Female' },
           { value: 'male', label: 'Male' },
+          // A stillbirth is not always sexed. Without this the control forced
+          // one of two answers, so an undetermined calf was recorded as
+          // whichever option happened to be selected. Live births still
+          // require a real answer (`valid` below).
+          ...(outcome === 'still'
+            ? [{ value: 'unknown' as const, label: 'Not known' }]
+            : []),
         ]}
-        value={calfSex}
-        onChange={setCalfSex}
+        value={outcome === 'still' && calfSex === null ? 'unknown' : calfSex}
+        onChange={(v) => setCalfSex(v === 'unknown' ? null : (v as 'female' | 'male'))}
         style={styles.fieldGap}
       />
       {outcome === 'live' && (

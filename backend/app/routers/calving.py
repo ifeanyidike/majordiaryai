@@ -61,10 +61,19 @@ async def record_calving(
     # was never recorded — a bred heifer, or one the vet missed — could not have
     # her calving recorded at all: the technician got a 409 standing next to a
     # live calf. The birth is the fact; the missing check is the anomaly.
-    if cow.status in (CowStatus.calf, CowStatus.sold, CowStatus.dead):
+    #
+    # `cull` is refused too. It was not, so recording a calving on a culled cow
+    # reversed the cull with no audit trail — and did it by writing the status
+    # directly, past the transition guard that forbids exactly that. Un-culling
+    # is a decision, not a side effect of the calving form.
+    if cow.status in (CowStatus.calf, CowStatus.cull, CowStatus.sold, CowStatus.dead):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot record calving for a cow with status '{cow.status.value}'",
+            detail=(
+                f"Cannot record calving for a cow with status '{cow.status.value}'"
+                + (" — bring her back into the herd first"
+                   if cow.status == CowStatus.cull else "")
+            ),
         )
     if body.calving_date > local_today():
         raise HTTPException(status_code=422, detail="calving_date cannot be in the future")

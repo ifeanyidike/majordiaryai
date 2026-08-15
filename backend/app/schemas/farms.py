@@ -53,6 +53,13 @@ class FarmUpdate(BaseModel):
     _check_weekdays = field_validator("visit_weekdays")(_clean_weekdays)
 
 
+class FarmNoteCreate(BaseModel):
+    """One note appended to a farm. Appending is a separate capability from
+    editing the farm record, so the visiting technician can leave one."""
+
+    note: str = Field(min_length=1, max_length=2000)
+
+
 class FarmOut(BaseModel):
     id: UUID
     name: str

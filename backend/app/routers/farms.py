@@ -7,7 +7,8 @@ from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
 from app.models.models import Farm, FarmVisitAssignment, Cow, CowStatus, User, UserRole
 from app.schemas.farms import (
-    FarmCreate, FarmUpdate, FarmOut, VisitAssignmentBody, VisitAssignmentOut,
+    FarmCreate, FarmNoteCreate, FarmUpdate, FarmOut, VisitAssignmentBody,
+    VisitAssignmentOut,
 )
 from app.services.access import check_farm_access, scope_to_farms
 from datetime import date
@@ -152,6 +153,42 @@ async def update_farm(
         if value is None and field in _NON_NULLABLE_FIELDS:
             continue
         setattr(farm, field, value)
+
+    await db.commit()
+    result = await db.execute(_with_counts(select(Farm).where(Farm.id == farm_id)))
+    return _row_to_dict(result.first())
+
+
+@router.post("/{farm_id}/notes", response_model=FarmOut)
+async def append_farm_note(
+    farm_id: uuid.UUID,
+    body: FarmNoteCreate,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Append a note to a farm.
+
+    Leaving a note ("gate code 4482", "prefers visits before noon") is
+    something the technician standing on the farm does, not an edit of the
+    farm record. The app routed it through PATCH /farms, which is admin-only,
+    so the button was offered to every role and answered with a 403 for most
+    of them.
+
+    Appending server-side also closes a lost-update race: the client used to
+    read the notes column, concatenate, and write the whole thing back, so two
+    notes written close together kept only the last one.
+    """
+    farm = await db.get(Farm, farm_id, with_for_update=True)
+    if not farm or not await check_farm_access(db, current_user, farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    note = body.note.strip()
+    if not note:
+        raise HTTPException(status_code=422, detail="Note cannot be empty")
+
+    stamp = local_today().isoformat()
+    entry = f"[{stamp}] {note}"
+    farm.notes = f"{farm.notes}\n{entry}" if farm.notes else entry
 
     await db.commit()
     result = await db.execute(_with_counts(select(Farm).where(Farm.id == farm_id)))

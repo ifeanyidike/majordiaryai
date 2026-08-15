@@ -321,8 +321,17 @@ async def on_calving(cow: Cow, calving_date: date, db: AsyncSession) -> None:
     recorded the pregnancy check) or heifer (bred before she was ever
     enrolled). Any open enrollment is closed out, since she is plainly no
     longer in a breeding protocol.
+
+    It goes through `ensure_transition` like every other status write. Setting
+    the status directly meant a calving recorded against a CULLED cow silently
+    un-culled her — cull -> fresh is a transition LEGAL_TRANSITIONS explicitly
+    forbids, and there is no record anywhere that the cull was reversed.
     """
-    await cancel_active_enrollments(cow, db, EnrollmentStatus.completed)
+    ensure_transition(cow, CowStatus.fresh)
+    # `cancelled`, not `completed`: she calved part-way through a protocol, so
+    # the protocol was interrupted. Recording it as completed inflated
+    # protocol-completion stats with rounds that never finished.
+    await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
     cow.status = CowStatus.fresh
     cow.lactation_number = (cow.lactation_number or 0) + 1
     cow.last_calving_date = calving_date

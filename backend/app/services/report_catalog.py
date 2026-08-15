@@ -310,7 +310,13 @@ def _post_calving(ctx: WorklistContext) -> List[ReportRow]:
     lo, hi = VACCINATION_WINDOW
     rows = []
     for cow in ctx.cows:
-        if cow.status != CowStatus.fresh:
+        # `open` as well as `fresh`. Removing the day-50 cap was not enough on
+        # its own: the lifecycle sweep flips fresh -> open at day 70, so a cow
+        # whose mandatory shot was never given still vanished from every work
+        # list — twenty days later than before, but just as silently. She stays
+        # visible until the shot is recorded or she calves again (which moves
+        # last_calving_date and re-arms the check below).
+        if cow.status not in (CowStatus.fresh, CowStatus.open):
             continue
         d = _days_since(cow.last_calving_date, ctx.today)
         # No upper bound. Windowing this at day 50 meant a cow whose mandatory

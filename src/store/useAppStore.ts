@@ -854,18 +854,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addFarmNote: async (farmId, note) => {
-    // Was local-only: it toasted success and the next refetch erased the note.
-    // farms.notes is a single text column, so notes append into it.
-    const farm = get().farms.find((f) => f.id === farmId);
-    const existing = farm?.notes?.[0];
-    const merged = existing ? `${note}\n${existing}` : note;
+    // Appending happens SERVER-side (POST /farms/{id}/notes).
+    //
+    // Two bugs came from doing it here. It used to PATCH /farms, which is
+    // admin-only, so a technician's note 403'd. And read-merge-write is a
+    // lost update: two notes written close together kept only the last one,
+    // because both merged onto the same stale copy of a single text column.
     if (isDemoMode) {
+      const existing = get().farms.find((f) => f.id === farmId)?.notes?.[0];
+      const merged = existing ? `${note}\n${existing}` : note;
       set((s) => ({
         farms: s.farms.map((f) => (f.id === farmId ? { ...f, notes: [merged] } : f)),
       }));
       return;
     }
-    await api.patch(`/farms/${farmId}`, { notes: merged });
+    await api.post(`/farms/${farmId}/notes`, { note });
     await get().fetchFarms();
   },
 

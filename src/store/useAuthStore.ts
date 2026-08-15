@@ -35,15 +35,31 @@ const AUTH_UNCONFIGURED_MSG =
  * Profile data (name/role/phone) travels in Supabase user_metadata so it
  * survives the email-confirmation round trip.
  */
+const ROLES: readonly Role[] = ['technician', 'admin', 'farm', 'vet'];
+
 async function createProfileFromMetadata(): Promise<UserProfile | null> {
   const { data } = await supabase.auth.getUser();
   const authUser = data.user;
   if (!authUser) return null;
   const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+
+  // No fallback. This writes the role into the database, so defaulting a
+  // missing or unrecognized value to 'technician' silently created a
+  // technician account — with the daily route, the farm list and every
+  // recording capability — for anyone whose signup metadata was incomplete.
+  // A guess here is permanent in a way a guess in the UI is not.
+  const role = meta.role as Role | undefined;
+  if (!role || !ROLES.includes(role)) {
+    throw new Error(
+      'Your sign-up did not record which role you have. Ask an administrator ' +
+      'to set it up for you.',
+    );
+  }
+
   return api.post<UserProfile>('/users/me', {
     name: (meta.name as string) ?? authUser.email ?? 'New user',
     email: authUser.email,
-    role: (meta.role as Role) ?? 'technician',
+    role,
     phone: (meta.phone as string) ?? null,
   });
 }

@@ -19,7 +19,8 @@ interface InputModalProps {
   submitLabel?: string;
   initialValue?: string;
   submitting?: boolean;
-  onSubmit: (text: string) => void;
+  /** May be async — callers that persist must be able to await and catch. */
+  onSubmit: (text: string) => void | Promise<void>;
   onClose: () => void;
 }
 

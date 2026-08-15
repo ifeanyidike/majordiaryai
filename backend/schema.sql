@@ -10,7 +10,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict JjqIsDBLzNnkPRyatetdiz7tZLvQPbz1wvX1qSlS8QWB2K361cSbMjlD5NAOpxJ
+\restrict UesLn1zR6wuhcgK9dWn8pg3B9cTtzbkk5PGHWepOHXxphUbApoSd3TRJJsxxFCj
 
 -- Dumped from database version 16.14
 -- Dumped by pg_dump version 16.14
@@ -146,6 +146,30 @@ CREATE FUNCTION public.get_my_farm_id() RETURNS uuid
     LANGUAGE sql SECURITY DEFINER
     AS $$
             select farm_id from users where id = auth.uid();
+        $$;
+
+
+--
+-- Name: get_my_farm_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_my_farm_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+            select f.id from farms f
+            where
+                -- Admins and vets are not narrowed here; callers combine this
+                -- with get_my_role() as they need.
+                f.assigned_technician_id = auth.uid()
+             or f.id = (select u.farm_id from users u where u.id = auth.uid())
+             or exists (
+                    select 1 from farm_visit_assignments a
+                    where a.farm_id = f.id
+                      and a.assigned_technician_id = auth.uid()
+                      and a.visit_date <= current_date
+                      and a.visit_date >= current_date - interval '7 days'
+                )
         $$;
 
 
@@ -1178,7 +1202,7 @@ CREATE POLICY bulls_read ON public.bulls FOR SELECT USING (((public.get_my_role(
 -- Name: bulls bulls_write; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY bulls_write ON public.bulls USING ((public.get_my_role() = ANY (ARRAY['admin'::public.user_role, 'technician'::public.user_role])));
+CREATE POLICY bulls_write ON public.bulls USING (((public.get_my_role() = 'admin'::public.user_role) OR ((public.get_my_role() = 'technician'::public.user_role) AND (farm_id IN ( SELECT public.get_my_farm_ids() AS get_my_farm_ids))))) WITH CHECK (((public.get_my_role() = 'admin'::public.user_role) OR ((public.get_my_role() = 'technician'::public.user_role) AND (farm_id IN ( SELECT public.get_my_farm_ids() AS get_my_farm_ids)))));
 
 
 --
@@ -1488,5 +1512,5 @@ CREATE POLICY vets_read ON public.vets FOR SELECT USING ((public.get_my_role() =
 -- PostgreSQL database dump complete
 --
 
-\unrestrict JjqIsDBLzNnkPRyatetdiz7tZLvQPbz1wvX1qSlS8QWB2K361cSbMjlD5NAOpxJ
+\unrestrict UesLn1zR6wuhcgK9dWn8pg3B9cTtzbkk5PGHWepOHXxphUbApoSd3TRJJsxxFCj
 

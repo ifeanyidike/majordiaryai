@@ -278,9 +278,27 @@ def _parse_lactation(value) -> int:
     return n if n > 0 else 0
 
 
+def _supplied_fields(raw: Dict[str, object]) -> set:
+    """Which fields this row actually carries a value for.
+
+    A blank cell means "not supplied", never "clear it". The update path
+    setattr'd every parsed field, so a re-import of a sheet with a blank
+    status cell wrote `open` over `pregnant` (and resurrected `dead` cows),
+    and a blank date cell wrote NULL over a stored last_insemination_date.
+    A client's second upload therefore quietly destroyed the herd state the
+    first one established.
+    """
+    return {name for name, value in raw.items() if _cell_str(value) is not None}
+
+
 def _extract_cow_fields(raw: Dict[str, object]) -> Dict[str, object]:
     """Turn a {field: raw_cell} dict (already keyed by canonical field) into
-    parsed Cow column values. `ear_tag` is assumed validated by the caller."""
+    parsed Cow column values. `ear_tag` is assumed validated by the caller.
+
+    Blank cells still appear here with their defaults, because a NEW cow needs
+    them (no status means open, no lactation means 0). It is the update path
+    that must skip them — see `_supplied_fields`.
+    """
     fields: Dict[str, object] = {}
 
     ear_tag = _cell_str(raw.get("ear_tag"))
@@ -434,6 +452,7 @@ async def import_cows(
                 row, farm_col_index, farm_by_id, farm_by_name, farm_id,
             )
             fields = _extract_cow_fields(raw)
+            supplied = _supplied_fields(raw)
 
             # SAVEPOINT per row. A plain rollback() here discarded EVERY row
             # staged so far while the counters kept counting, so a 200-row file
@@ -449,6 +468,11 @@ async def import_cows(
                 if existing is not None:
                     for name, value in fields.items():
                         if name == "ear_tag":
+                            continue
+                        # Only what the sheet actually says. A blank cell
+                        # leaves the stored value alone rather than clearing
+                        # it — see _supplied_fields.
+                        if name not in supplied:
                             continue
                         setattr(existing, name, value)
                     updated += 1

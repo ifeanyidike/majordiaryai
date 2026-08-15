@@ -16,6 +16,7 @@ import pytest
 from app.models.models import CowStatus
 from app.routers.imports import (
     RowError, _extract_cow_fields, _parse_date, _parse_status, _resolve_row_farm,
+    _supplied_fields,
 )
 
 import uuid
@@ -91,9 +92,15 @@ def test_statuses_a_herd_manager_actually_types(text, expected):
     assert _parse_status(text) is expected
 
 
-def test_blank_status_means_open():
+def test_blank_status_means_open_for_a_new_cow_only():
+    """This default is for CREATE. On an update a blank cell must leave the
+    stored status alone — otherwise re-importing a sheet with the column empty
+    downgrades the whole herd to open. `_supplied_fields` is what enforces
+    that, and test_import_upload.py holds it to it end-to-end."""
     assert _parse_status("") is CowStatus.open
     assert _parse_status(None) is CowStatus.open
+    assert "status" not in _supplied_fields({"status": ""})
+    assert "status" in _supplied_fields({"status": "dry"})
 
 
 @pytest.mark.parametrize("text", ["Pregnant 60d", "sold?", "gone", "n/a"])

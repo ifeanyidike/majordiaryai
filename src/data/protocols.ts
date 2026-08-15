@@ -28,9 +28,14 @@ export const PROTOCOLS: ProtocolDef[] = [
     label: 'PGF Heat',
     steps: [
       { day: 1, treatment: '2cc PGF' },
-      { day: 3, treatment: 'Heat examination' },
-      { day: 4, treatment: 'Heat observation' },
-      { day: 5, treatment: 'Heat observation + AI if in heat', final: true },
+      // These strings must match backend/app/services/protocols.py exactly —
+      // this list is the preview shown when enrolling, and the backend's is
+      // what gets written onto each scheduled record. They had drifted in
+      // casing and wording, so the enrol screen promised one thing and the
+      // needling card said another for the same day.
+      { day: 3, treatment: 'Heat Examination' },
+      { day: 4, treatment: 'Heat Observation' },
+      { day: 5, treatment: 'Heat Observation + Insemination if in heat', final: true },
     ],
   },
   {

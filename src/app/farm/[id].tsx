@@ -76,14 +76,19 @@ export default function FarmProfileScreen() {
   const directions = () =>
     openDirections(formatAddress(farm.address, farm.city, farm.province));
 
+  const canManage = role === 'admin' || role === 'technician';
+
   const contactChips: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }[] = [
     { icon: 'call', label: 'Call', onPress: call },
     { icon: 'mail', label: 'Email', onPress: email },
     { icon: 'navigate', label: 'Directions', onPress: directions },
-    { icon: 'create', label: 'Note', onPress: () => setNoteOpen(true) },
+    // Note sat alongside Call/Email/Directions, so it was offered to farm
+    // managers and vets whose write the API refuses. Same roles as the rest of
+    // the manage actions.
+    ...(canManage
+      ? [{ icon: 'create' as const, label: 'Note', onPress: () => setNoteOpen(true) }]
+      : []),
   ];
-
-  const canManage = role === 'admin' || role === 'technician';
   const manageActions: {
     label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void;
   }[] = [
@@ -301,10 +306,17 @@ export default function FarmProfileScreen() {
         placeholder="Write your note…"
         submitLabel="Save Note"
         onClose={() => setNoteOpen(false)}
-        onSubmit={(text) => {
-          state.addFarmNote(farm.id, text);
-          toast.show('Note added to farm', 'document-text');
+        // Awaited and caught: this used to fire and forget, so the success
+        // toast showed before the request had happened and a 403 or a dropped
+        // connection lost the note with the user told it was saved.
+        onSubmit={async (text) => {
           setNoteOpen(false);
+          try {
+            await state.addFarmNote(farm.id, text);
+            toast.show('Note added to farm', 'document-text');
+          } catch (e: any) {
+            toast.error(e?.message ?? 'Could not save that note');
+          }
         }}
       />
     </Screen>
