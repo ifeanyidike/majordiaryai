@@ -48,7 +48,15 @@ BREEDING_WEEKDAYS = (0, 1, 5)  # Monday, Tuesday, Saturday
 # Days past a protocol's final day after which an un-inseminated cow is treated
 # as abandoned: the synchronisation has lapsed, so cancel and return her to Open
 # rather than leaving her pinned on Timed Breeding indefinitely.
-ABANDONED_PROTOCOL_DAYS = 7
+#
+# Client answer (SPEC_QUESTIONS.md, Q2 "how long before we cancel the program?"
+# -> "2. Goes to open status"): two days, then Open. Each answer in that file
+# leads with the number the question asked for -- Q3 "7 days he can still see
+# farm info", Q4 "5 days mon - Friday" -- so the leading 2 is the answer, not
+# list numbering. Two days also matches the biology: a synchronised ovulation
+# missed by more than a day or so is gone, and holding her on Timed Breeding
+# suppresses every other injection she is due.
+ABANDONED_PROTOCOL_DAYS = 2
 
 # Statuses in which an insemination may be recorded.
 INSEMINABLE_STATUSES = {

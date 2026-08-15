@@ -174,6 +174,14 @@ async def test_abandoned_final_day_is_cancelled_and_cow_returns_to_open(db, make
     assert not await on_needling(db, cow)
 
 
+def test_abandonment_window_is_the_two_days_the_client_answered():
+    """SPEC_QUESTIONS.md Q2, "how long before we cancel the program?" ->
+    "2. Goes to open status". Two days, then Open. It shipped as 7 (a guess),
+    and the difference is five days of a cow sitting on Timed Breeding with
+    every other injection she is due suppressed behind her."""
+    assert status_engine.ABANDONED_PROTOCOL_DAYS == 2
+
+
 async def test_recently_overdue_final_day_is_left_alone(db, make_cow):
     """Overdue by a day is normal — only a lapsed protocol gets cancelled."""
     cow = await make_cow(steps=[(10, -1, "2cc GnRH + Insemination", True, False)])
