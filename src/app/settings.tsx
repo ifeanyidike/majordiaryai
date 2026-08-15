@@ -13,13 +13,18 @@ import { useAuthStore } from '@/store/useAuthStore';
 /**
  * Where support mail goes.
  *
- * This was hardcoded to help@majordairy.ai, a domain with no MX record — the
- * row opened a mail composer addressed to a mailbox that cannot receive
- * anything, and the send would bounce silently some time later. Offering no
- * support row is better than offering one that quietly fails, so an unset
- * value hides it rather than substituting a guess.
+ * It was hardcoded to help@majordairy.ai, a domain with no MX record, so the
+ * row opened a composer addressed to a mailbox that cannot receive anything
+ * and the send bounced silently some time later.
+ *
+ * The default is a real mailbox rather than null: a release build that forgot
+ * one EAS variable would otherwise ship with no way to contact anybody, and
+ * that failure is invisible until a user needs help. The env var is still
+ * honoured so the client can point it at their own inbox without a rebuild
+ * of this file.
  */
-const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim() || null;
+const SUPPORT_EMAIL =
+  process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim() || 'majordiary@gmail.com';
 
 function Row({
   icon, label, hint, right, onPress,
@@ -151,15 +156,13 @@ export default function SettingsScreen() {
 
       <SectionHeader title="About" />
       <Card style={styles.card}>
-        {SUPPORT_EMAIL ? (
-          <Row
-            icon="help-buoy-outline"
-            label="Support"
-            hint={SUPPORT_EMAIL}
-            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
-          />
-        ) : null}
-        <View style={SUPPORT_EMAIL ? styles.divided : undefined}>
+        <Row
+          icon="help-buoy-outline"
+          label="Support"
+          hint={SUPPORT_EMAIL}
+          onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+        />
+        <View style={styles.divided}>
           <Row icon="information-circle-outline" label="Version" right={
             <Text variant="body" color={colors.textSecondary}>{version}</Text>
           } />
