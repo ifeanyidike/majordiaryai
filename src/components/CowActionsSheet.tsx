@@ -15,9 +15,11 @@ import { Button, ModalToastHost, SegmentedControl, SectionHeader, Text, useToast
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormInput, FormLabel } from './FormField';
 import { api, isApiConfigured } from '@/lib/api';
-import { daysSince, isValidPastOrTodayDate, todayISO } from '@/lib/dates';
+import {
+  daysSince, isValidPastOrTodayDate, isValidStartDate, START_DATE_LOOKAHEAD_DAYS, todayISO,
+} from '@/lib/dates';
 import { isPreferredStartDay, PROTOCOLS, protocolByValue } from '@/data/protocols';
-import { Role as UserRole, useAuthStore } from '@/store/useAuthStore';
+import { Role as UserRole, useAuthStore, useRole } from '@/store/useAuthStore';
 import { colors, radius, shadows, spacing, typography } from '@/theme';
 import { Cow, CowStatus } from '@/data/types';
 import { useAppStore } from '@/store/useAppStore';
@@ -254,6 +256,16 @@ export interface RecordTarget {
   id: string;
   earTag: string;
   status: CowStatus;
+  /**
+   * Which farm's bull list to offer.
+   *
+   * The insemination form used to look this up from the cows already in the
+   * store. Opened from a work-list row that farm's cows may never have been
+   * fetched, so the lookup missed, the bull picker silently rendered nothing,
+   * and the technician had to type a sire from memory with no bull_id
+   * recorded. Work-list rows carry their own farmId, so it is passed in.
+   */
+  farmId?: string;
   lastInseminationId?: string;
   lastInseminationDate?: string;
   lastCalvingDate?: string;
@@ -276,8 +288,9 @@ export function InseminationForm({
   const canBleed = cow.status === 'needling';
   const toast = useToast();
   const { bulls, fetchBulls, cows } = useAppStore();
-  // RecordTarget has no farmId, so resolve it from the loaded cow.
-  const farmId = cows.find((c) => c.id === cow.id)?.farmId;
+  // The row carries its own farm; fall back to the store only for callers
+  // that pass a full Cow (the profile screen) rather than a work-list row.
+  const farmId = cow.farmId ?? cows.find((c) => c.id === cow.id)?.farmId;
   const farmBulls = (farmId ? bulls[farmId] : undefined) ?? [];
   useEffect(() => {
     if (farmId) fetchBulls(farmId);
@@ -613,14 +626,24 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
     try {
       // Backend stores the calving date; keep the spec-required time in the notes.
       const timeNote = `Calved at ${calvTime}`;
+      // A tag only belongs to a live heifer calf — she is the one that gets a
+      // herd record. The field kept its value when the technician switched to
+      // Male or Still Birth after typing, and it was submitted regardless, so
+      // a stillborn calf could be filed under a real ear tag.
+      const tagApplies = outcome === 'live' && calfSex === 'female';
       await api.post('/calving/', {
         cow_id: cow.id,
         calving_date: calvDate,
         live_birth: outcome === 'live',
         still_birth: outcome === 'still',
-        calf_sex: outcome === 'live' ? calfSex : null,
-        calf_ear_tag: calfTag.trim() || null,
-        calf_sale_info: calfSex === 'male' && saleInfo.trim() ? saleInfo.trim() : null,
+        // A stillborn calf still has a sex worth recording; it is simply not
+        // required, since it is not always determined.
+        calf_sex: calfSex,
+        calf_ear_tag: tagApplies ? calfTag.trim() || null : null,
+        calf_sale_info:
+          outcome === 'live' && calfSex === 'male' && saleInfo.trim()
+            ? saleInfo.trim()
+            : null,
         notes: notes.trim() ? `${timeNote} — ${notes.trim()}` : timeNote,
       });
       toast.success(`Calving recorded — ${cow.earTag} is now Fresh`);
@@ -645,18 +668,20 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
         onChange={setOutcome}
         style={styles.fieldGap}
       />
+      <FormLabel>
+        {outcome === 'live' ? 'Calf Sex' : 'Calf Sex (if known)'}
+      </FormLabel>
+      <SegmentedControl
+        options={[
+          { value: 'female', label: 'Female' },
+          { value: 'male', label: 'Male' },
+        ]}
+        value={calfSex}
+        onChange={setCalfSex}
+        style={styles.fieldGap}
+      />
       {outcome === 'live' && (
         <>
-          <FormLabel>Calf Sex</FormLabel>
-          <SegmentedControl
-            options={[
-              { value: 'female', label: 'Female' },
-              { value: 'male', label: 'Male' },
-            ]}
-            value={calfSex}
-            onChange={setCalfSex}
-            style={styles.fieldGap}
-          />
           {calfSex === 'female' && (
             <>
               <FormLabel>Calf Ear Tag</FormLabel>
@@ -839,7 +864,9 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
   const [savingHealth, setSavingHealth] = useState(false);
 
   const steps = useMemo(() => protocolByValue(protocol)?.steps ?? [], [protocol]);
-  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
+  // Shape alone let 2026-13-45 and a typo'd year through, and a protocol
+  // schedules ten days of injections off this date.
+  const dateValid = isValidStartDate(startDate);
   const offPreferredDay = dateValid && !isPreferredStartDay(startDate);
 
   // Record the health assessment. Sick → backend sets a 7-day recheck and the
@@ -970,6 +997,11 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         placeholder="YYYY-MM-DD"
         keyboardType="numbers-and-punctuation"
       />
+      {!dateValid && startDate.length > 0 && (
+        <Text variant="caption" color={colors.danger} style={styles.fieldError}>
+          Enter a real date (YYYY-MM-DD), from yesterday to {START_DATE_LOOKAHEAD_DAYS} days ahead.
+        </Text>
+      )}
       {offPreferredDay && (
         <Text variant="caption" color={colors.warning} style={styles.fieldError}>
           Program starts are scheduled Monday, Tuesday or Saturday.
@@ -1129,9 +1161,12 @@ interface Props {
 
 export function CowActionsSheet({ cow, onRefresh }: Props) {
   const [activeAction, setActiveAction] = useState<ActionKey | null>(null);
-  const role = useAuthStore((s) => s.user?.role) ?? 'technician';
+  const role = useRole();
   const insets = useSafeAreaInsets();
-  const actions = getActions(cow, role);
+  // Which actions a cow offers is a capability decision. Defaulting an
+  // unresolved role to 'technician' offered a vet buttons the API answers
+  // with a 403 — the same regression this screen has had before.
+  const actions = role ? getActions(cow, role) : [];
 
   if (actions.length === 0) return null;
 

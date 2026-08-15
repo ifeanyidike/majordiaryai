@@ -23,6 +23,34 @@ export const NOTIFICATION_TOPICS: { key: keyof NotificationPrefs; label: string;
   { key: 'tasks', label: 'Daily tasks', hint: 'New needling, breeding and vaccination tasks' },
 ];
 
+/**
+ * Which server notification types each toggle covers.
+ *
+ * The toggles persisted a preference nothing ever read: switching off
+ * "Dry-off reminders" changed nothing at all. This is the mapping that makes
+ * them mean something — a type absent from the table is never hidden, so a
+ * new notification type is visible by default rather than silently
+ * suppressed by a toggle that predates it.
+ */
+const TOPIC_FOR_TYPE: Record<string, keyof NotificationPrefs> = {
+  dry_off: 'dryOff',
+  calving: 'calving',
+  fresh: 'calving',
+  heat: 'heat',
+  pregnancy: 'pregnancyCheck',
+  breeding: 'tasks',
+  vaccination: 'tasks',
+};
+
+/** True when the user still wants to see this notification type in-app. */
+export function notificationTypeEnabled(
+  type: string,
+  prefs: NotificationPrefs,
+): boolean {
+  const topic = TOPIC_FOR_TYPE[type];
+  return topic === undefined ? true : prefs[topic];
+}
+
 interface SettingsState {
   notifications: NotificationPrefs;
   hapticsEnabled: boolean;

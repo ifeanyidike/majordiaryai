@@ -22,7 +22,7 @@ from urllib.parse import quote_plus
 from app.core.config import settings
 from app.services.visits import weekdays_for
 from app.models.models import (
-    CalfSex, CalvingRecord, Cow, CowStatus, EnrollmentStatus, Farm, HealthStatus,
+    Bull, CalfSex, CalvingRecord, Cow, CowStatus, EnrollmentStatus, Farm, HealthStatus,
     HeatCheck, Insemination, NeedlingEnrollment, NeedlingRecord, Notification,
     PregnancyCheck, PregnancyResult, ProtocolType, SemenType, Vet, VetFarmAssignment,
     VaccinationRecord,
@@ -45,7 +45,7 @@ def days_from(base: date, n: int) -> date:
 CLEAR_ORDER = [
     "notifications", "vaccination_records", "cull_records",
     "calving_records", "pregnancy_checks", "heat_checks", "needling_records",
-    "needling_enrollments", "farm_visit_assignments",
+    "needling_enrollments", "farm_visit_assignments", "bulls",
 ]
 
 
@@ -58,6 +58,12 @@ async def clear(session: AsyncSession) -> None:
     await session.execute(text("DELETE FROM cows"))
     await session.execute(text("DELETE FROM vet_farm_assignments"))
     await session.execute(text("DELETE FROM vets"))
+    # Farm managers point at a farm (users.farm_id), and users are deliberately
+    # left alone here — so the delete below hit that foreign key and the whole
+    # seed aborted on any database where a farm manager had been assigned. The
+    # accounts stay; they simply lose the farm that is about to stop existing,
+    # and get reassigned from the People screen.
+    await session.execute(text("UPDATE users SET farm_id = NULL WHERE farm_id IS NOT NULL"))
     await session.execute(text("DELETE FROM farms"))
     await session.flush()
 
@@ -75,25 +81,55 @@ def make_farm(name, owner, address, city, postal, phone, email, herd_size, note,
     )
 
 
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "db", "postgres", "host.docker.internal"}
+
+
 def _guard_destructive() -> None:
     """Refuse to wipe a database that is not explicitly marked as disposable.
 
-    This script DELETEs every table against whatever .env points at, which is
-    the production database by default. The test suite has such a guard; this
-    did not, and it is far more destructive.
+    This script DELETEs every table against whatever .env points at, and .env
+    points at PRODUCTION. Two separate gates, because one is demonstrably not
+    enough:
 
-    Set SEED_ALLOW_DESTRUCTIVE=1 to proceed.
+    1. SEED_ALLOW_DESTRUCTIVE=1 — "yes, I mean to wipe a database."
+    2. For any non-local host, SEED_TARGET_HOST must ALSO equal that exact
+       host.
+
+    Gate 2 exists because the connection is assembled from DB_HOST/DB_NAME/…,
+    not from DATABASE_URL. Setting DATABASE_URL to a scratch database — the
+    obvious way to redirect it, and what every other tool here accepts — is
+    silently ignored, so the script runs against production while the operator
+    believes it is pointed somewhere disposable. Gate 1 is satisfied in exactly
+    that moment, and it does not help. Naming the remote host out loud is the
+    only check a wrong override cannot pass by accident.
     """
     import os
     import sys
 
-    if os.getenv("SEED_ALLOW_DESTRUCTIVE") == "1":
+    if os.getenv("SEED_ALLOW_DESTRUCTIVE") != "1":
+        print(
+            "REFUSING TO RUN: seed.py deletes every row in every table.\n"
+            f"It would run against {settings.db_host}/{settings.db_name}.\n\n"
+            "If that really is a disposable database, re-run with:\n"
+            "    SEED_ALLOW_DESTRUCTIVE=1 .venv/bin/python -m scripts.seed",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    host = (settings.db_host or "").strip().lower()
+    if host in LOCAL_HOSTS:
         return
+    if os.getenv("SEED_TARGET_HOST", "").strip().lower() == host:
+        return
+
     print(
-        "REFUSING TO RUN: seed.py deletes every row in every table.\n"
-        f"It would run against {settings.db_host}/{settings.db_name}.\n\n"
-        "If that really is a disposable database, re-run with:\n"
-        "    SEED_ALLOW_DESTRUCTIVE=1 .venv/bin/python -m scripts.seed",
+        f"REFUSING TO RUN: {host}/{settings.db_name} is not a local database.\n\n"
+        "Note that DATABASE_URL is IGNORED here — the connection is built from\n"
+        "DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME. If you meant to point at a\n"
+        "scratch database, set those instead.\n\n"
+        "To wipe this remote database on purpose, name it explicitly:\n"
+        f"    SEED_ALLOW_DESTRUCTIVE=1 SEED_TARGET_HOST={host} \\\n"
+        "        .venv/bin/python -m scripts.seed",
         file=sys.stderr,
     )
     raise SystemExit(1)
@@ -129,6 +165,27 @@ async def seed(session: AsyncSession) -> None:
         VetFarmAssignment(vet_id=v1.id, farm_id=mr.id),
         VetFarmAssignment(vet_id=v2.id, farm_id=sf.id),
     ])
+
+    # ── Bulls (the farm's semen list) ──────────────────────
+    # Seeded data had no bulls at all, so the insemination form's bull picker
+    # rendered nothing on a freshly seeded database and every demo of the
+    # feature looked like it was missing. Semen is bought per farm, so each
+    # farm gets its own short list with a realistic sexed/conventional/beef mix.
+    BULL_LISTS = {
+        gv: [("Mogul", "7HO11314", SemenType.conventional),
+             ("Delta-Lambda", "7HO14454", SemenType.sexed),
+             ("Angus Prime", "29AN2011", SemenType.beef)],
+        sf: [("Rubicon", "250HO12961", SemenType.conventional),
+             ("Josuper", "7HO12587", SemenType.sexed)],
+        mr: [("Crushabull", "551HO03379", SemenType.conventional),
+             ("Charolais Red", "14CH0044", SemenType.beef),
+             ("Frazzled", "7HO12788", SemenType.sexed)],
+    }
+    for farm_obj, entries in BULL_LISTS.items():
+        for name, code, semen in entries:
+            session.add(Bull(id=uuid.uuid4(), farm_id=farm_obj.id, name=name,
+                             code=code, semen_type=semen, active=True))
+    await session.flush()
 
     cows: list[Cow] = []
 

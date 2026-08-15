@@ -145,11 +145,23 @@ async def create_cow(
     db.add(cow)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
+        # Every IntegrityError used to be reported as a duplicate ear tag, so a
+        # violated check constraint or a bad foreign key sent the user hunting
+        # for a cow that does not exist. Only claim a duplicate when it is one.
+        # Postgres names it cows_farm_id_ear_tag_key (the model declares the
+        # UniqueConstraint without an explicit name, so match on the shape).
+        constraint = getattr(getattr(exc, "orig", None), "constraint_name", "") or ""
+        detail_text = str(getattr(exc, "orig", exc))
+        if "ear_tag" in constraint or "ear_tag" in detail_text:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
+            )
         raise HTTPException(
             status_code=409,
-            detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
+            detail="This cow could not be saved — check the values and try again",
         )
     await db.refresh(cow)
 

@@ -1,3 +1,5 @@
+import asyncio
+import time
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -18,21 +20,45 @@ bearer_scheme = HTTPBearer()
 _JWKS_URL = settings.supabase_url.rstrip("/") + "/auth/v1/.well-known/jwks.json"
 _jwks_by_kid: dict = {}
 
+# A cache miss triggers an outbound fetch, and `kid` comes straight off an
+# UNAUTHENTICATED token. Without a floor between refreshes, anyone could point
+# a loop at any endpoint with a random kid each time and turn our auth path
+# into a request amplifier against Supabase -- which then rate-limits us and
+# takes down logins for everyone. Real key rotation is a rare event, so one
+# refresh per minute is ample.
+_JWKS_REFRESH_COOLDOWN_SECONDS = 60
+_jwks_last_attempt: float = 0.0
+_jwks_lock = asyncio.Lock()
+
 
 async def _refresh_jwks() -> None:
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(_JWKS_URL)
         resp.raise_for_status()
         keys = resp.json().get("keys", [])
+    fetched = {jwk["kid"]: jwk for jwk in keys if jwk.get("kid")}
+    if not fetched:
+        # Never clear a working cache because the endpoint returned nothing;
+        # that would fail every request until it recovered.
+        return
     _jwks_by_kid.clear()
-    for jwk in keys:
-        kid = jwk.get("kid")
-        if kid:
-            _jwks_by_kid[kid] = jwk
+    _jwks_by_kid.update(fetched)
 
 
 async def _signing_key(kid: str) -> Optional[dict]:
-    if kid not in _jwks_by_kid:
+    global _jwks_last_attempt
+    if kid in _jwks_by_kid:
+        return _jwks_by_kid[kid]
+
+    # One refresh at a time: a burst of requests after a rotation should cost
+    # one fetch, not one per request.
+    async with _jwks_lock:
+        if kid in _jwks_by_kid:
+            return _jwks_by_kid[kid]
+        now = time.monotonic()
+        if now - _jwks_last_attempt < _JWKS_REFRESH_COOLDOWN_SECONDS:
+            return None
+        _jwks_last_attempt = now
         try:
             await _refresh_jwks()
         except Exception:

@@ -22,7 +22,7 @@ import {
 } from '@/components';
 import { colors, gradients, onDark, radius, spacing, status } from '@/theme';
 import { dial } from '@/lib/contact';
-import { summarize, useAppStore } from '@/store/useAppStore';
+import { farmUpcomingActivities, summarize, useAppStore } from '@/store/useAppStore';
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   medkit: 'medkit',
@@ -40,6 +40,9 @@ export function FarmDashboard() {
   const summary = summarize(cows);
   // The vet assigned to this farm, when loaded
   const vet = farm ? vets.find((v) => v.farmIds.includes(farm.id)) ?? null : null;
+  // Derived from the herd's own dry-off and calving dates — the farm record
+  // carries no activity feed, and this card used to be permanently empty.
+  const upcoming = farm ? farmUpcomingActivities(cows, farm.id) : [];
 
   useEffect(() => { fetchKpis(); }, []);
 
@@ -172,12 +175,12 @@ export function FarmDashboard() {
         <SectionHeader title="Upcoming On Your Farm" />
         <Animated.View entering={FadeInUp.delay(240).duration(500)}>
           <Card style={styles.activityCard}>
-            {farm.upcomingActivities.length === 0 ? (
+            {upcoming.length === 0 ? (
               <Text variant="body" color={colors.textMuted}>
-                Nothing scheduled — program events will appear here.
+                Nothing scheduled — dry-offs and calvings appear here as they come due.
               </Text>
             ) : (
-              farm.upcomingActivities.map((a, i) => (
+              upcoming.map((a, i) => (
                 <View key={a.id} style={[styles.activityRow, i > 0 && styles.activityDivider]}>
                   <IconCircle name={ACTIVITY_ICONS[a.icon] ?? 'calendar'} size={38} />
                   <View style={styles.activityText}>

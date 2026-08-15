@@ -6,6 +6,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -43,7 +44,12 @@ export function PressableScale({
         onPressOut?.(e);
       }}
       onPress={(e) => {
-        if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        // The Settings toggle only wrote to a store nobody read, so turning
+        // haptics off changed nothing. Read at press time, not at render, so
+        // the switch takes effect without remounting the tree.
+        if (haptic && useSettingsStore.getState().hapticsEnabled) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
         onPress?.(e);
       }}
       {...rest}

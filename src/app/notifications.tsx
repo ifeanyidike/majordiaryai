@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { EmptyState, Header, Screen, Text } from '@/components';
 import { colors, radius, spacing, status } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { AppNotification, useAppStore } from '@/store/useAppStore';
+import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
 
 /** Notification type → icon + accent, drawn from the semantic status palette. */
 const TYPE_META: Record<string, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
@@ -35,11 +36,20 @@ function relativeTime(iso: string): string {
 export default function NotificationsScreen() {
   const router = useRouter();
   const {
-    notifications, notificationsLoading, farms,
+    notifications: allNotifications, notificationsLoading, farms,
     fetchNotifications, markNotificationRead,
   } = useAppStore();
+  const prefs = useSettingsStore((s) => s.notifications);
 
   useEffect(() => { fetchNotifications(); }, []);
+
+  // Settings' notification toggles used to write to a store nothing read, so
+  // switching a topic off changed nothing. This is the list they control.
+  const notifications = useMemo(
+    () => allNotifications.filter((n) => notificationTypeEnabled(n.type, prefs)),
+    [allNotifications, prefs],
+  );
+  const hiddenCount = allNotifications.length - notifications.length;
 
   const farmName = (id: string) => farms.find((f) => f.id === id)?.name;
 
@@ -74,6 +84,14 @@ export default function NotificationsScreen() {
             />
             {notificationsLoading && notifications.length === 0 ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+            ) : null}
+            {hiddenCount > 0 ? (
+              <Pressable onPress={() => router.push('/settings')} style={styles.hiddenNote}>
+                <Ionicons name="filter" size={14} color={colors.textSecondary} />
+                <Text variant="caption" color={colors.textSecondary}>
+                  {hiddenCount} hidden by your notification settings
+                </Text>
+              </Pressable>
             ) : null}
           </>
         }
@@ -116,6 +134,12 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  hiddenNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',

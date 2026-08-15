@@ -81,20 +81,74 @@ _DATE_FIELDS = frozenset([
     "due_date", "dry_date",
 ])
 
-# Accepted date string formats, tried in order. Day-first is tried before
-# month-first for slash/dash separated values (ambiguous d/m vs m/d).
+# Accepted date string formats, tried in order.
+#
+# Slash and dash separated values are genuinely ambiguous: 03/04/2026 is
+# March 4th to a US herd and April 3rd to a European one. Day-first used to be
+# tried first, which silently moved every unambiguous US date by months --
+# and these columns drive the +283 due date and the +223 dry-off, so a
+# misread calving date puts a cow on the wrong worklist for a whole gestation.
+# The client is a US operation (the farm timezone defaults to Eastern), so
+# month-first wins the tie. A value that only parses day-first (13/04/2026)
+# still falls through to the day-first pattern.
+#
+# The dotted form is European convention and stays day-first.
 _DATE_FORMATS = [
     "%Y-%m-%d",
     "%Y-%m-%d %H:%M:%S",
     "%Y/%m/%d",
-    "%d/%m/%Y",
     "%m/%d/%Y",
-    "%d-%m-%Y",
+    "%d/%m/%Y",
     "%m-%d-%Y",
+    "%d-%m-%Y",
     "%d.%m.%Y",
     "%d %b %Y",
     "%d %B %Y",
 ]
+
+# Spellings a herd manager actually types, mapped onto the enum. Anything
+# outside this and the enum's own names is an error, not a silent default.
+_STATUS_SYNONYMS = {
+    "bred": CowStatus.inseminated,
+    "ai": CowStatus.inseminated,
+    "ai_ed": CowStatus.inseminated,
+    "inseminated": CowStatus.inseminated,
+    "served": CowStatus.inseminated,
+    "preg": CowStatus.pregnant,
+    "pregnant": CowStatus.pregnant,
+    "in_calf": CowStatus.pregnant,
+    "confirmed_pregnant": CowStatus.pregnant,
+    "empty": CowStatus.open,
+    "not_pregnant": CowStatus.open,
+    "open": CowStatus.open,
+    "dried_off": CowStatus.dry,
+    "dry": CowStatus.dry,
+    "milking": CowStatus.fresh,
+    "fresh": CowStatus.fresh,
+    "lactating": CowStatus.fresh,
+    "heifer": CowStatus.heifer,
+    "calf": CowStatus.calf,
+    "on_program": CowStatus.needling,
+    "on_protocol": CowStatus.needling,
+    "needling": CowStatus.needling,
+    "culled": CowStatus.cull,
+    "cull": CowStatus.cull,
+    "sold": CowStatus.sold,
+    "dead": CowStatus.dead,
+    "deceased": CowStatus.dead,
+    "died": CowStatus.dead,
+}
+
+
+class RowError(ValueError):
+    """A row is unusable and must be reported, not quietly defaulted.
+
+    Every one of these was previously a silent fallback -- an unreadable date
+    became None, an unknown status became `open`, an unmatched farm name became
+    the default farm. Each corrupted a cow's record while the import reported
+    success, which is worse than refusing the row: nobody goes looking for a
+    problem the importer said it did not have.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -157,11 +211,15 @@ def _cell_str(value) -> Optional[str]:
     return str(value).strip() or None
 
 
-def _parse_date(value) -> Optional[date]:
-    """Tolerantly parse a cell into a date. Returns None on blank/failure.
+def _parse_date(value, field: str) -> Optional[date]:
+    """Parse a cell into a date. Blank -> None; unreadable -> RowError.
 
     Accepts date/datetime objects (openpyxl gives these for real date cells),
-    ISO strings, and common d/m/y or m/d/y spellings.
+    ISO strings, and common m/d/y or d/m/y spellings.
+
+    An unreadable date used to come back as None. For `last_calving_date` that
+    silently erased the basis for the due date, the dry-off date and the
+    post-calving worklist, and the import still counted the row a success.
     """
     if value is None:
         return None
@@ -179,11 +237,18 @@ def _parse_date(value) -> Optional[date]:
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
-    return None
+    raise RowError(
+        f"{field}: could not read the date {text!r}. Use YYYY-MM-DD or MM/DD/YYYY."
+    )
 
 
 def _parse_status(value) -> CowStatus:
-    """Map a cell to a CowStatus. Unknown/blank -> CowStatus.open."""
+    """Map a cell to a CowStatus. Blank -> open; unrecognized -> RowError.
+
+    An unknown word used to become `open`. A sheet that says "Pregnant 60d"
+    or "SOLD" therefore imported the cow as open to breed -- putting a sold
+    animal, or one carrying a calf, onto the technician's breeding list.
+    """
     text = _cell_str(value)
     if not text:
         return CowStatus.open
@@ -191,7 +256,13 @@ def _parse_status(value) -> CowStatus:
     for member in CowStatus:
         if member.value == key or member.name == key:
             return member
-    return CowStatus.open
+    synonym = _STATUS_SYNONYMS.get(key)
+    if synonym is not None:
+        return synonym
+    raise RowError(
+        f"status: {text!r} is not a status we recognize. "
+        f"Use one of: {', '.join(m.value for m in CowStatus)}."
+    )
 
 
 def _parse_lactation(value) -> int:
@@ -222,7 +293,7 @@ def _extract_cow_fields(raw: Dict[str, object]) -> Dict[str, object]:
 
     for name in _DATE_FIELDS:
         if name in raw:
-            fields[name] = _parse_date(raw.get(name))
+            fields[name] = _parse_date(raw.get(name), name)
 
     if "lactation_number" in raw:
         fields["lactation_number"] = _parse_lactation(raw.get("lactation_number"))
@@ -356,18 +427,19 @@ async def import_cows(
             ))
             continue
 
-        # Resolve target farm (per-row override, else the query farm_id).
-        target_farm_id = _resolve_row_farm(
-            row, farm_col_index, farm_by_id, farm_by_name, farm_id,
-        )
-
         try:
+            # Parse before touching the database: a bad cell is a row we never
+            # want to write, and reporting it costs no round trip.
+            target_farm_id = _resolve_row_farm(
+                row, farm_col_index, farm_by_id, farm_by_name, farm_id,
+            )
+            fields = _extract_cow_fields(raw)
+
             # SAVEPOINT per row. A plain rollback() here discarded EVERY row
             # staged so far while the counters kept counting, so a 200-row file
             # with one bad row at 150 persisted only the rows after it and
             # still reported ~199 successes. begin_nested unwinds this row only.
             async with db.begin_nested():
-                fields = _extract_cow_fields(raw)
                 result = await db.execute(
                     select(Cow)
                     .where(Cow.farm_id == target_farm_id, Cow.ear_tag == ear_tag)
@@ -385,6 +457,13 @@ async def import_cows(
                     db.add(cow)
                     await db.flush()
                     created += 1
+        except RowError as exc:
+            # Already phrased for whoever is holding the spreadsheet.
+            skipped += 1
+            errors.append(ImportRowError(
+                row=row_number, ear_tag=ear_tag, message=str(exc),
+            ))
+            continue
         except Exception as exc:  # noqa: BLE001 -- per-row isolation
             skipped += 1
             errors.append(ImportRowError(
@@ -436,7 +515,14 @@ def _resolve_row_farm(
     default_farm_id: uuid.UUID,
 ) -> uuid.UUID:
     """Return the farm id for a row: the override column value if it names an
-    accessible farm (by id or name), otherwise the default query farm_id."""
+    accessible farm (by id or name), otherwise the default query farm_id.
+
+    A farm cell naming a farm we cannot match used to fall through to the
+    default farm. A typo, or a sheet covering a farm the caller cannot access,
+    therefore filed those cows onto whichever farm the upload was started from
+    -- reported as imported, on a herd they do not belong to, and only
+    discoverable by someone noticing extra ear tags. It is a RowError now.
+    """
     if farm_col_index is None or farm_col_index >= len(row):
         return default_farm_id
     value = _cell_str(row[farm_col_index])
@@ -451,7 +537,10 @@ def _resolve_row_farm(
     by_name = farm_by_name.get(value.strip().lower())
     if by_name is not None:
         return by_name
-    return default_farm_id
+    raise RowError(
+        f"farm: {value!r} is not a farm you have access to. "
+        "Leave the column blank to use the farm you are importing into."
+    )
 
 
 @router.get("/cows/template")

@@ -52,8 +52,25 @@ def test_schema_is_not_stale():
         "insemination_code",         # 0008
         "dry_off_confirmed_date",    # 0005
         "email_status",              # 0007
+        "notification_reads",        # 0011
     ]:
         assert expected in sql, f"schema.sql is missing {expected!r} — re-run scripts/dump_schema.sh"
+
+
+def test_every_model_table_has_a_migration():
+    """The list above only catches what somebody remembered to add to it.
+
+    A model declared in models.py with no matching migration passes every
+    other test in the suite — conftest builds the schema with create_all, so
+    the table exists in tests and is simply absent in production.
+    """
+    from app.models.models import Base
+
+    sql = _schema_text()
+    missing = set(Base.metadata.tables) - _tables(sql)
+    assert not missing, (
+        f"models declare tables the migrations never create: {sorted(missing)}"
+    )
 
 
 def test_empty_visit_schedule_is_rejected_by_the_constraint():

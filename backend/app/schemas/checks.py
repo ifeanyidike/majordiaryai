@@ -11,7 +11,10 @@ class HeatCheckCreate(BaseModel):
     cow_id: UUID
     insemination_id: UUID
     check_date: date
-    heat_detected: Optional[bool] = None
+    # The spec's form is "heat detected Y/N", so the answer is required. It was
+    # optional, and a null wrote a check row that recorded neither a yes nor a
+    # no — indistinguishable afterwards from "we never looked".
+    heat_detected: bool
     bleeding_event: bool = False
     notes: Optional[str] = None
 
@@ -33,7 +36,10 @@ class PregnancyCheckCreate(BaseModel):
     cow_id: UUID
     insemination_id: UUID
     check_date: date
-    result: Optional[PregnancyResult] = None
+    # Required. A null result with no cysts stored a check row and moved the
+    # cow nowhere: she stayed `inseminated`, stayed on the Pregnancy Check
+    # report forever, and the record made it look like the vet had been.
+    result: PregnancyResult
     has_infection: bool = False
     has_cysts: bool = False
     notes: Optional[str] = None

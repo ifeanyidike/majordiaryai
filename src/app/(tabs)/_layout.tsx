@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import React, { useEffect } from 'react';
 import { AppState, ColorValue, Platform } from 'react-native';
 import { colors, typography } from '@/theme';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useRole } from '@/store/useAuthStore';
 import { useAppStore } from '@/store/useAppStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -15,7 +15,7 @@ const tabIcon =
   );
 
 export default function TabsLayout() {
-  const role = useAuthStore((s) => s.user?.role ?? 'technician');
+  const role = useRole();
   const { fetchFarms, fetchCows, fetchVets, fetchWorklist, ensureWorklist, fetchNotifications } =
     useAppStore();
 
@@ -37,7 +37,9 @@ export default function TabsLayout() {
     return () => sub.remove();
   }, [ensureWorklist]);
 
-  const showFarms = role !== 'farm';
+  // Until the role resolves, show only the tabs every role has. Defaulting to
+  // 'technician' briefly offered a farm manager the Farms and Tasks tabs.
+  const showFarms = role != null && role !== 'farm';
   const showTasks = role === 'technician';
 
   return (

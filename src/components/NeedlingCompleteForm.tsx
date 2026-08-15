@@ -1,10 +1,29 @@
-import React, { useState } from 'react';
-import { StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Button } from './Button';
 import { Text } from './Text';
 import { useToast } from './Toast';
 import { api } from '@/lib/api';
 import { colors, radius, spacing, typography } from '@/theme';
+
+interface ApiNeedlingRecord {
+  id: string;
+  protocol_day: number;
+  scheduled_date: string;
+  completed_date?: string | null;
+  treatment: string;
+  is_final: boolean;
+  completed: boolean;
+  bleeding_event: boolean;
+}
+
+interface ApiEnrollment {
+  id: string;
+  protocol: string;
+  status: string;
+  records?: ApiNeedlingRecord[];
+}
 
 interface Props {
   /** The cow the record belongs to — bleeding is recorded against the cow. */
@@ -36,6 +55,35 @@ export function NeedlingCompleteForm({
   const [injectionGiven, setInjectionGiven] = useState(false);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Injection history is part of the spec's needling entry ("protocol name,
+  // current day, exact treatment, injection history, notes field") and it was
+  // the one piece missing: the technician could see what to give today but not
+  // whether the earlier shots in this protocol had actually been given — the
+  // thing that decides whether today's step is even valid.
+  const [history, setHistory] = useState<ApiNeedlingRecord[] | null>(null);
+  const [historyFailed, setHistoryFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<ApiEnrollment[]>(`/needling/cow/${cowId}`)
+      .then((enrollments) => {
+        if (cancelled) return;
+        // The active enrollment is the one this record belongs to.
+        const active = enrollments.find((e) =>
+          (e.records ?? []).some((r) => r.id === recordId),
+        ) ?? enrollments[0];
+        setHistory(
+          [...(active?.records ?? [])].sort((a, b) => a.protocol_day - b.protocol_day),
+        );
+      })
+      .catch(() => {
+        // History is context, never a reason to block recording the shot.
+        if (!cancelled) setHistoryFailed(true);
+      });
+    return () => { cancelled = true; };
+  }, [cowId, recordId]);
 
   const submit = async () => {
     setLoading(true);
@@ -83,6 +131,48 @@ export function NeedlingCompleteForm({
           ) : null}
         </View>
       ) : null}
+      {/* Injection history — what has and has not been given on this protocol. */}
+      {historyFailed ? null : history === null ? (
+        <ActivityIndicator color={colors.primary} style={{ marginBottom: spacing.md }} />
+      ) : history.length > 0 ? (
+        <View style={styles.historyCard}>
+          <Text variant="label" color={colors.textSecondary}>Injection history</Text>
+          {history.map((r) => {
+            const isToday = r.id === recordId;
+            return (
+              <View key={r.id} style={styles.historyRow}>
+                <Ionicons
+                  name={
+                    r.completed ? 'checkmark-circle'
+                    : isToday ? 'ellipse-outline'
+                    : 'close-circle-outline'
+                  }
+                  size={15}
+                  color={
+                    r.completed ? colors.success
+                    : isToday ? colors.primary
+                    : colors.textMuted
+                  }
+                />
+                <Text
+                  variant="caption"
+                  color={isToday ? colors.text : colors.textSecondary}
+                  style={styles.flex1}
+                  numberOfLines={1}
+                >
+                  Day {r.protocol_day} · {r.treatment}
+                </Text>
+                <Text variant="caption" color={colors.textMuted}>
+                  {r.completed
+                    ? (r.completed_date ?? 'given')
+                    : isToday ? 'today' : 'not given'}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
       <View style={styles.toggleRow}>
         <Text variant="body">Bleeding event?</Text>
         <Switch
@@ -147,6 +237,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     gap: 2,
   },
+  historyCard: {
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

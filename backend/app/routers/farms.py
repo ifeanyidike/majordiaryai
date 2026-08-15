@@ -58,6 +58,26 @@ def _row_to_dict(row):
     return d
 
 
+async def _check_assigned_technician(db: AsyncSession, tech_id) -> None:
+    """422 unless the id names a real technician (or admin), None being fine.
+
+    Farm create and update wrote this column straight through. There is no FK
+    on it, so an id belonging to a farm manager, a vet, or nobody at all was
+    stored happily -- and then the farm silently had no technician: it never
+    appeared on anyone's To-Do route, and the farm portal's "call your
+    technician" action had a name and phone of null. The visit-assignment
+    endpoint already checked this; the two entry points now share one rule.
+    """
+    if tech_id is None:
+        return
+    tech = await db.get(User, tech_id)
+    if tech is None or tech.role not in (UserRole.technician, UserRole.admin):
+        raise HTTPException(
+            status_code=422,
+            detail="assigned_technician_id must be an existing technician or admin",
+        )
+
+
 @router.get("/", response_model=List[FarmOut])
 async def list_farms(
     response: Response,
@@ -100,7 +120,10 @@ async def create_farm(
     current_user: dict = Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    farm = Farm(**body.model_dump())
+    data = body.model_dump()
+    await _check_assigned_technician(db, data.get("assigned_technician_id"))
+
+    farm = Farm(**data)
     db.add(farm)
     await db.commit()
     await db.refresh(farm)
@@ -120,8 +143,12 @@ async def update_farm(
     if not farm:
         raise HTTPException(status_code=404, detail="Farm not found")
 
+    data = body.model_dump(exclude_unset=True)
+    if "assigned_technician_id" in data:
+        await _check_assigned_technician(db, data["assigned_technician_id"])
+
     # exclude_unset: explicit nulls clear nullable fields
-    for field, value in body.model_dump(exclude_unset=True).items():
+    for field, value in data.items():
         if value is None and field in _NON_NULLABLE_FIELDS:
             continue
         setattr(farm, field, value)
@@ -228,13 +255,7 @@ async def set_visit_assignment(
     if body.visit_date < local_today():
         raise HTTPException(status_code=422, detail="visit_date cannot be in the past")
 
-    if body.assigned_technician_id is not None:
-        tech = await db.get(User, body.assigned_technician_id)
-        if tech is None or tech.role not in (UserRole.technician, UserRole.admin):
-            raise HTTPException(
-                status_code=422,
-                detail="assigned_technician_id must be an existing technician or admin",
-            )
+    await _check_assigned_technician(db, body.assigned_technician_id)
 
     assignment = await db.scalar(
         select(FarmVisitAssignment).where(

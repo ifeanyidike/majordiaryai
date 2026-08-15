@@ -155,3 +155,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+/**
+ * The signed-in user's role, or null while it is still unknown.
+ *
+ * Screens used to write `user?.role ?? 'technician'`. That is a capability
+ * decision made from missing data: for the render before the auth guard
+ * settles, a farm manager or vet is shown the technician's tab bar, dashboard
+ * and actions — and every technician-scoped fetch fires on their behalf.
+ *
+ * Null means "we do not know yet", and the caller must render a neutral
+ * loading state rather than guess. Never default it.
+ */
+export const useRole = (): Role | null => useAuthStore((s) => s.user?.role ?? null);

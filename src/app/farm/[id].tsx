@@ -25,7 +25,8 @@ import { colors, gradients, onDark, radius, spacing, status } from '@/theme';
 import { dial, emailTo } from '@/lib/contact';
 import { formatAddress, openDirections } from '@/lib/maps';
 import {
-  cowsByFarm, farmById, pregnancyCounts, summarize, useAppStore, vetById,
+  cowsByFarm, farmById, farmUpcomingActivities, pregnancyCounts, summarize,
+  useAppStore, vetForFarm,
 } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -34,6 +35,8 @@ const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'shield-checkmark': 'shield-checkmark',
   heart: 'heart',
   walk: 'walk',
+  dry: 'water-outline',
+  calving: 'egg-outline',
 };
 
 export default function FarmProfileScreen() {
@@ -63,7 +66,9 @@ export default function FarmProfileScreen() {
 
   const herd = cowsByFarm(state, farm.id);
   const summary = summarize(herd);
-  const vet = vetById(state, farm.vetId);
+  // Coverage lives on the vet, not on the farm — farm.vetId is always ''.
+  const vet = vetForFarm(state, farm.id);
+  const upcoming = farmUpcomingActivities(state.cows, farm.id);
   const preg = pregnancyCounts(state, id);
 
   const call = () => dial(farm.phone);
@@ -251,12 +256,12 @@ export default function FarmProfileScreen() {
         <SectionHeader title="Upcoming Activities" />
         <Animated.View entering={FadeInUp.delay(400).duration(500)}>
           <Card style={styles.activityCard}>
-            {farm.upcomingActivities.length === 0 ? (
+            {upcoming.length === 0 ? (
               <Text variant="body" color={colors.textMuted}>
-                Nothing scheduled — new program events will appear here.
+                Nothing scheduled — dry-offs and calvings appear here as they come due.
               </Text>
             ) : (
-              farm.upcomingActivities.map((a, i) => (
+              upcoming.map((a, i) => (
                 <View key={a.id} style={[styles.activityRow, i > 0 && styles.activityDivider]}>
                   <IconCircle name={ACTIVITY_ICONS[a.icon] ?? 'calendar'} size={38} />
                   <View style={styles.activityText}>

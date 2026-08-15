@@ -422,6 +422,8 @@ class Notification(Base):
     cow_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("cows.id"))
     type: Mapped[str] = mapped_column(String, nullable=False)
     message: Mapped[str] = mapped_column(String, nullable=False)
+    # Legacy farm-wide flag. Read state is per reader now (NotificationRead);
+    # this column is no longer written or trusted. See migration 0011.
     read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Did the farmer's email actually go out? sent | failed | no_email | disabled.
     # Written by the background sender after the fact, so a silent delivery
@@ -430,3 +432,26 @@ class Notification(Base):
     emailed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     email_error: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class NotificationRead(Base):
+    """One row per (notification, reader).
+
+    A notification is addressed to a farm and several people can see it, so
+    "read" is a fact about a reader, not about the notification. Absence of a
+    row means unread.
+    """
+
+    __tablename__ = "notification_reads"
+
+    notification_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("notifications.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False,
+    )

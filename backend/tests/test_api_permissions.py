@@ -401,10 +401,29 @@ async def test_insemination_records_the_code_and_the_bull(db, api):
         resp = await client.post("/inseminations/", json={
             "cow_id": str(cow.id), "date": f"{TODAY}T09:00:00",
             "bull_name": "Mogul", "bull_id": bull_id, "insemination_code": "AI-77",
+            "semen_type": "conventional",
         })
     assert resp.status_code == 201, resp.text
     assert resp.json()["insemination_code"] == "AI-77"
     assert resp.json()["bull_id"] == bull_id
+
+
+@pytest.mark.parametrize("missing", ["semen_type", "bull"])
+async def test_insemination_requires_a_sire_and_a_semen_type(db, api, missing):
+    """The spec's insemination form is bull + semen type + dose ID + datetime.
+    Both were optional, so a breeding could be filed against no sire and no
+    straw type — the one record the herd's genetics is read back from, and
+    unreconstructable once the technician has moved on."""
+    farm = await _farm(db)
+    cow = await _cow(db, farm, status=CowStatus.open)
+    body = {
+        "cow_id": str(cow.id), "date": f"{TODAY}T09:00:00",
+        "bull_name": "Mogul", "semen_type": "sexed",
+    }
+    body.pop("semen_type" if missing == "semen_type" else "bull_name")
+    async with api(role="admin") as client:
+        resp = await client.post("/inseminations/", json=body)
+    assert resp.status_code == 422, resp.text
 
 
 @pytest.mark.parametrize("status,calved,milking", [

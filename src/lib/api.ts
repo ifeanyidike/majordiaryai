@@ -2,8 +2,30 @@ import { supabase } from './supabase';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? (__DEV__ ? 'http://localhost:8000' : null);
 
-/** False when no API base URL is available — the store falls back to bundled demo data */
+/** False when no API base URL is available. */
 export const isApiConfigured = API_URL != null;
+
+/**
+ * Bundled demo data — an explicit choice, never an accident.
+ *
+ * The store used to fall back to demo data whenever the API was
+ * unconfigured. In a release build that means one missing EAS environment
+ * variable ships an app that shows a real farmer a herd of invented cows,
+ * with invented pregnancies and dry-off dates, and no indication that any of
+ * it is fake — while every save silently does nothing.
+ *
+ * So demo data now requires either a development build or an explicit opt-in.
+ * A release build with no API URL is a broken build, and says so.
+ */
+export const isDemoMode =
+  process.env.EXPO_PUBLIC_DEMO_MODE === '1' || (__DEV__ && !isApiConfigured);
+
+/** A release build that shipped without an API URL: not demo, just broken. */
+export const isMisconfigured = !isApiConfigured && !isDemoMode;
+
+export const API_NOT_CONFIGURED_MESSAGE =
+  'This app was built without a server address. Contact your administrator — ' +
+  'no data can be loaded or saved.';
 
 async function getAuthHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -25,7 +47,7 @@ async function request<T>(
   body?: unknown,
 ): Promise<T> {
   if (!API_URL) {
-    throw new ApiError('API is not configured (EXPO_PUBLIC_API_URL missing)', 0);
+    throw new ApiError(API_NOT_CONFIGURED_MESSAGE, 0);
   }
 
   const headers: Record<string, string> = {
@@ -62,7 +84,7 @@ async function upload<T>(
   field = 'file',
 ): Promise<T> {
   if (!API_URL) {
-    throw new ApiError('API is not configured (EXPO_PUBLIC_API_URL missing)', 0);
+    throw new ApiError(API_NOT_CONFIGURED_MESSAGE, 0);
   }
   const form = new FormData();
   // React Native's FormData accepts this file descriptor shape.

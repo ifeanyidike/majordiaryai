@@ -108,6 +108,20 @@ def is_milking(cow: Cow) -> bool:
     return cow.last_calving_date is not None
 
 
+def is_metestrous_bleeding(days_since: int) -> bool:
+    """True when blood this soon after AI is the heat she was just bred on.
+
+    The spec says bleeding events are recordable on any day. The timing rule
+    refused them before the heat window, which is right about the CONSEQUENCE
+    (this is not a returned heat, and acting on it would cancel a good
+    insemination) but wrong about the RECORD: the technician saw blood and had
+    nowhere to put it, so the observation was simply lost.
+
+    So these are stored as observations and change nothing.
+    """
+    return days_since < HEAT_WINDOW[0]
+
+
 def heat_check_timing_error(days_since: int, has_signal: bool) -> Optional[str]:
     """Why a heat check at `days_since` post-AI is not accepted, or None if it is.
 

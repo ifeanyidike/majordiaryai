@@ -10,7 +10,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict aKOVMeenHYzOK5LIVO91QMofPuLpTfN15QJeWr3ATVCssaUpR27tEPHAaAa5d67
+\restrict JjqIsDBLzNnkPRyatetdiz7tZLvQPbz1wvX1qSlS8QWB2K361cSbMjlD5NAOpxJ
 
 -- Dumped from database version 16.14
 -- Dumped by pg_dump version 16.14
@@ -370,6 +370,17 @@ CREATE TABLE public.needling_records (
 
 
 --
+-- Name: notification_reads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_reads (
+    notification_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    read_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: notifications; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -562,6 +573,14 @@ ALTER TABLE ONLY public.needling_enrollments
 
 ALTER TABLE ONLY public.needling_records
     ADD CONSTRAINT needling_records_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notification_reads notification_reads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_reads
+    ADD CONSTRAINT notification_reads_pkey PRIMARY KEY (notification_id, user_id);
 
 
 --
@@ -833,6 +852,13 @@ CREATE INDEX ix_farm_visit_assignments_date ON public.farm_visit_assignments USI
 
 
 --
+-- Name: ix_notification_reads_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notification_reads_user ON public.notification_reads USING btree (user_id);
+
+
+--
 -- Name: ix_notifications_email_status; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1013,6 +1039,22 @@ ALTER TABLE ONLY public.needling_records
 
 ALTER TABLE ONLY public.needling_records
     ADD CONSTRAINT needling_records_technician_id_fkey FOREIGN KEY (technician_id) REFERENCES public.users(id);
+
+
+--
+-- Name: notification_reads notification_reads_notification_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_reads
+    ADD CONSTRAINT notification_reads_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES public.notifications(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_reads notification_reads_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_reads
+    ADD CONSTRAINT notification_reads_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -1324,6 +1366,19 @@ CREATE POLICY needling_write ON public.needling_enrollments USING ((public.get_m
 
 
 --
+-- Name: notification_reads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.notification_reads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notification_reads notification_reads_own; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY notification_reads_own ON public.notification_reads USING ((user_id = auth.uid())) WITH CHECK ((user_id = auth.uid()));
+
+
+--
 -- Name: notifications; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1433,5 +1488,5 @@ CREATE POLICY vets_read ON public.vets FOR SELECT USING ((public.get_my_role() =
 -- PostgreSQL database dump complete
 --
 
-\unrestrict aKOVMeenHYzOK5LIVO91QMofPuLpTfN15QJeWr3ATVCssaUpR27tEPHAaAa5d67
+\unrestrict JjqIsDBLzNnkPRyatetdiz7tZLvQPbz1wvX1qSlS8QWB2K361cSbMjlD5NAOpxJ
 

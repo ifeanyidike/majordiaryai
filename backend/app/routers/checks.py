@@ -67,14 +67,26 @@ async def record_heat_check(
     days_since = (body.check_date - cow.last_insemination_date).days
     if days_since < 0:
         raise HTTPException(status_code=422, detail="check_date is before the insemination")
-    # Timing rule lives in status_engine.heat_check_timing_error (and is tested
-    # there): routine checks are window-bound; signal checks (heat / blood on
-    # tail) are accepted from the window's start onward with no upper bound.
-    error = status_engine.heat_check_timing_error(
-        days_since, has_signal=bool(body.heat_detected or body.bleeding_event)
+    # Blood before the window is normal metestrous spotting from the heat she
+    # was just bred on. The spec says bleeding is recordable on any day, so it
+    # is stored — but it is NOT a returned heat, and acting on it would cancel
+    # a perfectly good insemination. Recorded, status untouched.
+    early_bleeding = (
+        body.bleeding_event
+        and not body.heat_detected
+        and status_engine.is_metestrous_bleeding(days_since)
     )
-    if error:
-        raise HTTPException(status_code=409, detail=error)
+
+    if not early_bleeding:
+        # Timing rule lives in status_engine.heat_check_timing_error (and is
+        # tested there): routine checks are window-bound; signal checks (heat /
+        # blood on tail) are accepted from the window's start onward with no
+        # upper bound.
+        error = status_engine.heat_check_timing_error(
+            days_since, has_signal=bool(body.heat_detected or body.bleeding_event)
+        )
+        if error:
+            raise HTTPException(status_code=409, detail=error)
 
     check = HeatCheck(
         cow_id=cow.id,
@@ -88,8 +100,9 @@ async def record_heat_check(
     )
     db.add(check)
 
-    # Blood on the tail during a heat check means the cow was in heat.
-    if body.heat_detected or body.bleeding_event:
+    # Blood on the tail during a heat check means the cow was in heat — unless
+    # it is the early spotting above, which is only an observation.
+    if (body.heat_detected or body.bleeding_event) and not early_bleeding:
         await status_engine.on_heat_detected(cow, db)
 
     await db.commit()

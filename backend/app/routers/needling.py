@@ -15,10 +15,17 @@ from app.services import status_engine
 from app.services.access import get_cow_scoped, scope_to_farms
 from app.services.protocols import get_scheduled_records, UnknownProtocolError
 from app.services.worklists import latest_open_record_stmt, needling_due_stmt
+from datetime import timedelta
 from typing import List, Optional
 import uuid
 
 router = APIRouter()
+
+# How far an enrolment's start date may sit from today. Yesterday covers
+# recording an enrolment the next morning; the lookahead covers the
+# Mon/Tue/Sat push-forward and planning a herd's next round.
+ENROLL_BACKDATE_DAYS = 1
+ENROLL_LOOKAHEAD_DAYS = 30
 
 
 @router.get("/cow/{cow_id}", response_model=List[NeedlingEnrollmentOut])
@@ -45,6 +52,22 @@ async def enroll_cow(
 ):
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)
     status_engine.ensure_transition(cow, CowStatus.needling)
+
+    # The start date schedules every injection in the protocol, so a typo'd
+    # year books a technician's route decades out — or drops every step into
+    # the past, where nothing is ever due and the cow sits in `needling`
+    # status on no report until the abandonment sweep finds her.
+    today = local_today()
+    if not (today - timedelta(days=ENROLL_BACKDATE_DAYS)
+            <= body.start_date
+            <= today + timedelta(days=ENROLL_LOOKAHEAD_DAYS)):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"start_date must be between {ENROLL_BACKDATE_DAYS} day(s) ago and "
+                f"{ENROLL_LOOKAHEAD_DAYS} days ahead"
+            ),
+        )
 
     try:
         scheduled = get_scheduled_records(body.protocol.value, body.start_date)

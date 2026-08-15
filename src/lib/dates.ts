@@ -46,12 +46,42 @@ export function addDays(iso: string, days: number): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-/** Loose YYYY-MM-DD validation + real-calendar check, not in the future */
-export function isValidPastOrTodayDate(iso: string): boolean {
+/** YYYY-MM-DD that is also a real day on the calendar (rejects 2026-02-31) */
+export function isRealDate(iso: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
   const d = parseLocalDate(iso);
   if (Number.isNaN(d.getTime())) return false;
   const [y, m, day] = iso.split('-').map(Number);
-  if (d.getFullYear() !== y || d.getMonth() !== m - 1 || d.getDate() !== day) return false;
-  return d.getTime() <= parseLocalDate(todayISO()).getTime();
+  return d.getFullYear() === y && d.getMonth() === m - 1 && d.getDate() === day;
+}
+
+/** Loose YYYY-MM-DD validation + real-calendar check, not in the future */
+export function isValidPastOrTodayDate(iso: string): boolean {
+  if (!isRealDate(iso)) return false;
+  return parseLocalDate(iso).getTime() <= parseLocalDate(todayISO()).getTime();
+}
+
+/**
+ * A protocol start date the form will accept.
+ *
+ * Enrolment was gated on the YYYY-MM-DD shape alone, so 2026-13-45 passed and
+ * so did a typo'd year. A protocol schedules ten days of injections off this
+ * date, so a wrong one silently books a technician's route weeks out or lands
+ * every step in the past where nothing is ever due.
+ *
+ * Yesterday is allowed (recording an enrolment the next morning is normal) and
+ * so is roughly a month ahead, which covers the Mon/Tue/Sat push-forward and
+ * planning a herd's next round.
+ */
+export const START_DATE_BACKDATE_DAYS = 1;
+export const START_DATE_LOOKAHEAD_DAYS = 30;
+
+export function isValidStartDate(iso: string): boolean {
+  if (!isRealDate(iso)) return false;
+  const t = parseLocalDate(iso).getTime();
+  const today = parseLocalDate(todayISO()).getTime();
+  return (
+    t >= today - START_DATE_BACKDATE_DAYS * DAY_MS &&
+    t <= today + START_DATE_LOOKAHEAD_DAYS * DAY_MS
+  );
 }

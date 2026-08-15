@@ -52,6 +52,7 @@ function asTarget(cow: WorklistCow): RecordTarget {
     id: cow.cowId,
     earTag: cow.earTag,
     status: cow.status,
+    farmId: cow.farmId,
     lastInseminationId: cow.lastInseminationId,
     lastInseminationDate: cow.lastInseminationDate,
     lastCalvingDate: cow.lastCalvingDate,

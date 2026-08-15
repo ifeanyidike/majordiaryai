@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { api, isApiConfigured } from '@/lib/api';
-import { daysBetween, daysSince } from '@/lib/dates';
+import { api, isApiConfigured, isDemoMode } from '@/lib/api';
+import { daysBetween, daysSince, todayISO } from '@/lib/dates';
 import {
   Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
   VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
@@ -151,6 +151,11 @@ function mapFarm(f: ApiFarm): Farm {
     assignedTechnicianPhone: f.assigned_technician_phone ?? undefined,
     visitWeekdays: f.visit_weekdays ?? [0, 1, 2, 3, 4, 5],
     visitScheduleLabel: f.visit_schedule_label ?? undefined,
+    // The farm record carries no vet id and no activity feed. Both are
+    // derived: the vet from its own farm coverage list (vetForFarm) and the
+    // activities from the herd's real dates (farmUpcomingActivities). These
+    // used to be hardcoded '' and [], so the farm page's "Upcoming Activities"
+    // card read "Nothing scheduled" forever and the vet never resolved.
     vetId: '', upcomingActivities: [],
     notes: f.notes ? [f.notes] : [],
   };
@@ -456,14 +461,14 @@ const initialData = {
   cowsError: null as string | null,
   vetsError: null as string | null,
   worklistError: null as string | null,
-  demoMode: !isApiConfigured,
+  demoMode: isDemoMode,
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
   ...initialData,
 
   fetchFarms: async () => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ farms: demoFarms, farmsError: null, demoMode: true });
       return;
     }
@@ -477,7 +482,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   fetchCows: async (farmId) => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ cows: demoCows, cowsError: null, demoMode: true });
       return;
     }
@@ -541,7 +546,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   fetchVets: async () => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ vets: demoVets, vetsError: null, demoMode: true });
       return;
     }
@@ -559,7 +564,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // whole store slice with a one-farm payload, collapsing the To-Do list and
     // every dashboard count until an unscoped refetch happened.
     const fetchedOn = new Date().toLocaleDateString('en-CA');
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ worklist: demoWorklist, worklistFetchedOn: fetchedOn, worklistError: null, demoMode: true });
       return;
     }
@@ -604,7 +609,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   fetchKpis: async () => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ kpis: demoKpis(demoCows) });
       return;
     }
@@ -624,7 +629,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   fetchNotifications: async () => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ notifications: demoNotifications(get().cows.length ? get().cows : demoCows) });
       return;
     }
@@ -798,7 +803,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   fetchStaff: async () => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ staff: [] });
       return;
     }
@@ -833,7 +838,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   fetchTechnicians: async () => {
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set({ technicians: [] });
       return;
     }
@@ -854,7 +859,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const farm = get().farms.find((f) => f.id === farmId);
     const existing = farm?.notes?.[0];
     const merged = existing ? `${note}\n${existing}` : note;
-    if (!isApiConfigured) {
+    if (isDemoMode) {
       set((s) => ({
         farms: s.farms.map((f) => (f.id === farmId ? { ...f, notes: [merged] } : f)),
       }));
@@ -864,7 +869,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().fetchFarms();
   },
 
-  reset: () => set({ ...initialData, demoMode: !isApiConfigured }),
+  reset: () => set({ ...initialData, demoMode: isDemoMode }),
 }));
 
 // ── Selectors ─────────────────────────────────────────────────
@@ -873,6 +878,54 @@ export const farmById = (s: AppState, id: string) => s.farms.find((f) => f.id ==
 export const cowById = (s: AppState, id: string) => s.cows.find((c) => c.id === id);
 export const cowsByFarm = (s: AppState, farmId: string) => s.cows.filter((c) => c.farmId === farmId);
 export const vetById = (s: AppState, id: string) => s.vets.find((v) => v.id === id) ?? null;
+
+/**
+ * The vet covering a farm.
+ *
+ * Coverage is stored on the vet (`farmIds`), not on the farm, so looking one
+ * up by `farm.vetId` could never match — that field is always ''. The farm
+ * profile's vet card was therefore empty on every real farm.
+ */
+export const vetForFarm = (s: AppState, farmId: string) =>
+  s.vets.find((v) => v.farmIds.includes(farmId)) ?? null;
+
+/**
+ * "Upcoming Activities" for a farm, derived from the herd's own dates.
+ *
+ * There is no activity feed on the server and `mapFarm` hardcoded an empty
+ * array, so both the farm profile and the farm portal's dashboard showed
+ * "Nothing scheduled" no matter what was happening on the farm. These are the
+ * dates already stored on each cow: when she is due to calve, and when she is
+ * due to be dried off. Nearest first.
+ */
+export const farmUpcomingActivities = (
+  cows: Cow[],
+  farmId: string,
+  limit = 6,
+): Farm['upcomingActivities'] => {
+  const today = todayISO();
+  const out: Farm['upcomingActivities'] = [];
+
+  for (const cow of cows) {
+    if (cow.farmId !== farmId) continue;
+    // Dry-off comes before calving in a pregnancy, and a cow already dry has
+    // nothing left to schedule there.
+    if (cow.dryDate && cow.dryDate >= today && cow.status !== 'dry') {
+      out.push({
+        id: `dry-${cow.id}`, icon: 'dry',
+        label: `Dry off ${cow.earTag}`, date: cow.dryDate,
+      });
+    }
+    if (cow.dueDate && cow.dueDate >= today) {
+      out.push({
+        id: `calving-${cow.id}`, icon: 'calving',
+        label: `${cow.earTag} due to calve`, date: cow.dueDate,
+      });
+    }
+  }
+
+  return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, limit);
+};
 
 export const unreadNotificationCount = (s: AppState) =>
   s.notifications.filter((n) => !n.read).length;
