@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     # Email (SendGrid). Leave SENDGRID_API_KEY empty to disable sending — the
     # email service then safely no-ops and just logs. Team fills the key in.
     sendgrid_api_key: str = ""
-    email_from: str = "no-reply@majordairy.ai"
+    # Must be a SendGrid *verified sender*, or every send is rejected with a
+    # 403 and the farmer is simply never told. majordairy.ai was the default
+    # here and has no MX record and no verification — production overrides it,
+    # so this default was a trap for any new environment.
+    email_from: str = "majordairyai@gmail.com"
     email_from_name: str = "Major Dairy AI"
 
     class Config:
