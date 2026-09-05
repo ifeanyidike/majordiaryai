@@ -44,7 +44,10 @@ export function TechnicianDashboard() {
   ];
 
   const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [
-    { label: 'Farms CRM', caption: `${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
+    // "All" matters: the hero above shows farms on TODAY'S route, and on a day
+    // when every farm is scheduled the two numbers are identical. Without a
+    // qualifier the pair reads as the same statistic printed twice.
+    { label: 'Farms CRM', caption: `All ${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
     { label: 'To Do List', caption: route.length ? `${route.length} farms · ${outstanding} cows` : 'All clear', icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
     { label: 'Reports', caption: `${summary.total} cows tracked`, icon: 'bar-chart', onPress: () => router.push('/(tabs)/reports') },
     { label: 'Cow Search', caption: 'Find any cow', icon: 'search', onPress: () => router.push('/cow-search') },
