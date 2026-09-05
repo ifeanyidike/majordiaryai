@@ -168,26 +168,28 @@ export default function FarmProfileScreen() {
           </View>
         </Animated.View>
 
-        {/* "View Herd" is the job; the rest are management. Four equal buttons
-            in one row squeezed every label — primary first, then a wrapping
-            row of compact actions that stays readable at any role. */}
+        {/* Reports first, then the herd; the rest are management. Four equal
+            buttons in one row squeezed every label — a two-up pair, then a
+            wrapping row of compact actions that stays readable at any role. */}
         <Animated.View entering={motion.upAt(220, 500)}>
           {/* Reports live HERE, per farm — the client's correction to a global
-              Reports tab. Every role sees it (a farm manager wants their own
+              Reports tab. It takes the filled primary: reports are what the app
+              is for, and the herd list is reference, so the weight says which
+              to tap first. Every role sees it (a farm manager wants their own
               farm's reports, a vet the pregnancy report), so it is not behind
               canManage like the actions below. */}
           <View style={styles.primaryRow}>
             <Button
-              label="View Herd"
-              icon="list"
-              onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
+              label="Reports"
+              icon="bar-chart"
+              onPress={() => router.push({ pathname: '/farm/reports', params: { id: farm.id } })}
               style={styles.primaryBtn}
             />
             <Button
               variant="secondary"
-              label="Reports"
-              icon="bar-chart"
-              onPress={() => router.push({ pathname: '/farm/reports', params: { id: farm.id } })}
+              label="View Herd"
+              icon="list"
+              onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
               style={styles.primaryBtn}
             />
           </View>
