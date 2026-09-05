@@ -6,6 +6,7 @@ import {
   Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
   VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
 } from '@/data/types';
+import { KpiReport } from '@/data/kpis';
 import {
   cows as demoCows,
   farms as demoFarms,
@@ -340,6 +341,11 @@ interface AppState {
   kpis: HerdKpis | null;
   /** Reproduction KPIs per farm — the Reports screen is per farm. */
   kpisByFarm: Record<string, HerdKpis>;
+  /** The full performance report per farm (services/kpis.py). */
+  kpiReports: Record<string, KpiReport>;
+  kpiLoading: boolean;
+  kpiError: string | null;
+  fetchKpiReport: (farmId: string) => Promise<void>;
   farmsLoading: boolean;
   cowsLoading: boolean;
   vetsLoading: boolean;
@@ -463,6 +469,9 @@ const initialData = {
   notifications: [] as AppNotification[],
   kpis: null as HerdKpis | null,
   kpisByFarm: {} as Record<string, HerdKpis>,
+  kpiReports: {} as Record<string, KpiReport>,
+  kpiLoading: false,
+  kpiError: null as string | null,
   farmsLoading: false,
   cowsLoading: false,
   vetsLoading: false,
@@ -673,6 +682,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch {
       // KPI strip renders placeholders when unavailable
+    }
+  },
+
+  fetchKpiReport: async (farmId) => {
+    set({ kpiLoading: true, kpiError: null });
+    try {
+      const report = await api.get<KpiReport>(`/reports/kpis?farm_id=${farmId}`);
+      set((s) => ({ kpiReports: { ...s.kpiReports, [farmId]: report }, kpiLoading: false }));
+    } catch (e: any) {
+      // Hold the previous report on screen rather than blanking it; the
+      // error banner says the numbers may be stale.
+      set({ kpiLoading: false, kpiError: e?.message ?? 'Could not load performance figures' });
     }
   },
 

@@ -8,11 +8,12 @@ from app.core.timeutils import local_today
 from app.models.models import (
     Cow, Farm, CowStatus, Insemination, PregnancyCheck, PregnancyResult,
     NeedlingEnrollment, NeedlingRecord, EnrollmentStatus,
-    VaccinationRecord,
+    VaccinationRecord, CalvingRecord, CullRecord, HeatCheck,
 )
+from app.services import kpis as kpi_engine
 from app.schemas.reports import (
-    HerdSummary, CowReportRow, DailyTaskSummary, PregnancyCheckDueReport, TimedBreedingRow,
-    Worklist,
+    HerdSummary, CowReportRow, DailyTaskSummary, KpiReport, PregnancyCheckDueReport,
+    TimedBreedingRow, Worklist,
 )
 from app.services.access import get_allowed_farm_ids, scope_to_farms
 from app.services.status_engine import HEAT_WINDOW, run_transitions_for_user
@@ -509,3 +510,68 @@ async def worklist(
     """
     await _run_transitions_scoped(db, current_user)
     return await build_worklist(db, current_user, local_today(), farm_id)
+
+
+@router.get("/kpis", response_model=KpiReport)
+async def reproduction_kpis(
+    farm_id: Optional[uuid.UUID] = None,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The standard reproduction KPIs for one farm (or the caller's whole scope).
+
+    Everything is computed by services/kpis.py from plain records, so the
+    router's only jobs are scoping and loading. Eight small queries and an
+    in-memory pass: a herd is hundreds of cows, and the engine being pure is
+    what lets every definition be tested against a hand-computed answer.
+    """
+    await _run_transitions_scoped(db, current_user)
+
+    cows_stmt = scope_to_farms(select(Cow), current_user, farm_id)
+    cows = (await db.execute(cows_stmt)).scalars().all()
+    if not cows:
+        return kpi_engine.compute_kpis(kpi_engine.HerdRecords(), local_today())
+    ids = [c.id for c in cows]
+
+    async def rows(model):
+        return (await db.execute(select(model).where(model.cow_id.in_(ids)))).scalars().all()
+
+    ais, checks, calvings, culls, shots, enrolments, heats = (
+        await rows(Insemination), await rows(PregnancyCheck), await rows(CalvingRecord),
+        await rows(CullRecord), await rows(NeedlingRecord), await rows(NeedlingEnrollment),
+        await rows(HeatCheck),
+    )
+    val = lambda e: e.value if e is not None else None  # noqa: E731
+
+    records = kpi_engine.HerdRecords(
+        cows=[kpi_engine.CowRec(
+            id=c.id, status=c.status.value, date_of_birth=c.date_of_birth,
+            last_insemination_id=c.last_insemination_id,
+            last_insemination_date=c.last_insemination_date,
+            last_calving_date=c.last_calving_date,
+        ) for c in cows],
+        inseminations=[kpi_engine.AiRec(
+            id=a.id, cow_id=a.cow_id, date=a.date,
+            attempt_number=a.attempt_number or 1, semen_type=val(a.semen_type),
+        ) for a in ais],
+        checks=[kpi_engine.CheckRec(
+            insemination_id=p.insemination_id, cow_id=p.cow_id,
+            check_date=p.check_date, result=val(p.result),
+        ) for p in checks],
+        calvings=[kpi_engine.CalvingRec(
+            cow_id=c.cow_id, calving_date=c.calving_date, live_birth=c.live_birth,
+            still_birth=c.still_birth, calf_sex=val(c.calf_sex),
+        ) for c in calvings],
+        culls=[kpi_engine.CullRec(cow_id=c.cow_id, cull_date=c.cull_date) for c in culls],
+        needling=[kpi_engine.NeedlingRec(
+            cow_id=r.cow_id, scheduled_date=r.scheduled_date,
+            completed=r.completed, completed_date=r.completed_date,
+        ) for r in shots],
+        enrollments=[kpi_engine.EnrollmentRec(
+            cow_id=e.cow_id, start_date=e.start_date, status=e.status.value,
+        ) for e in enrolments],
+        heat_checks=[kpi_engine.HeatCheckRec(
+            insemination_id=h.insemination_id, check_date=h.check_date,
+        ) for h in heats],
+    )
+    return kpi_engine.compute_kpis(records, local_today())

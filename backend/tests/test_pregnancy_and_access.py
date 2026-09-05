@@ -254,3 +254,43 @@ async def test_calving_is_still_accepted_from_every_live_status(db, api, farm, s
 
     await db.refresh(cow)
     assert cow.status == CowStatus.fresh
+
+
+# ── /reports/kpis: scoping and shape ─────────────────────────────────
+# The maths lives in test_kpis.py against synthetic herds. This only proves
+# the endpoint loads the right farm's records and nobody else's.
+
+async def test_kpi_endpoint_is_scoped_to_farms_the_caller_may_see(db, api, farm):
+    from datetime import timedelta as _td
+
+    from app.models.models import Insemination, PregnancyCheck
+
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="KPI-1",
+              status=CowStatus.pregnant, lactation_number=2,
+              last_calving_date=TODAY - _td(days=200))
+    db.add(cow)
+    await db.flush()
+    ai = Insemination(id=uuid.uuid4(), cow_id=cow.id, date=TODAY - _td(days=100),
+                      bull_name="Mogul", attempt_number=1)
+    db.add(ai)
+    await db.flush()
+    db.add(PregnancyCheck(id=uuid.uuid4(), cow_id=cow.id, insemination_id=ai.id,
+                          check_date=TODAY - _td(days=60), result=PregnancyResult.pregnant))
+    await db.flush()
+
+    # Admin sees the farm: one checked breeding, pregnant.
+    async with api(role="admin") as client:
+        resp = await client.get(f"/reports/kpis?farm_id={farm.id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["conception"]["rate"]["n"] == 1
+    assert body["conception"]["rate"]["value"] == 100.0
+    assert body["conception"]["rate"]["status"] == "na"     # one cow is not a rate
+    assert len(body["cycles"]) == 8
+    assert body["timing"]["days_open"]["value"] == 100      # calving -200, bred -100
+
+    # A technician not assigned to this farm gets the empty report, not its cows.
+    async with api(role="technician") as client:
+        resp = await client.get(f"/reports/kpis?farm_id={farm.id}")
+    assert resp.status_code == 200
+    assert resp.json()["conception"]["rate"]["n"] == 0

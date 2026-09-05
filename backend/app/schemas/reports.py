@@ -146,3 +146,97 @@ class WorklistFarm(BaseModel):
 class Worklist(BaseModel):
     date: date
     farms: List[WorklistFarm] = []
+
+
+# ── Reproduction KPIs (services/kpis.py) ─────────────────────────────
+
+class KpiValue(BaseModel):
+    """One figure with its judgement. `status` is decided server-side against
+    published benchmarks: good | fair | poor | na (too few records) | info."""
+    value: Optional[float] = None
+    n: int = 0
+    unit: str
+    status: str
+    target: Optional[str] = None
+
+
+class KpiDaysOpen(KpiValue):
+    mean: Optional[float] = None
+    buckets: dict = {}
+
+
+class KpiOnTime(KpiValue):
+    on_time: int = 0
+    late: int = 0
+    missed: int = 0
+
+
+class KpiCompletion(KpiValue):
+    completed: int = 0
+    cancelled: int = 0
+    active: int = 0
+
+
+class KpiCycle(BaseModel):
+    start: date
+    end: date
+    eligible: int
+    served: int
+    conceived: int
+    service_rate: Optional[float] = None
+    conception_rate: Optional[float] = None
+    pregnancy_rate: Optional[float] = None
+    # Too recent for pregnancy checks to be in — an unknown cycle, not a bad one.
+    pending: bool
+
+
+class KpiMonth(BaseModel):
+    month: str
+    checked: int
+    pregnant: int
+    unchecked: int
+    rate: Optional[float] = None
+
+
+class KpiConception(BaseModel):
+    rate: KpiValue
+    first_service_rate: KpiValue
+    services_per_conception: KpiValue
+    unchecked_breedings: int
+    by_month: List[KpiMonth]
+
+
+class KpiTiming(BaseModel):
+    days_open: KpiDaysOpen
+    days_to_first_service: KpiValue
+    calving_interval_months: KpiValue
+
+
+class KpiOutcomes(BaseModel):
+    stillbirth_rate: KpiValue
+    calvings: int
+    sexed_semen_heifer_rate: KpiValue
+    conventional_heifer_rate: KpiValue
+    cull_rate: KpiValue
+    culls: int
+    overdue_pregnancy_checks: KpiValue
+
+
+class KpiCompliance(BaseModel):
+    protocol_on_time_rate: KpiOnTime
+    protocol_completion_rate: KpiCompletion
+    heat_check_coverage: KpiValue
+
+
+class KpiReport(BaseModel):
+    as_of: date
+    period_days: int
+    cycle_days: int
+    assumptions: dict
+    pregnancy_rate_21d: KpiValue
+    service_rate_21d: KpiValue
+    cycles: List[KpiCycle]
+    conception: KpiConception
+    timing: KpiTiming
+    outcomes: KpiOutcomes
+    compliance: KpiCompliance

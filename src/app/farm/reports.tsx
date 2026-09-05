@@ -178,6 +178,17 @@ export default function FarmReportsScreen() {
         </View>
       </LinearGradient>
 
+      {/* The performance report: the figures a breeding programme is judged on. */}
+      <SectionHeader title="Performance" />
+      <ListRow
+        icon="trending-up"
+        iconColor={colors.primary}
+        iconBg={colors.primarySoft}
+        title="Reproduction KPIs"
+        subtitle="21-day pregnancy rate, conception, days open, compliance"
+        onPress={() => router.push({ pathname: '/farm/kpis', params: { id: farm.id } })}
+      />
+
       {loading ? (
         <View style={{ marginTop: spacing.xl }}><SkeletonList count={5} /></View>
       ) : (
