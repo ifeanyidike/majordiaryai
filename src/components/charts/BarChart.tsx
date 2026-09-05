@@ -41,16 +41,32 @@ interface Props {
 
 const BAR_MAX = 24;
 const GAP = 2;
-const GRID_STEPS = 3;
+const TICK_LINE = 12;
 
-/** A clean axis ceiling: 100 for percentages, else the next nice number. */
-function niceCeiling(values: number[], unit?: string): number {
+/**
+ * Axis ceiling and gridline count.
+ *
+ * Percentages used to get a fixed ceiling of 100, which is honest for a
+ * compliance series at 95% and useless for a pregnancy-rate series at 15–30%
+ * — the bars sat in the bottom third with the target line, and the
+ * difference between a good cycle and a poor one was a few pixels. The
+ * ceiling now sits one nice step above the data (with 15% headroom for the
+ * value labels), and the gridlines divide it into round numbers.
+ */
+function axisFor(values: number[], unit?: string): { ceiling: number; steps: number } {
   const top = Math.max(0, ...values);
-  if (unit === '%') return top <= 100 ? 100 : Math.ceil(top / 10) * 10;
-  if (top === 0) return 1;
+  if (unit === '%') {
+    const nice = [10, 20, 25, 30, 40, 50, 60, 75, 80, 100];
+    const ceiling = nice.find((n) => n >= top * 1.15) ?? 100;
+    const steps = { 10: 2, 20: 4, 25: 5, 30: 3, 40: 4, 50: 5, 60: 3, 75: 3, 80: 4, 100: 4 }[ceiling] ?? 4;
+    return { ceiling, steps };
+  }
+  if (top === 0) return { ceiling: 1, steps: 1 };
   const pow = 10 ** Math.floor(Math.log10(top));
   const step = top / pow <= 2 ? pow / 2 : top / pow <= 5 ? pow : pow * 2;
-  return Math.ceil(top / step) * step;
+  const ceiling = Math.ceil(top / step) * step;
+  const steps = ceiling / step <= 5 ? ceiling / step : 4;
+  return { ceiling, steps };
 }
 
 const fmt = (v: number | null, unit?: string) =>
@@ -65,9 +81,10 @@ export function BarChart({
   const [table, setTable] = useState(false);
 
   const values = data.map((d) => d.value ?? 0);
-  const ceiling = max ?? niceCeiling([...values, benchmark?.value ?? 0], unit);
+  const axis = axisFor([...values, benchmark?.value ?? 0], unit);
+  const ceiling = max ?? axis.ceiling;
+  const GRID_STEPS = max ? 4 : axis.steps;
   const hasPending = data.some((d) => d.pending);
-  const hasValue = data.some((d) => !d.pending && d.value != null);
 
   // Label the extreme and the latest — never every point.
   const maxIdx = values.reduce((m, v, i) => (v > values[m] ? i : m), 0);
@@ -83,12 +100,17 @@ export function BarChart({
     <View>
       {/* Plot */}
       <View style={styles.plotRow}>
-        {/* Axis ticks — the values not directly labelled */}
+        {/* Axis ticks, each centred on its gridline */}
         <View style={[styles.axis, { height }]}>
           {Array.from({ length: GRID_STEPS + 1 }, (_, i) => {
-            const v = (ceiling / GRID_STEPS) * (GRID_STEPS - i);
+            const v = (ceiling / GRID_STEPS) * i;
             return (
-              <Text key={i} variant="caption" color={colors.textMuted} style={styles.tick}>
+              <Text
+                key={i}
+                variant="caption"
+                color={colors.textMuted}
+                style={[styles.tick, { bottom: (height / GRID_STEPS) * i - TICK_LINE / 2 }]}
+              >
                 {fmt(v, unit)}
               </Text>
             );
@@ -118,7 +140,10 @@ export function BarChart({
           {width > 0 && (
             <View style={styles.bars}>
               {data.map((d, i) => {
-                const h = d.value == null ? 0 : Math.max(d.value > 0 ? 2 : 0, y(d.value));
+                // A pending cycle at zero still draws a 2px stub: "awaiting
+                // checks" must look different from "no data here".
+                const h = d.value == null ? 0
+                  : Math.max(d.value > 0 || d.pending ? 2 : 0, y(d.value));
                 const showLabel = d.value != null && (i === maxIdx || i === lastIdx) && selected == null;
                 const isSel = selected === i;
                 return (
@@ -183,7 +208,7 @@ export function BarChart({
       ) : null}
 
       {/* Legend only when two series are actually on screen */}
-      {hasPending && hasValue ? (
+      {hasPending ? (
         <View style={styles.legend}>
           <View style={styles.legendItem}>
             <View style={[styles.swatch, { backgroundColor: colors.primary }]} />
@@ -221,8 +246,11 @@ export function BarChart({
 
 const styles = StyleSheet.create({
   plotRow: { flexDirection: 'row' },
-  axis: { width: 40, justifyContent: 'space-between', paddingRight: spacing.xs },
-  tick: { textAlign: 'right', fontVariant: ['tabular-nums'], lineHeight: 12 },
+  axis: { width: 40, position: 'relative', paddingRight: spacing.xs },
+  tick: {
+    position: 'absolute', right: spacing.xs, textAlign: 'right',
+    fontVariant: ['tabular-nums'], lineHeight: TICK_LINE,
+  },
   plot: { flex: 1, position: 'relative' },
   grid: {
     position: 'absolute', left: 0, right: 0, height: StyleSheet.hairlineWidth,

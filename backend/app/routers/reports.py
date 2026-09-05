@@ -566,9 +566,10 @@ async def reproduction_kpis(
         needling=[kpi_engine.NeedlingRec(
             cow_id=r.cow_id, scheduled_date=r.scheduled_date,
             completed=r.completed, completed_date=r.completed_date,
+            enrollment_id=r.enrollment_id,
         ) for r in shots],
         enrollments=[kpi_engine.EnrollmentRec(
-            cow_id=e.cow_id, start_date=e.start_date, status=e.status.value,
+            id=e.id, cow_id=e.cow_id, start_date=e.start_date, status=e.status.value,
         ) for e in enrolments],
         heat_checks=[kpi_engine.HeatCheckRec(
             insemination_id=h.insemination_id, check_date=h.check_date,

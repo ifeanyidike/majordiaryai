@@ -9,6 +9,7 @@ import { BarChart } from '@/components/charts/BarChart';
 import { KpiTile } from '@/components/charts/KpiTile';
 import { colors, radius, spacing } from '@/theme';
 import { KPI_DEFINITIONS, KpiReport } from '@/data/kpis';
+import { parseLocalDate } from '@/lib/dates';
 import { farmById, useAppStore } from '@/store/useAppStore';
 
 /**
@@ -64,8 +65,10 @@ export default function FarmKpisScreen() {
   const monthLabel = (ym: string) =>
     new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1)
       .toLocaleDateString('en-CA', { month: 'short' });
+  // parseLocalDate, not new Date(iso): the latter is UTC midnight, which in
+  // the farm's timezone labelled every cycle with the day before it started.
   const cycleLabel = (start: string) =>
-    new Date(start).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+    parseLocalDate(start).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
 
   const heroJudgement =
     pr.status === 'good' ? { color: colors.success, icon: 'checkmark-circle' as const, word: 'On target' }
@@ -115,7 +118,8 @@ export default function FarmKpisScreen() {
             label: cycleLabel(c.start),
             value: c.pregnancy_rate,
             pending: c.pending,
-            detail: `${c.conceived} of ${c.eligible} eligible · ${c.served} bred`,
+            detail: `${c.conceived} of ${c.eligible} eligible · ${c.served} bred`
+              + (c.unchecked ? ` · ${c.unchecked} awaiting checks` : ''),
           }))}
           pendingLabel="Checks not in yet"
         />

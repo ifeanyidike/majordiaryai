@@ -57,14 +57,17 @@ class Herd:
     def cull(self, cow, days_ago):
         self.r.culls.append(CullRec(cow_id=cow.id, cull_date=D(days_ago)))
 
-    def shot(self, cow, scheduled_days_ago, completed=True, completed_days_ago=None):
+    def shot(self, cow, scheduled_days_ago, completed=True, completed_days_ago=None, enrolment=None):
         self.r.needling.append(NeedlingRec(
             cow_id=cow.id, scheduled_date=D(scheduled_days_ago), completed=completed,
             completed_date=D(completed_days_ago) if completed_days_ago is not None else None,
+            enrollment_id=enrolment.id if enrolment else None,
         ))
 
     def enrol(self, cow, days_ago, status):
-        self.r.enrollments.append(EnrollmentRec(cow_id=cow.id, start_date=D(days_ago), status=status))
+        e = EnrollmentRec(id=uid(), cow_id=cow.id, start_date=D(days_ago), status=status)
+        self.r.enrollments.append(e)
+        return e
 
     def heat_check(self, ai, days_after):
         self.r.heat_checks.append(HeatCheckRec(insemination_id=ai.id, check_date=ai.date + timedelta(days=days_after)))
@@ -128,8 +131,10 @@ def test_recent_cycles_are_flagged_pending_not_judged_bad():
     newest = k["cycles"][-1]
     assert newest["pending"] is True
     assert newest["served"] == 6 and newest["conceived"] == 0
-    # ...and it does not drag the headline down.
-    assert k["pregnancy_rate_21d"]["value"] is None or newest["eligible"] not in ()
+    # ...and its cows are not in the headline's denominator: that counts
+    # confirmed cycles only. (The earlier version of this assertion was
+    # `newest["eligible"] not in ()`, which is always true — it tested nothing.)
+    assert k["pregnancy_rate_21d"]["n"] == sum(c["eligible"] for c in k["cycles"] if not c["pending"])
     assert all(c["pending"] for c in k["cycles"][-2:])
     assert not any(c["pending"] for c in k["cycles"][:5])
 
@@ -531,3 +536,49 @@ def test_a_recorded_calving_on_the_same_date_is_not_doubled():
     c.last_calving_date = D(30)              # and the cow's own copy of it
     k = h.kpis()
     assert k["outcomes"]["calvings"] == 1
+
+
+# ── Found in adversarial review ──────────────────────────────────────
+
+def test_a_culled_cow_with_no_cull_record_is_not_eligible_forever():
+    """Status `cull` with no cull row — every culled animal in an imported herd.
+    `left_undated` only covered sold/dead, so she sat in the eligible pool of
+    every cycle, dragging the pregnancy rate down with an animal that was not
+    on the farm."""
+    h = Herd()
+    h.cow(status="cull", calved_days_ago=300)
+    assert _eligible_in_confirmed_cycle(h) == 0
+
+
+def test_shots_from_a_cancelled_protocol_are_not_missed_shots():
+    """A bleeding event cancels the protocol and its remaining shots are
+    correctly never given. Counting them as missed punished the technician for
+    doing the right thing and reported a compliance problem that did not exist."""
+    h = Herd()
+    c = h.cow()
+    gone = h.enrol(c, 20, "cancelled")
+    h.shot(c, 20, completed=True, completed_days_ago=20, enrolment=gone)   # given before the cancel
+    h.shot(c, 13, completed=False, enrolment=gone)                          # never due after it
+    h.shot(c, 10, completed=False, enrolment=gone)
+    live = h.enrol(c, 8, "active")
+    h.shot(c, 5, completed=False, enrolment=live)                           # a real miss
+    k = h.kpis()
+    comp = k["compliance"]["protocol_on_time_rate"]
+    assert (comp["on_time"], comp["late"], comp["missed"]) == (1, 0, 1)
+
+
+def test_a_cycle_reports_breedings_still_awaiting_a_result():
+    """Unchecked breedings count as not pregnant in the rate (the conservative
+    convention), so the cycle must say how many there were — otherwise a
+    farm whose vet is late entering results looks like a farm whose cows are
+    not conceiving."""
+    h = Herd()
+    cows = [h.cow(calved_days_ago=200) for _ in range(6)]
+    h.ai(cows[0], IN_CYCLE, result="pregnant")
+    h.ai(cows[1], IN_CYCLE, result="not_pregnant")
+    h.ai(cows[2], IN_CYCLE)                      # no result yet
+    h.ai(cows[3], IN_CYCLE)
+    k = h.kpis()
+    cycle = next(c for c in k["cycles"] if c["start"] == D(CONFIRMED_CYCLE_START).isoformat())
+    assert (cycle["served"], cycle["conceived"], cycle["unchecked"]) == (4, 1, 2)
+    assert cycle["pregnancy_rate"] == round(100 / 6, 1)     # unchecked are not conceptions

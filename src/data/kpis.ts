@@ -19,7 +19,7 @@ export interface KpiValue {
 
 export interface KpiCycle {
   start: string; end: string;
-  eligible: number; served: number; conceived: number;
+  eligible: number; served: number; conceived: number; unchecked: number;
   service_rate: number | null; conception_rate: number | null; pregnancy_rate: number | null;
   pending: boolean;
 }
@@ -74,7 +74,7 @@ export const KPI_DEFINITIONS: KpiDefinition[] = [
   {
     title: '21-day pregnancy rate',
     formula: 'Cows that became pregnant in a 21-day cycle ÷ cows eligible to be bred at the start of it. Eligible = 70+ days since calving (or 395+ days old for a heifer), not already pregnant, still in the herd.',
-    why: 'The single best measure of a breeding programme. It combines how many eligible cows you actually breed with how many of those conceive. Cycles from the last 50 days are shown as pending because their pregnancy checks are not in yet.',
+    why: 'The single best measure of a breeding programme. It combines how many eligible cows you actually breed with how many of those conceive. Cycles from the last 50 days are shown as pending because their pregnancy checks are not in yet. A breeding with no result counts as not pregnant, so a late check lowers the rate until it is entered — each bar shows how many are still awaiting checks.',
   },
   {
     title: 'Service rate',

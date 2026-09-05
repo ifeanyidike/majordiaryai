@@ -183,6 +183,9 @@ class KpiCycle(BaseModel):
     eligible: int
     served: int
     conceived: int
+    # Bred in the cycle with no pregnancy result entered yet. Counted as not
+    # pregnant in the rate; surfaced so a low cycle can be read correctly.
+    unchecked: int = 0
     service_rate: Optional[float] = None
     conception_rate: Optional[float] = None
     pregnancy_rate: Optional[float] = None

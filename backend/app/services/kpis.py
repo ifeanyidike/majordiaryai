@@ -98,6 +98,7 @@ class NeedlingRec:
     scheduled_date: date
     completed: bool
     completed_date: Optional[date] = None
+    enrollment_id: Optional[uuid.UUID] = None
 
 
 @dataclass
@@ -105,6 +106,7 @@ class EnrollmentRec:
     cow_id: uuid.UUID
     start_date: date
     status: str                    # active | completed | completed_pending_ai | cancelled
+    id: Optional[uuid.UUID] = None
 
 
 @dataclass
@@ -228,10 +230,13 @@ class _Herd:
         for c in r.culls:
             d = self.cull_date.get(c.cow_id)
             self.cull_date[c.cow_id] = c.cull_date if d is None else min(d, c.cull_date)
-        # Sold/dead with no dated record: we cannot say when she left, so she
-        # is never in a historical denominator. Conservative on purpose.
+        # Left the herd with no dated record — any terminal status without a
+        # cull row, which is every culled animal in an imported herd. We cannot
+        # say when she left, so she is never in a historical denominator.
+        # Conservative on purpose. (This covered only sold/dead at first, so a
+        # status-cull cow with no row sat in every cycle's eligible pool.)
         self.left_undated = {
-            c.id for c in self.cows if c.status in ("sold", "dead") and c.id not in self.cull_date
+            c.id for c in self.cows if c.status in TERMINAL and c.id not in self.cull_date
         }
         self.cow_by_id = {c.id: c for c in self.cows}
         self.culls = r.culls
@@ -334,13 +339,17 @@ def compute_kpis(records: HerdRecords, today: date) -> dict:
         in_cycle = [a for a in h.ais if start <= a.date < end and a.cow_id in eligible]
         served = {a.cow_id for a in in_cycle}
         conceived = {a.cow_id for a in in_cycle if a.id in h.pregnant_ais}
+        # A breeding with no result counts as not pregnant — the conservative
+        # convention — but the reader must be able to see that a low cycle is
+        # "checks not entered" rather than "cows not conceiving".
+        unchecked = {a.cow_id for a in in_cycle if a.id not in h.result_by_ai}
         # Checks land 30–50 days after breeding; a cycle newer than that is
         # not a bad cycle, it is an unknown one.
         pending = (today - end).days < PREGNANCY_WARNING_DAY
         n_e, n_s, n_c = len(eligible), len(served), len(conceived)
         cycles.append({
             "start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(),
-            "eligible": n_e, "served": n_s, "conceived": n_c,
+            "eligible": n_e, "served": n_s, "conceived": n_c, "unchecked": len(unchecked),
             "service_rate": _pct(n_s, n_e), "conception_rate": _pct(n_c, n_s),
             "pregnancy_rate": _pct(n_c, n_e), "pending": pending,
         })
@@ -495,9 +504,15 @@ def compute_kpis(records: HerdRecords, today: date) -> dict:
     }
 
     # ── Compliance: what this system uniquely knows ──
+    # A cancelled protocol's ungiven shots are not misses: the cow bled, or was
+    # inseminated on heat, and the schedule was correctly abandoned. Only the
+    # shots of protocols still meant to run can be missed.
+    cancelled = {e.id for e in h.enrollments if e.status == "cancelled" and e.id is not None}
     on_time = late = missed = 0
     for r in h.needling:
         if not (p_start <= r.scheduled_date <= p_end) or r.scheduled_date >= today:
+            continue
+        if not r.completed and r.enrollment_id in cancelled:
             continue
         if r.completed:
             if r.completed_date is None or r.completed_date <= r.scheduled_date:
