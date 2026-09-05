@@ -76,10 +76,9 @@ export default function TabsLayout() {
           href: showTasks ? undefined : null,
         }}
       />
-      <Tabs.Screen
-        name="reports"
-        options={{ title: 'Reports', tabBarIcon: tabIcon('bar-chart', 'bar-chart-outline') }}
-      />
+      {/* No Reports tab. Reports belong to a farm (client correction) and are
+          reached from the farm's page, so a global hub that merged every farm
+          into one list was the wrong shape — not just redundant. */}
       <Tabs.Screen
         name="profile"
         options={{ title: 'Profile', tabBarIcon: tabIcon('person', 'person-outline') }}

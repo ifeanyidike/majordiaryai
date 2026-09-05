@@ -42,7 +42,7 @@ export function AdminDashboard() {
 
   const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [
     { label: 'Farms CRM', caption: `${farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
-    { label: 'Reports', caption: 'System-wide', icon: 'bar-chart', onPress: () => router.push('/(tabs)/reports') },
+    { label: 'Reports', caption: 'By farm — pick one', icon: 'bar-chart', onPress: () => router.push('/(tabs)/farms') },
     { label: 'Cow Search', caption: `${summary.total} cows`, icon: 'search', onPress: () => router.push('/cow-search') },
     { label: 'Veterinarians', caption: `${vets.length} partners`, icon: 'medkit', onPress: () => router.push('/vets') },
     // Roles and farm assignment live here — it is the only way to make a Farm
@@ -125,6 +125,12 @@ export function AdminDashboard() {
             </View>
           ))}
         </View>
+        {/* Two of these cannot be computed system-wide without numerators the
+            API does not send, so they read "—" here by design. Say why, or a
+            dash on the admin's front screen looks like a broken fetch. */}
+        <Text variant="caption" color={colors.textMuted} style={styles.kpiNote}>
+          Conception and services per conception are per farm — open a farm's Reports.
+        </Text>
 
         <SectionHeader title="Farms" actionLabel="View all" onAction={() => router.push('/(tabs)/farms')} />
         {farms.slice(0, 3).map((f) => (
@@ -167,6 +173,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     gap: spacing.hairline,
   },
+  kpiNote: { marginTop: spacing.sm, marginBottom: spacing.md },
   kpiItem: {
     width: '25%',
     alignItems: 'center',

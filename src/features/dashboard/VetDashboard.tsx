@@ -155,9 +155,9 @@ export function VetDashboard() {
 
         <Button
           variant="secondary"
-          label="View Herd Reports"
+          label="Reports by farm"
           icon="bar-chart-outline"
-          onPress={() => router.push('/(tabs)/reports')}
+          onPress={() => router.push('/(tabs)/farms')}
           style={styles.reportsBtn}
         />
       </View>

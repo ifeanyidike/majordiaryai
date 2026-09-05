@@ -91,7 +91,12 @@ interface ApiWorklist {
 }
 
 interface ApiHerdSummary {
+  farm_id?: string;
   total?: number;
+  // Per-farm status counts. Kept so a multi-farm scope can aggregate the
+  // pregnancy rate from counts (the only honest way) rather than averaging rates.
+  fresh?: number; open?: number; needling?: number;
+  inseminated?: number; pregnant?: number; dry?: number;
   pregnancy_rate?: number;
   conception_rate?: number;
   services_per_conception?: number | null;
@@ -333,6 +338,8 @@ interface AppState {
   worklistFetchedOn: string | null;
   notifications: AppNotification[];
   kpis: HerdKpis | null;
+  /** Reproduction KPIs per farm — the Reports screen is per farm. */
+  kpisByFarm: Record<string, HerdKpis>;
   farmsLoading: boolean;
   cowsLoading: boolean;
   vetsLoading: boolean;
@@ -355,7 +362,7 @@ interface AppState {
   ensureWorklist: () => void;
   /** Demo mode only: locally clear an actioned row so the demo stays usable. */
   completeWorklistCowDemo: (reportType: string, cowId: string) => void;
-  fetchKpis: () => Promise<void>;
+  fetchKpis: (farmId?: string) => Promise<void>;
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   /** Mark every notification the user can currently see as read. */
@@ -455,6 +462,7 @@ const initialData = {
   bulls: {} as Record<string, Bull[]>,
   notifications: [] as AppNotification[],
   kpis: null as HerdKpis | null,
+  kpisByFarm: {} as Record<string, HerdKpis>,
   farmsLoading: false,
   cowsLoading: false,
   vetsLoading: false,
@@ -611,21 +619,58 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { worklist: { ...s.worklist, farms } };
     }),
 
-  fetchKpis: async () => {
+  fetchKpis: async (farmId) => {
+    const store = (k: HerdKpis) =>
+      farmId
+        ? set((s) => ({ kpisByFarm: { ...s.kpisByFarm, [farmId]: k } }))
+        : set({ kpis: k });
+
     if (isDemoMode) {
-      set({ kpis: demoKpis(demoCows) });
+      store(demoKpis(farmId ? demoCows.filter((c) => c.farmId === farmId) : demoCows));
       return;
     }
     try {
-      const s = await api.get<ApiHerdSummary>('/reports/herd-summary');
-      set({
-        kpis: {
-          pregnancyRate: s.pregnancy_rate ?? null,
-          conceptionRate: s.conception_rate ?? null,
-          servicesPerConception: s.services_per_conception ?? null,
-          upcomingCalvings30d: s.upcoming_calvings_30d ?? 0,
-        },
+      // /reports/herd-summary returns ONE ROW PER FARM. This used to read the
+      // response as a single object, so `pregnancy_rate` was undefined and
+      // every KPI rendered "—" against the real API — the demo path masked it.
+      // The backend also reports rates as fractions (0.45) while the demo path
+      // and the UI use percentages, so they are converted here, once.
+      const rows = await api.get<ApiHerdSummary[]>(
+        `/reports/herd-summary${farmId ? `?farm_id=${farmId}` : ''}`,
+      );
+      const pct = (v: number | null | undefined) => (v == null ? null : Math.round(v * 100));
+      const toKpis = (r: ApiHerdSummary): HerdKpis => ({
+        pregnancyRate: pct(r.pregnancy_rate),
+        conceptionRate: pct(r.conception_rate),
+        servicesPerConception: r.services_per_conception ?? null,
+        upcomingCalvings30d: r.upcoming_calvings_30d ?? 0,
       });
+      if (farmId) {
+        const row = rows.find((r) => r.farm_id === farmId) ?? rows[0];
+        if (row) store(toKpis(row));
+      } else if (rows.length === 1) {
+        store(toKpis(rows[0]));
+      } else {
+        // Multi-farm scope (admin). Rates cannot be averaged, but two of the
+        // four figures CAN be rebuilt honestly from what the rows carry:
+        //  - pregnancy rate, from the same counts the backend uses per farm;
+        //  - upcoming calvings, which is a count and simply sums.
+        // Conception and services-per-conception need numerators the response
+        // does not include, so system-wide they stay null and the dashboard
+        // says where to find them.
+        const sum = (k: keyof ApiHerdSummary) =>
+          rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+        const breeding = sum('open') + sum('needling') + sum('inseminated')
+          + sum('pregnant') + sum('dry') + sum('fresh');
+        set({
+          kpis: {
+            pregnancyRate: breeding ? Math.round(((sum('pregnant') + sum('dry')) / breeding) * 100) : null,
+            conceptionRate: null,
+            servicesPerConception: null,
+            upcomingCalvings30d: sum('upcoming_calvings_30d'),
+          },
+        });
+      }
     } catch {
       // KPI strip renders placeholders when unavailable
     }

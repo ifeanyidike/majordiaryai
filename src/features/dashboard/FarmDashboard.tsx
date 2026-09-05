@@ -37,8 +37,9 @@ export function FarmDashboard() {
   const motion = useMotion();
   const router = useRouter();
   const toast = useToast();
-  const { farms, cows, vets, kpis, farmsLoading, farmsError, fetchFarms, fetchKpis } = useAppStore();
+  const { farms, cows, vets, kpisByFarm, farmsLoading, farmsError, fetchFarms, fetchKpis } = useAppStore();
   const farm = farms[0]; // Farm role users only see their own farm
+  const kpis = farm ? kpisByFarm[farm.id] : undefined;
   const summary = summarize(cows);
   // The vet assigned to this farm, when loaded
   const vet = farm ? vets.find((v) => v.farmIds.includes(farm.id)) ?? null : null;
@@ -46,7 +47,7 @@ export function FarmDashboard() {
   // carries no activity feed, and this card used to be permanently empty.
   const upcoming = farm ? farmUpcomingActivities(cows, farm.id) : [];
 
-  useEffect(() => { fetchKpis(); }, []);
+  useEffect(() => { if (farm) fetchKpis(farm.id); }, [farm?.id]);
 
   if (!farm) {
     return (
@@ -250,9 +251,9 @@ export function FarmDashboard() {
 
         <Animated.View entering={motion.upAt(380, 500)}>
           <Button
-            label="View Herd Reports"
+            label="View Farm Reports"
             icon="bar-chart"
-            onPress={() => router.push('/(tabs)/reports')}
+            onPress={() => router.push({ pathname: '/farm/reports', params: { id: farm.id } })}
             style={styles.reportsBtn}
           />
         </Animated.View>

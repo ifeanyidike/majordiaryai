@@ -49,7 +49,9 @@ export function TechnicianDashboard() {
     // qualifier the pair reads as the same statistic printed twice.
     { label: 'Farms CRM', caption: `All ${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
     { label: 'To Do List', caption: route.length ? `${route.length} farms · ${outstanding} cows` : 'All clear', icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
-    { label: 'Reports', caption: `${summary.total} cows tracked`, icon: 'bar-chart', onPress: () => router.push('/(tabs)/reports') },
+    // Reports are per farm (client correction), so this points at the farm
+    // list rather than a merged hub: pick the farm, then its Reports button.
+    { label: 'Reports', caption: 'By farm — pick one', icon: 'bar-chart', onPress: () => router.push('/(tabs)/farms') },
     { label: 'Cow Search', caption: 'Find any cow', icon: 'search', onPress: () => router.push('/cow-search') },
   ];
 

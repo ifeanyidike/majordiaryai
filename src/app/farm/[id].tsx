@@ -172,12 +172,25 @@ export default function FarmProfileScreen() {
             in one row squeezed every label — primary first, then a wrapping
             row of compact actions that stays readable at any role. */}
         <Animated.View entering={motion.upAt(220, 500)}>
-          <Button
-            label="View Herd"
-            icon="list"
-            onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
-            style={styles.primaryAction}
-          />
+          {/* Reports live HERE, per farm — the client's correction to a global
+              Reports tab. Every role sees it (a farm manager wants their own
+              farm's reports, a vet the pregnancy report), so it is not behind
+              canManage like the actions below. */}
+          <View style={styles.primaryRow}>
+            <Button
+              label="View Herd"
+              icon="list"
+              onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.id } })}
+              style={styles.primaryBtn}
+            />
+            <Button
+              variant="secondary"
+              label="Reports"
+              icon="bar-chart"
+              onPress={() => router.push({ pathname: '/farm/reports', params: { id: farm.id } })}
+              style={styles.primaryBtn}
+            />
+          </View>
           {manageActions.length > 0 && (
             <View style={styles.manageRow}>
               {manageActions.map((a) => (
@@ -327,7 +340,8 @@ export default function FarmProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  primaryAction: { marginBottom: spacing.sm },
+  primaryRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  primaryBtn: { flex: 1 },
   manageRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

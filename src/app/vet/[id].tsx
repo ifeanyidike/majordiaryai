@@ -151,9 +151,9 @@ export default function VetProfileScreen() {
           <Button
             compact
             variant="secondary"
-            label="View Reports"
+            label="Farm reports"
             icon="bar-chart-outline"
-            onPress={() => router.push('/(tabs)/reports')}
+            onPress={() => router.push('/(tabs)/farms')}
             style={styles.footerBtn}
           />
           {role === 'admin' && (
