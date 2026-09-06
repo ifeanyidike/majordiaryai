@@ -3,7 +3,6 @@ import { Platform, TextStyle } from 'react-native';
 const sans = Platform.select({ ios: 'System', default: 'sans-serif' })!;
 
 export type TextVariant =
-  | 'hero'
   | 'display'
   | 'title'
   | 'heading'
@@ -18,18 +17,6 @@ export type TextVariant =
   | 'input';
 
 export const typography: Record<TextVariant, TextStyle> = {
-  /**
-   * The one figure a dashboard leads with — exactly one per view. Same sans
-   * as everything else at ≥ 48px; proportional figures, never tabular, or a
-   * number like 121 goes loose at this size.
-   */
-  hero: {
-    fontFamily: sans,
-    fontSize: 52,
-    fontWeight: '800',
-    letterSpacing: -1.5,
-    lineHeight: 58,
-  },
   /** Big numbers / login wordmark */
   display: {
     fontFamily: sans,
