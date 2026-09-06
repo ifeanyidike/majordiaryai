@@ -3,24 +3,28 @@ import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import {
-  EmptyState, ErrorBanner, Header, Screen, SectionHeader, SkeletonList, SkeletonStats, Text,
+  EmptyState, ErrorBanner, Header, Screen, SkeletonList, Text,
 } from '@/components';
 import { BarChart } from '@/components/charts/BarChart';
-import { KpiTile } from '@/components/charts/KpiTile';
+import {
+  formatKpi, Metric, MetricGroup, STATUS_COLOR, STATUS_WORD,
+} from '@/components/charts/MetricList';
 import { colors, radius, spacing } from '@/theme';
-import { KPI_DEFINITIONS, KpiReport } from '@/data/kpis';
 import { parseLocalDate } from '@/lib/dates';
+import { KPI_DEFINITIONS, KpiReport, KpiValue } from '@/data/kpis';
 import { farmById, useAppStore } from '@/store/useAppStore';
 
 /**
  * One farm's reproduction performance.
  *
- * Leads with the one figure a breeding programme is judged on — the 21-day
- * pregnancy rate — then the two things it is made of (service rate and
- * conception rate), then timing, outcomes, and the compliance measures only
- * this system can compute because it knows which shots were given on which
- * day. Every judgement on this screen came from the server against published
- * benchmarks; the screen decides nothing about what is good.
+ * Built around three questions, in the order a farmer asks them: how is the
+ * breeding programme doing, what needs fixing, and what are all the numbers.
+ *
+ * The first version answered the third question fourteen times over — a grid
+ * of bordered tiles each carrying a value, a denominator, a judgement word and
+ * a target sentence, under three charts of equal weight. Everything competed,
+ * so nothing led. Now: one hero figure, one chart that earns its space, the
+ * exceptions named outright, and the rest as a quiet list that opens on tap.
  */
 export default function FarmKpisScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -50,70 +54,106 @@ export default function FarmKpisScreen() {
       <Screen refreshing={kpiLoading} onRefresh={refresh}>
         <Header back title={farm.name} subtitle="Performance" />
         {kpiError ? <ErrorBanner message={kpiError} onRetry={refresh} /> : null}
-        {!kpiError && (
-          <View style={{ gap: spacing.xl, marginTop: spacing.lg }}>
-            <SkeletonStats count={1} />
-            <SkeletonList count={2} variant="card" />
-            <SkeletonStats />
-          </View>
-        )}
+        {!kpiError ? (
+          <View style={{ marginTop: spacing.xl }}><SkeletonList count={3} variant="card" /></View>
+        ) : null}
       </Screen>
     );
   }
 
+  const { conception, timing, outcomes, compliance } = report;
   const pr = report.pregnancy_rate_21d;
-  const monthLabel = (ym: string) =>
-    new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1)
-      .toLocaleDateString('en-CA', { month: 'short' });
-  // parseLocalDate, not new Date(iso): the latter is UTC midnight, which in
-  // the farm's timezone labelled every cycle with the day before it started.
+
+  const breeding: Metric[] = [
+    { label: 'Service rate', kpi: report.service_rate_21d,
+      basis: `${report.service_rate_21d.n} eligible cow-cycles` },
+    { label: 'Conception rate', kpi: conception.rate,
+      basis: `${conception.rate.n} checked${conception.unchecked_breedings ? ` · ${conception.unchecked_breedings} awaiting a check` : ''}` },
+    { label: 'First-service conception', kpi: conception.first_service_rate,
+      basis: `${conception.first_service_rate.n} first breedings` },
+    { label: 'Services per conception', kpi: conception.services_per_conception,
+      basis: `${conception.services_per_conception.n} pregnancies` },
+  ];
+
+  const timingMetrics: Metric[] = [
+    { label: 'Days open (median)', kpi: timing.days_open,
+      basis: `${timing.days_open.n} pregnancies${timing.days_open.mean != null ? ` · mean ${timing.days_open.mean}` : ''}` },
+    { label: 'Days to first service', kpi: timing.days_to_first_service,
+      basis: `${timing.days_to_first_service.n} calvings` },
+    { label: 'Calving interval', kpi: timing.calving_interval_months,
+      basis: `${timing.calving_interval_months.n} cows with two calvings` },
+    { label: 'Overdue pregnancy checks', kpi: outcomes.overdue_pregnancy_checks,
+      basis: 'cows past day 50 with no result entered' },
+  ];
+
+  const herd: Metric[] = [
+    { label: 'Stillbirth rate', kpi: outcomes.stillbirth_rate, basis: `${outcomes.calvings} calvings` },
+    { label: 'Cull rate', kpi: outcomes.cull_rate, basis: `${outcomes.culls} culled in 12 months` },
+    { label: 'Heifers from sexed semen', kpi: outcomes.sexed_semen_heifer_rate,
+      basis: `${outcomes.sexed_semen_heifer_rate.n} calves · expect about 90%` },
+    { label: 'Heifers from conventional', kpi: outcomes.conventional_heifer_rate,
+      basis: `${outcomes.conventional_heifer_rate.n} calves · expect about 48%` },
+  ];
+
+  const protocols: Metric[] = [
+    { label: 'Shots given on the day', kpi: compliance.protocol_on_time_rate,
+      basis: `${compliance.protocol_on_time_rate.late} late · ${compliance.protocol_on_time_rate.missed} missed` },
+    { label: 'Protocols completed', kpi: compliance.protocol_completion_rate,
+      basis: `${compliance.protocol_completion_rate.cancelled} cancelled · ${compliance.protocol_completion_rate.active} still running` },
+    { label: 'Heat-check coverage', kpi: compliance.heat_check_coverage,
+      basis: `${compliance.heat_check_coverage.n} breedings past day 25` },
+  ];
+
+  const groups = [
+    { title: 'Breeding', metrics: breeding },
+    { title: 'Timing', metrics: timingMetrics },
+    { title: 'Herd', metrics: herd },
+    { title: 'Protocols', metrics: protocols },
+  ];
+
+  // Only what is actionable gets named up front. "Fair" and "poor" qualify;
+  // "too few records" does not — that is a data gap, not a herd problem.
+  const attention = groups
+    .flatMap((g) => g.metrics)
+    .filter((m) => m.kpi.status === 'poor' || m.kpi.status === 'fair');
+
+  const judged = [pr, ...groups.flatMap((g) => g.metrics.map((m) => m.kpi))]
+    .some((k: KpiValue) => k.status !== 'na');
+
   const cycleLabel = (start: string) =>
     parseLocalDate(start).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
 
-  const heroJudgement =
-    pr.status === 'good' ? { color: colors.success, icon: 'checkmark-circle' as const, word: 'On target' }
-    : pr.status === 'fair' ? { color: colors.warning, icon: 'remove-circle' as const, word: 'Below target' }
-    : pr.status === 'poor' ? { color: colors.danger, icon: 'alert-circle' as const, word: 'Needs attention' }
-    : { color: colors.textSecondary, icon: 'help-circle-outline' as const, word: 'Too few records to judge yet' };
-
-  const buckets = report.timing.days_open.buckets;
-
   return (
     <Screen refreshing={kpiLoading} onRefresh={refresh}>
-      <Header
-        back
-        title={farm.name}
-        subtitle={`Performance · last ${Math.round(report.period_days / 30)} months`}
-      />
+      <Header back title={farm.name} subtitle="Performance" />
       {kpiError ? <ErrorBanner message={kpiError} onRetry={refresh} /> : null}
 
-      {/* Hero: the one number */}
+      {/* One hero figure, no card — the number is the thing, not its frame. */}
       <View style={styles.hero}>
-        <Text variant="label" color={colors.textSecondary}>21-day pregnancy rate</Text>
+        <Text variant="label" color={colors.textMuted}>21-day pregnancy rate</Text>
         <View style={styles.heroValue}>
           <Text variant="hero" color={pr.value == null ? colors.textMuted : colors.text}>
-            {pr.value == null ? '—' : pr.value.toFixed(pr.value % 1 === 0 ? 0 : 1)}
+            {pr.value == null ? '—' : `${pr.value % 1 === 0 ? pr.value : pr.value.toFixed(1)}`}
           </Text>
-          {pr.value != null ? <Text variant="title" color={colors.textSecondary}>%</Text> : null}
+          {pr.value != null ? (
+            <Text variant="title" color={colors.textSecondary} style={styles.heroUnit}>%</Text>
+          ) : null}
         </View>
-        <View style={styles.heroJudge}>
-          <Ionicons name={heroJudgement.icon} size={16} color={heroJudgement.color} />
-          <Text variant="bodyBold" color={heroJudgement.color}>{heroJudgement.word}</Text>
-          <Text variant="caption" color={colors.textMuted}>
-            {' · '}{pr.target}
-          </Text>
+        <View style={styles.heroStatus}>
+          <View style={[styles.dot, { backgroundColor: STATUS_COLOR[pr.status] }]} />
+          <Text variant="bodyBold" color={STATUS_COLOR[pr.status]}>{STATUS_WORD[pr.status]}</Text>
+          {pr.target ? (
+            <Text variant="caption" color={colors.textMuted} numberOfLines={1} style={styles.flex1}>
+              · {pr.target.split('—')[0].trim()}
+            </Text>
+          ) : null}
         </View>
-        <Text variant="caption" color={colors.textMuted}>
-          Over {report.cycles.filter((c) => !c.pending).length} confirmed cycles · {pr.n} eligible cow-cycles
-        </Text>
       </View>
 
-      <SectionHeader title="Pregnancy rate by 21-day cycle" />
       <View style={styles.chartCard}>
         <BarChart
           unit="%"
-          height={140}
-          benchmark={{ value: 20, label: 'Target 20%' }}
+          benchmark={{ value: 20, label: '20%' }}
           data={report.cycles.map((c) => ({
             label: cycleLabel(c.start),
             value: c.pregnancy_rate,
@@ -125,111 +165,52 @@ export default function FarmKpisScreen() {
         />
       </View>
 
-      <SectionHeader title="What it is made of" />
-      <View style={styles.tileRow}>
-        <KpiTile label="Service rate" kpi={report.service_rate_21d}
-          sublabel={`${report.service_rate_21d.n} eligible cow-cycles`} />
-        <KpiTile label="Conception rate" kpi={report.conception.rate}
-          sublabel={`${report.conception.rate.n} checked · ${report.conception.unchecked_breedings} awaiting`} />
-      </View>
-      <View style={styles.tileRow}>
-        <KpiTile label="First-service conception" kpi={report.conception.first_service_rate}
-          sublabel={`${report.conception.first_service_rate.n} first breedings`} />
-        <KpiTile label="Services per conception" kpi={report.conception.services_per_conception}
-          sublabel={`${report.conception.services_per_conception.n} pregnancies`} />
-      </View>
+      {/* The exceptions, named. This is also what keeps the list's status dots
+          from being colour-only: anything off target is written out here. */}
+      {attention.length > 0 ? (
+        <View style={styles.attention}>
+          {attention.map((m) => (
+            <View key={m.label} style={styles.attentionRow}>
+              <View style={[styles.dot, { backgroundColor: STATUS_COLOR[m.kpi.status] }]} />
+              <Text variant="body" style={styles.flex1} numberOfLines={1}>{m.label}</Text>
+              <Text variant="bodyBold" style={styles.attentionValue}>{formatKpi(m.kpi)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : judged ? (
+        <View style={styles.allClear}>
+          <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+          <Text variant="body" color={colors.textSecondary}>Every figure is on target.</Text>
+        </View>
+      ) : (
+        <View style={styles.allClear}>
+          <Ionicons name="time-outline" size={16} color={colors.textMuted} />
+          <Text variant="body" color={colors.textSecondary} style={styles.flex1}>
+            Not enough recorded work yet to judge this farm.
+          </Text>
+        </View>
+      )}
 
-      <SectionHeader title="Conception rate by month bred" />
-      <View style={styles.chartCard}>
-        <BarChart
-          unit="%"
-          height={130}
-          benchmark={{ value: 40, label: 'Target 40%' }}
-          data={report.conception.by_month.map((m) => ({
-            label: monthLabel(m.month),
-            value: m.checked ? m.rate : null,
-            detail: `${m.pregnant} of ${m.checked} checked${m.unchecked ? ` · ${m.unchecked} awaiting` : ''}`,
-          }))}
-        />
-      </View>
+      {groups.map((g) => (
+        <MetricGroup key={g.title} title={g.title} metrics={g.metrics} />
+      ))}
 
-      <SectionHeader title="Timing" />
-      <View style={styles.tileRow}>
-        <KpiTile label="Days open (median)" kpi={report.timing.days_open}
-          sublabel={report.timing.days_open.mean != null ? `mean ${report.timing.days_open.mean} · ${report.timing.days_open.n} pregnancies` : undefined} />
-        <KpiTile label="Days to first service" kpi={report.timing.days_to_first_service}
-          sublabel={`${report.timing.days_to_first_service.n} calvings`} />
-      </View>
-      <View style={styles.tileRow}>
-        <KpiTile label="Calving interval" kpi={report.timing.calving_interval_months}
-          sublabel={`${report.timing.calving_interval_months.n} cows with two calvings`} />
-        <KpiTile label="Overdue pregnancy checks" kpi={report.outcomes.overdue_pregnancy_checks}
-          sublabel="cows past day 50 with no result" />
-      </View>
-
-      {report.timing.days_open.n > 0 ? (
-        <>
-          <SectionHeader title="Days open distribution" />
-          <View style={styles.chartCard}>
-            <BarChart
-              height={110}
-              data={[
-                { label: '<100', value: buckets.under_100 ?? 0 },
-                { label: '100–130', value: buckets['100_130'] ?? 0 },
-                { label: '131–160', value: buckets['131_160'] ?? 0 },
-                { label: '>160', value: buckets.over_160 ?? 0 },
-              ]}
-            />
-          </View>
-        </>
-      ) : null}
-
-      <SectionHeader title="Outcomes" />
-      <View style={styles.tileRow}>
-        <KpiTile label="Stillbirth rate" kpi={report.outcomes.stillbirth_rate}
-          sublabel={`${report.outcomes.calvings} calvings`} />
-        <KpiTile label="Cull rate" kpi={report.outcomes.cull_rate}
-          sublabel={`${report.outcomes.culls} culled`} />
-      </View>
-      <View style={styles.tileRow}>
-        <KpiTile label="Heifers from sexed semen" kpi={report.outcomes.sexed_semen_heifer_rate}
-          sublabel={`${report.outcomes.sexed_semen_heifer_rate.n} calves · expect ~90%`} />
-        <KpiTile label="Heifers from conventional" kpi={report.outcomes.conventional_heifer_rate}
-          sublabel={`${report.outcomes.conventional_heifer_rate.n} calves · expect ~48%`} />
-      </View>
-
-      <SectionHeader title="Protocol compliance" />
-      <View style={styles.tileRow}>
-        <KpiTile label="Shots on the scheduled day" kpi={report.compliance.protocol_on_time_rate}
-          sublabel={`${report.compliance.protocol_on_time_rate.late} late · ${report.compliance.protocol_on_time_rate.missed} missed`} />
-        <KpiTile label="Protocols completed" kpi={report.compliance.protocol_completion_rate}
-          sublabel={`${report.compliance.protocol_completion_rate.cancelled} cancelled · ${report.compliance.protocol_completion_rate.active} running`} />
-      </View>
-      <View style={styles.tileRow}>
-        <KpiTile label="Heat-check coverage" kpi={report.compliance.heat_check_coverage}
-          sublabel={`${report.compliance.heat_check_coverage.n} breedings past day 25`} />
-        <View style={styles.tileSpacer} />
-      </View>
-
-      {/* Definitions: professional means the maths is on the table */}
       <Pressable onPress={() => setShowDefs((s) => !s)} style={styles.defsToggle} accessibilityRole="button">
-        <Ionicons name={showDefs ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
         <Text variant="bodyBold" color={colors.primary}>How these are calculated</Text>
+        <Ionicons name={showDefs ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
       </Pressable>
       {showDefs ? (
         <View style={styles.defs}>
           {KPI_DEFINITIONS.map((d) => (
             <View key={d.title} style={styles.def}>
-              <Text variant="subheading">{d.title}</Text>
+              <Text variant="bodyBold">{d.title}</Text>
               <Text variant="caption" color={colors.textSecondary}>{d.formula}</Text>
-              <Text variant="caption" color={colors.textMuted}>{d.why}</Text>
             </View>
           ))}
           <Text variant="caption" color={colors.textMuted}>
-            Assumptions: voluntary waiting period {report.assumptions.voluntary_waiting_period_days} days ·
-            heifers eligible from {report.assumptions.heifer_breeding_age_days} days old ·
-            pregnancy checks expected within {report.assumptions.pregnancy_check_lag_days} days ·
-            figures with fewer than {report.assumptions.min_records_to_judge} records are shown but not judged.
+            Last 12 months · waiting period {report.assumptions.voluntary_waiting_period_days} days ·
+            heifers eligible at {report.assumptions.heifer_breeding_age_days} days ·
+            fewer than {report.assumptions.min_records_to_judge} records is shown but not judged.
           </Text>
         </View>
       ) : null}
@@ -238,17 +219,12 @@ export default function FarmKpisScreen() {
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.xxl,
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  heroValue: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  heroJudge: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' },
+  hero: { paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.hairline },
+  heroValue: { flexDirection: 'row', alignItems: 'baseline' },
+  heroUnit: { marginLeft: spacing.xs },
+  heroStatus: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  flex1: { flex: 1 },
   chartCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
@@ -257,12 +233,27 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.xl,
   },
-  tileRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
-  tileSpacer: { flex: 1, minWidth: 150 },
+  attention: {
+    marginTop: spacing.xl,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+  },
+  attentionRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.md, minHeight: 44,
+  },
+  attentionValue: { fontVariant: ['tabular-nums'] },
+  allClear: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginTop: spacing.xl, paddingHorizontal: spacing.xs,
+  },
   defsToggle: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
-    marginTop: spacing.xl, minHeight: 44,
+    marginTop: spacing.xxl, minHeight: 44,
   },
-  defs: { gap: spacing.lg, marginTop: spacing.sm },
+  defs: { gap: spacing.lg, marginBottom: spacing.md },
   def: { gap: spacing.hairline },
 });
