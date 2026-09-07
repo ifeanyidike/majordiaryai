@@ -102,3 +102,52 @@ async def _record(event: asyncio.Event) -> None:
 
 async def _count(sink: list) -> None:
     sink.append(1)
+
+
+# ── JWKS fetch throttling ────────────────────────────────────────────
+
+async def test_the_first_jwks_fetch_is_never_blocked_by_the_cooldown(monkeypatch):
+    """The throttle exists so an unauthenticated `kid` cannot make us hammer
+    Supabase. It must not block the FIRST fetch.
+
+    It did: the last-attempt marker started at 0.0 and time.monotonic() has an
+    undefined reference point — on macOS it starts near zero, so
+    `now - 0.0 < 60` held for the first minute of process life and every ES256
+    login was refused until it passed. One minute of failed logins after every
+    cold start.
+    """
+    from app.core import auth
+
+    fetched = []
+
+    async def fake_refresh():
+        fetched.append(1)
+        auth._jwks_by_kid["kid-1"] = {"kty": "EC"}
+
+    monkeypatch.setattr(auth, "_refresh_jwks", fake_refresh)
+    monkeypatch.setattr(auth, "_jwks_by_kid", {})
+    monkeypatch.setattr(auth, "_jwks_last_attempt", None)
+    # A freshly booted machine: monotonic barely above zero.
+    monkeypatch.setattr(auth.time, "monotonic", lambda: 0.8)
+
+    assert await auth._signing_key("kid-1") == {"kty": "EC"}
+    assert fetched == [1], "the first fetch was throttled"
+
+
+async def test_an_unknown_kid_is_throttled_after_the_first_attempt(monkeypatch):
+    """The protection itself: a burst of random kids costs one fetch."""
+    from app.core import auth
+
+    fetched = []
+
+    async def fake_refresh():
+        fetched.append(1)
+
+    monkeypatch.setattr(auth, "_refresh_jwks", fake_refresh)
+    monkeypatch.setattr(auth, "_jwks_by_kid", {})
+    monkeypatch.setattr(auth, "_jwks_last_attempt", None)
+    monkeypatch.setattr(auth.time, "monotonic", lambda: 1000.0)
+
+    for _ in range(5):
+        assert await auth._signing_key("nope") is None
+    assert len(fetched) == 1, f"expected one fetch, got {len(fetched)}"

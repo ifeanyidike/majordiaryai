@@ -27,7 +27,13 @@ _jwks_by_kid: dict = {}
 # takes down logins for everyone. Real key rotation is a rare event, so one
 # refresh per minute is ample.
 _JWKS_REFRESH_COOLDOWN_SECONDS = 60
-_jwks_last_attempt: float = 0.0
+# None means "never attempted". It must NOT be 0.0: time.monotonic()'s
+# reference point is undefined, and on macOS it starts near zero, so
+# `now - 0.0 < cooldown` was true for the first 60 seconds of process life —
+# blocking the very first JWKS fetch and failing every ES256 login until the
+# minute was up. On a server that is one minute of refused logins after each
+# cold start or redeploy.
+_jwks_last_attempt: Optional[float] = None
 _jwks_lock = asyncio.Lock()
 
 
@@ -56,7 +62,8 @@ async def _signing_key(kid: str) -> Optional[dict]:
         if kid in _jwks_by_kid:
             return _jwks_by_kid[kid]
         now = time.monotonic()
-        if now - _jwks_last_attempt < _JWKS_REFRESH_COOLDOWN_SECONDS:
+        if (_jwks_last_attempt is not None
+                and now - _jwks_last_attempt < _JWKS_REFRESH_COOLDOWN_SECONDS):
             return None
         _jwks_last_attempt = now
         try:
