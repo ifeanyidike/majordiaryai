@@ -34,6 +34,12 @@ export function TechnicianDashboard() {
   // Both figures come from the work list itself, so this caption and the To-Do
   // screen it links to always agree. "Farms" here means farms on today's route,
   // not every farm assigned to the technician.
+  // Was hardcoded "Good morning", which read as a bug at 8pm — the first
+  // words on the technician's home screen, every evening visit.
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
   const route = farmsToVisit(store);
   const outstanding = worklistTotal(store);
 
@@ -79,7 +85,7 @@ export function TechnicianDashboard() {
             {today}
           </Text>
           <Text variant="display" color={onDark.text}>
-            Good morning,
+            {greeting},
           </Text>
           <Text variant="display" color={onDark.text}>
             {(user?.name ?? 'there').split(' ')[0]}

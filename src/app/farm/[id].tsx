@@ -145,7 +145,17 @@ export default function FarmProfileScreen() {
               accessibilityLabel={`${c.label} ${farm.name}`}
             >
               <Ionicons name={c.icon} size={18} color={onDark.text} />
-              <Text variant="label" color={onDark.text} style={styles.chipLabel}>
+              {/* Four chips share the width, and "Directions" is wider than its
+                  quarter — it was breaking mid-word as "DIRECTIO / NS". Shrink
+                  to fit rather than wrap, so any label stays on one line. */}
+              <Text
+                variant="label"
+                color={onDark.text}
+                style={styles.chipLabel}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
                 {c.label}
               </Text>
             </PressableScale>
@@ -359,7 +369,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xxl,
   },
-  chipLabel: { textAlign: 'center' },
+  chipLabel: { textAlign: 'center', letterSpacing: 0.2 },
   chip: {
     flex: 1,
     alignItems: 'center',
