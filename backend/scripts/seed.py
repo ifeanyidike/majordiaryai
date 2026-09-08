@@ -3,7 +3,14 @@ Seed the database with realistic dummy herd data.
 
 Idempotent: clears the domain tables (NOT users / auth) and re-inserts a fresh
 dataset covering every cow lifecycle stage, so all reports and profiles have
-content. All user/technician/vet-account references are left NULL because
+content.
+
+Two layers. A hand-written set pins one cow to each rule -- the day-7 PGF, the
+final-day timed AI, the 50-day overdue check -- so no report can be silently
+empty. A generator then fills the twelve farms out to ~540 animals: each cow
+draws a status from a plausible herd mix and every date is derived from the
+constants the app itself uses, so she lands on exactly the reports her dates
+earn. Nothing about the daily workload is typed in; it falls out of the rules. All user/technician/vet-account references are left NULL because
 `users.id` references Supabase `auth.users` — real accounts are created through
 the app's sign-up flow. Log in as an ADMIN to see the full seeded herd.
 
@@ -11,6 +18,7 @@ Run:  cd backend && .venv/bin/python -m scripts.seed
 """
 
 import asyncio
+import random
 import uuid
 from datetime import date, timedelta
 
@@ -20,9 +28,11 @@ from sqlalchemy.pool import NullPool
 from urllib.parse import quote_plus
 
 from app.core.config import settings
+from app.services.protocols import get_scheduled_records
+from app.services.report_catalog import VACCINATION_WINDOW
 from app.services.visits import weekdays_for
 from app.models.models import (
-    Bull, CalfSex, CalvingRecord, Cow, CowStatus, EnrollmentStatus, Farm, HealthStatus,
+    Bull, CalfSex, CalvingRecord, Cow, CowStatus, CullRecord, EnrollmentStatus, Farm, HealthStatus,
     HeatCheck, Insemination, NeedlingEnrollment, NeedlingRecord, Notification,
     PregnancyCheck, PregnancyResult, ProtocolType, SemenType, Vet, VetFarmAssignment,
     VaccinationRecord,
@@ -150,20 +160,53 @@ async def seed(session: AsyncSession) -> None:
                    "N1H 6J2", "+1 (519) 555-0139", "peter@mapleridgedairy.ca", 560, None,
                    # 5-day farm: off the route on Saturdays
                    days_per_week=5)
-    session.add_all([gv, sf, mr])
+    # Nine more farms. The client's note on the screenshots was that a
+    # three-farm, fifteen-cow demo reads as a toy: a real technician covers a
+    # dozen farms and several hundred animals, and a report with one row on it
+    # says nothing about how the app behaves when it is full.
+    EXTRA_FARMS = [
+        ("Willowbrook Holsteins", "Margaret Ellis", "4410 Perth Line 26", "Stratford",
+         "N5A 6S3", "+1 (519) 555-0183", "office@willowbrookholsteins.ca", 240, 6),
+        ("Cedar Lane Dairy", "Tom Vandenberg", "988 Huron Rd 8", "Clinton",
+         "N0M 1L0", "+1 (519) 555-0195", "tom@cedarlanedairy.ca", 180, 5),
+        ("Blue Heron Farms", "Alice Fournier", "3175 Elgin Rd 14", "St Thomas",
+         "N5P 3T2", "+1 (519) 555-0208", "alice@blueheronfarms.ca", 310, 6),
+        ("Rockway Dairy", "Henry Martin", "620 Waterloo Rd 12", "Kitchener",
+         "N2P 2H9", "+1 (519) 555-0214", "henry@rockwaydairy.ca", 150, 5),
+        ("Thornhill Farms", "Grace Okafor", "7789 Middlesex Rd 9", "Strathroy",
+         "N7G 3H4", "+1 (519) 555-0227", "grace@thornhillfarms.ca", 275, 6),
+        ("Mill Creek Dairy", "Daniel Reimer", "1420 Bruce Rd 3", "Walkerton",
+         "N0G 2V0", "+1 (519) 555-0231", "daniel@millcreekdairy.ca", 200, 5),
+        ("Silver Birch Holsteins", "Nadia Haddad", "5560 Grey Rd 17", "Owen Sound",
+         "N4K 5N7", "+1 (519) 555-0244", "nadia@silverbirchholsteins.ca", 330, 6),
+        ("Fox Run Dairy", "Peter Lam", "2210 Norfolk Rd 21", "Simcoe",
+         "N3Y 4K2", "+1 (519) 555-0256", "peter@foxrundairy.ca", 165, 5),
+        ("Harvest Moon Farms", "Ruth Delaney", "8840 Lambton Line 7", "Petrolia",
+         "N0N 1R0", "+1 (519) 555-0268", "ruth@harvestmoonfarms.ca", 220, 6),
+    ]
+    extra = [make_farm(n, o, a, c, pc, ph, e, h, None, days_per_week=d)
+             for n, o, a, c, pc, ph, e, h, d in EXTRA_FARMS]
+    session.add_all([gv, sf, mr, *extra])
     await session.flush()
+    all_farms = [gv, sf, mr, *extra]
 
     # ── Vets (no user account — user_id NULL) ──────────────
     v1 = Vet(id=uuid.uuid4(), name="Dr. Sarah Mitchell", clinic="Heartland Veterinary Services",
              phone="+1 (519) 555-0221", email="s.mitchell@heartlandvet.ca")
     v2 = Vet(id=uuid.uuid4(), name="Dr. James Carter", clinic="Oxford County Animal Health",
              phone="+1 (519) 555-0246", email="j.carter@oxfordvets.ca")
-    session.add_all([v1, v2])
+    v3 = Vet(id=uuid.uuid4(), name="Dr. Priya Raman", clinic="Grand River Bovine Clinic",
+             phone="+1 (519) 555-0272", email="p.raman@grandriverbovine.ca")
+    v4 = Vet(id=uuid.uuid4(), name="Dr. Owen Beaulieu", clinic="Lakeshore Dairy Health",
+             phone="+1 (519) 555-0289", email="o.beaulieu@lakeshoredairyhealth.ca")
+    session.add_all([v1, v2, v3, v4])
     await session.flush()
+    # Every farm has a vet: an unassigned farm shows an empty vet card, which
+    # reads as a bug rather than as "nobody is assigned yet".
+    vets = [v1, v2, v3, v4]
     session.add_all([
-        VetFarmAssignment(vet_id=v1.id, farm_id=gv.id),
-        VetFarmAssignment(vet_id=v1.id, farm_id=mr.id),
-        VetFarmAssignment(vet_id=v2.id, farm_id=sf.id),
+        VetFarmAssignment(vet_id=vets[i % len(vets)].id, farm_id=f.id)
+        for i, f in enumerate(all_farms)
     ])
 
     # ── Bulls (the farm's semen list) ──────────────────────
@@ -181,10 +224,23 @@ async def seed(session: AsyncSession) -> None:
              ("Charolais Red", "14CH0044", SemenType.beef),
              ("Frazzled", "7HO12788", SemenType.sexed)],
     }
-    for farm_obj, entries in BULL_LISTS.items():
+    STOCK_BULLS = [
+        ("Mogul", "7HO11314", SemenType.conventional),
+        ("Delta-Lambda", "7HO14454", SemenType.sexed),
+        ("Rubicon", "250HO12961", SemenType.conventional),
+        ("Frazzled", "7HO12788", SemenType.sexed),
+        ("Angus Prime", "29AN2011", SemenType.beef),
+    ]
+    bull_labels: dict = {}
+    for farm_obj in all_farms:
+        entries = BULL_LISTS.get(farm_obj) or STOCK_BULLS[:3]
         for name, code, semen in entries:
             session.add(Bull(id=uuid.uuid4(), farm_id=farm_obj.id, name=name,
                              code=code, semen_type=semen, active=True))
+        # An insemination stores the bull as free text, so the generated herd
+        # below has to draw from the same list the picker offers — otherwise a
+        # cow's history names semen the farm does not stock.
+        bull_labels[farm_obj.id] = [f"{n} {c}" for n, c, _ in entries]
     await session.flush()
 
     cows: list[Cow] = []
@@ -335,7 +391,6 @@ async def seed(session: AsyncSession) -> None:
                    date_of_birth=date(2019, 2, 27), lactation_number=6, status=CowStatus.cull,
                    current_program="Do Not Breed", last_calving_date=days_ago(250))
     await session.flush()
-    from app.models.models import CullRecord
     session.add(CullRecord(id=uuid.uuid4(), cow_id=cull.id, cull_date=days_ago(20),
                            reason="Chronic lameness"))
 
@@ -348,6 +403,268 @@ async def seed(session: AsyncSession) -> None:
             current_program="Heifer")
 
     await session.flush()
+
+    # ── The rest of the herd ───────────────────────────────
+    # Everything above is hand-written: one cow per rule, so every report is
+    # provably non-empty. That is a fixture, not a herd — with fifteen animals
+    # a report shows a single row, and the client cannot tell a working screen
+    # from a broken one. This fills each farm out to a real milking herd.
+    #
+    # Nothing here is a typed-in number: a cow gets a status from a plausible
+    # mix, and every date is then derived from the same constants the app uses
+    # (GESTATION, DRY_OFFSET, the protocol tables), so a generated cow lands on
+    # exactly the reports her dates earn. How much work shows up today falls
+    # out of that, rather than being set.
+    rng = random.Random(20260908)  # fixed, so two runs produce the same herd
+
+    HERD_PLAN = [
+        # farm, cows to generate, ear-tag block (unique per farm)
+        (gv, 62, "124 578"), (sf, 45, "118 442"), (mr, 71, "131 209"),
+        (extra[0], 38, "142 331"), (extra[1], 30, "156 407"),
+        (extra[2], 52, "163 522"), (extra[3], 26, "171 648"),
+        (extra[4], 47, "184 719"), (extra[5], 33, "192 830"),
+        (extra[6], 55, "205 946"), (extra[7], 28, "213 057"),
+        (extra[8], 40, "227 168"),
+    ]
+    # Roughly what a well-run Ontario dairy looks like on any given day.
+    STATUS_MIX = (
+        [CowStatus.pregnant] * 34 + [CowStatus.inseminated] * 15 +
+        [CowStatus.fresh] * 11 + [CowStatus.open] * 11 + [CowStatus.dry] * 9 +
+        [CowStatus.needling] * 8 + [CowStatus.heifer] * 6 +
+        [CowStatus.calf] * 4 + [CowStatus.cull] * 2
+    )
+    BREEDS = ["Holstein"] * 7 + ["Jersey"] * 2 + ["Holstein-Jersey"]
+    SEMEN_MIX = [SemenType.conventional] * 6 + [SemenType.sexed] * 3 + [SemenType.beef]
+    PROTOCOL_MIX = (
+        [ProtocolType.ovsynch] * 5 + [ProtocolType.prostaglandin_heat] * 2 +
+        [ProtocolType.double_ovsynch, ProtocolType.presynch, ProtocolType.general_synch]
+    )
+    CULL_REASONS = ["Chronic lameness", "Repeat breeder", "Low production",
+                    "Mastitis — chronic high SCC", "Age"]
+
+    generated: list[Cow] = []
+    vaccinated: set = set()
+
+    for farm_obj, count, block in HERD_PLAN:
+        labels = bull_labels[farm_obj.id]
+        for n in range(count):
+            # Hand-written tags stop below 5000, so this block cannot collide.
+            ear_tag = f"CA {block} {5000 + n:04d}"
+            status = rng.choice(STATUS_MIX)
+            breed = rng.choice(BREEDS)
+            base = dict(farm_id=farm_obj.id, ear_tag=ear_tag, breed=breed)
+            before = len(cows)
+
+            if status is CowStatus.pregnant or status is CowStatus.dry:
+                if status is CowStatus.pregnant:
+                    # Confirmed pregnant through to nearly dry.
+                    since_ai = rng.randint(40, DRY_OFFSET - 1)
+                    program = "Pregnant"
+                else:
+                    # Past the dry-off day, still short of calving.
+                    since_ai = rng.randint(DRY_OFFSET + 1, GESTATION - 10)
+                    program = "Dry"
+                ai_date = days_ago(since_ai)
+                cow = add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(900, 2400)),
+                    lactation_number=rng.randint(1, 5), status=status,
+                    current_program=program,
+                    last_calving_date=days_ago(since_ai + rng.randint(60, 110)),
+                    due_date=days_from(ai_date, GESTATION),
+                    dry_date=days_from(ai_date, DRY_OFFSET),
+                )
+                if status is CowStatus.dry:
+                    # The Dry report keeps her up until the pen change is
+                    # confirmed. Farms do confirm it, within a day or two, so
+                    # leaving every dry cow unconfirmed turned a short daily
+                    # list into a pile of every cow that had ever dried off.
+                    dried = cow.dry_date
+                    if (TODAY - dried).days > 3 and rng.random() < 0.9:
+                        cow.dry_off_confirmed_date = days_from(dried, rng.randint(0, 3))
+                ins = await add_insemination(cow, ai_date, rng.choice(labels),
+                                             semen=rng.choice(SEMEN_MIX),
+                                             attempt=rng.randint(1, 3))
+                # The check that confirmed her — always already in the past,
+                # because she is only pregnant once somebody has said so.
+                session.add(PregnancyCheck(
+                    id=uuid.uuid4(), cow_id=cow.id, insemination_id=ins.id,
+                    check_date=days_from(ai_date, rng.randint(30, 38)),
+                    result=PregnancyResult.pregnant,
+                ))
+
+            elif status is CowStatus.fresh:
+                since_calving = rng.randint(1, 65)
+                calved = days_ago(since_calving)
+                cow = add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(900, 2400)),
+                    lactation_number=rng.randint(1, 5), status=CowStatus.fresh,
+                    current_program="Fresh", last_calving_date=calved,
+                )
+                await session.flush()
+                male = rng.random() < 0.5
+                calving = CalvingRecord(
+                    id=uuid.uuid4(), cow_id=cow.id, calving_date=calved,
+                    live_birth=True, still_birth=False,
+                    calf_sex=CalfSex.male if male else CalfSex.female,
+                    calf_ear_tag=None if male else f"CA {block} {7000 + n:04d}",
+                    calf_sale_info="Sold to calf buyer" if male else None,
+                )
+                session.add(calving)
+                await session.flush()
+                # Post-calving vaccination: due 30–50 days after she calved, so
+                # it is already done for the older fresh cows and still open for
+                # the rest. That window is what puts her on the report.
+                done = since_calving > 50
+                session.add(VaccinationRecord(
+                    id=uuid.uuid4(), cow_id=cow.id, calving_record_id=calving.id,
+                    scheduled_date=days_from(calved, 30), completed=done,
+                    completed_date=days_from(calved, rng.randint(30, 50)) if done else None,
+                    vaccine_name="Bovi-Shield GOLD FP 5" if done else None,
+                ))
+                vaccinated.add(cow.id)
+
+            elif status is CowStatus.open:
+                sick = rng.random() < 0.12
+                add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(900, 2400)),
+                    lactation_number=rng.randint(1, 5), status=CowStatus.open,
+                    current_program="Open",
+                    last_calving_date=days_ago(rng.randint(70, 150)),
+                    health_status=HealthStatus.sick if sick else HealthStatus.healthy,
+                    recheck_due_date=days_from(TODAY, rng.randint(1, 7)) if sick else None,
+                    notes="Under treatment — recheck before breeding." if sick else None,
+                )
+
+            elif status is CowStatus.inseminated:
+                # A cow only stays "inseminated" until somebody diagnoses her:
+                # after that she is pregnant or open. So most of them sit inside
+                # the pre-check window, a working group is due for the vet, and
+                # a few have run past day 50 — which is exactly the overdue
+                # warning the Pregnancy report exists to raise. The heat window
+                # (20–25 days) falls out of the first band on its own.
+                since_ai = rng.choices(
+                    [rng.randint(1, 31), rng.randint(32, 45), rng.randint(46, 60)],
+                    weights=[6, 3, 1],
+                )[0]
+                attempt = rng.randint(1, 3)
+                cow = add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(900, 2400)),
+                    lactation_number=rng.randint(1, 5), status=CowStatus.inseminated,
+                    current_program="Inseminated",
+                    last_calving_date=days_ago(since_ai + rng.randint(70, 140)),
+                )
+                await add_insemination(cow, days_ago(since_ai), rng.choice(labels),
+                                       semen=rng.choice(SEMEN_MIX), attempt=attempt)
+
+            elif status is CowStatus.needling:
+                protocol = rng.choice(PROTOCOL_MIX)
+                steps = get_scheduled_records(protocol.value, TODAY)
+                final_day = steps[-1]["protocol_day"]
+                # Drop her somewhere inside the protocol rather than at the
+                # start, so shots come due across the whole week instead of all
+                # landing on the same day.
+                elapsed = rng.randint(0, final_day - 1)
+                start = days_ago(elapsed)
+                cow = add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(900, 2400)),
+                    lactation_number=rng.randint(1, 5), status=CowStatus.needling,
+                    current_program=protocol.value,
+                    last_calving_date=days_ago(elapsed + rng.randint(80, 160)),
+                )
+                await session.flush()
+                enr = NeedlingEnrollment(
+                    id=uuid.uuid4(), cow_id=cow.id, protocol=protocol,
+                    start_date=start, current_day=elapsed + 1,
+                    status=EnrollmentStatus.active,
+                )
+                session.add(enr)
+                await session.flush()
+                for step in get_scheduled_records(protocol.value, start):
+                    past = step["scheduled_date"] < TODAY
+                    session.add(NeedlingRecord(
+                        id=uuid.uuid4(), enrollment_id=enr.id, cow_id=cow.id,
+                        protocol_day=step["protocol_day"],
+                        scheduled_date=step["scheduled_date"],
+                        completed=past,
+                        completed_date=step["scheduled_date"] if past else None,
+                        treatment=step["treatment"], is_final=step["is_final"],
+                    ))
+
+            elif status is CowStatus.heifer:
+                # Breeding age is day 395, so this range straddles it and some
+                # of them are due to be bred.
+                add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(70, 700)),
+                    lactation_number=0, status=CowStatus.heifer,
+                    current_program="Heifer",
+                )
+
+            elif status is CowStatus.calf:
+                # A calf becomes a heifer at day 60; keep them under it.
+                male = rng.random() < 0.2
+                add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(1, 58)),
+                    lactation_number=0, status=CowStatus.calf,
+                    current_program="Calf",
+                    sex=CalfSex.male if male else CalfSex.female,
+                )
+
+            else:  # cull
+                cow = add_cow(
+                    **base, date_of_birth=days_ago(rng.randint(1800, 3000)),
+                    lactation_number=rng.randint(4, 7), status=CowStatus.cull,
+                    current_program="Do Not Breed",
+                    last_calving_date=days_ago(rng.randint(200, 320)),
+                )
+                await session.flush()
+                session.add(CullRecord(id=uuid.uuid4(), cow_id=cow.id,
+                                       cull_date=days_ago(rng.randint(1, 90)),
+                                       reason=rng.choice(CULL_REASONS)))
+
+            generated.extend(cows[before:])
+
+    await session.flush()
+
+    # The 2cc shot that was actually given.
+    #
+    # The Post Calving report keeps a cow visible for her whole lactation until
+    # that shot is recorded — deliberately, so a miss escalates instead of
+    # ageing out. Correct, but a herd where nobody has ever recorded one puts
+    # every milking cow on the report, and 27 rows at a 75-cow farm is not what
+    # a working dairy looks like. So record it for the cows whose window has
+    # passed, and leave a realistic few outstanding: those are the misses the
+    # report exists to catch.
+    vacc_lo, vacc_hi = VACCINATION_WINDOW
+    for cow in generated:
+        if cow.id in vaccinated or cow.last_calving_date is None:
+            continue
+        if cow.status in (CowStatus.calf, CowStatus.heifer, CowStatus.cull):
+            continue
+        since = (TODAY - cow.last_calving_date).days
+        if since < vacc_lo:
+            # Not due yet — scheduled and waiting.
+            session.add(VaccinationRecord(
+                id=uuid.uuid4(), cow_id=cow.id,
+                scheduled_date=days_from(cow.last_calving_date, vacc_lo),
+                completed=False))
+            continue
+        if rng.random() < 0.07:
+            continue  # genuinely missed; she stays on the report
+        given = days_from(cow.last_calving_date, rng.randint(vacc_lo, vacc_hi))
+        session.add(VaccinationRecord(
+            id=uuid.uuid4(), cow_id=cow.id,
+            scheduled_date=days_from(cow.last_calving_date, vacc_lo),
+            completed=True, completed_date=given,
+            vaccine_name="Bovi-Shield GOLD FP 5"))
+
+    await session.flush()
+
+    # The farm card shows herd_size, and the cow list shows the rows that
+    # actually exist. Those were two unrelated numbers, so a farm advertised
+    # 425 animals and listed five. Make the header tell the truth.
+    for farm_obj in all_farms:
+        farm_obj.herd_size = sum(1 for c in cows if c.farm_id == farm_obj.id)
+
 
     # ── A scheduled vaccination for the fresh cow (30–50d window) ──
     session.add(VaccinationRecord(id=uuid.uuid4(), cow_id=fresh1.id,
@@ -369,6 +686,27 @@ async def seed(session: AsyncSession) -> None:
         Notification(id=uuid.uuid4(), farm_id=gv.id, cow_id=needle.id, type="open",
                      message=f"{needle.ear_tag} is Open and enrolled in Ovsynch.", read=False),
     ])
+
+    # A week of alerts off the generated herd. Only the three types the backend
+    # actually emits — dry_off, breeding_due and open — so the notification
+    # settings toggles govern everything on the screen.
+    recent_dry = [c for c in cows if c.status is CowStatus.dry and c.dry_date
+                  and days_ago(9) <= c.dry_date <= TODAY]
+    for c in recent_dry[:6]:
+        session.add(Notification(
+            id=uuid.uuid4(), farm_id=c.farm_id, cow_id=c.id, type="dry_off",
+            message=f"{c.ear_tag} has dried off — move her to the dry pen.", read=False))
+    ready = [c for c in cows if c.status is CowStatus.open and c.last_calving_date
+             and (TODAY - c.last_calving_date).days >= 70
+             and c.health_status is HealthStatus.healthy]
+    for c in ready[:6]:
+        session.add(Notification(
+            id=uuid.uuid4(), farm_id=c.farm_id, cow_id=c.id, type="breeding_due",
+            message=f"{c.ear_tag} is past 70 days fresh and ready to breed.", read=False))
+    for c in ready[6:10]:
+        session.add(Notification(
+            id=uuid.uuid4(), farm_id=c.farm_id, cow_id=c.id, type="open",
+            message=f"{c.ear_tag} is Open.", read=True))
 
     await session.flush()
 
