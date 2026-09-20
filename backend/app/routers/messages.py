@@ -23,8 +23,14 @@ from app.services.access import check_farm_access
 
 router = APIRouter()
 
-# Who may raise each feed. An owner cannot post an office alert -- the whole
-# value of a separate feed is that its sender is known without reading it.
+# Who may post to each feed BY HAND. An owner cannot raise an office alert --
+# the whole value of a separate feed is that its sender is known without
+# reading it.
+#
+# The RLS policy (migration 0016) is deliberately one notch wider on
+# office_alert: route-change alerts are raised automatically by whoever made
+# the change, and a technician may hand off their own day. This table is the
+# narrower gate, and it governs only what a person types.
 SENDER_ROLES = {
     MessageChannel.alarm: ("farm", "admin"),
     MessageChannel.office_alert: ("admin",),
@@ -77,20 +83,15 @@ async def list_messages(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """This caller's feed. Admins see what they sent as well as what they were sent."""
-    stmt = select(Message).where(Message.channel == channel)
-    if current_user["role"] == "admin":
-        stmt = stmt.where(
-            (Message.recipient_id == current_user["id"])
-            | (Message.sender_id == current_user["id"])
-        )
-    else:
-        # A sender who is not an admin still sees their own outbox, which is
-        # how an owner confirms the alarm actually went.
-        stmt = stmt.where(
-            (Message.recipient_id == current_user["id"])
-            | (Message.sender_id == current_user["id"])
-        )
+    """This caller's feed: what they were sent, and what they sent."""
+    # Inbox plus outbox, for everyone. The recipient needs the message; the
+    # sender needs to see that it went, which is how an owner knows their
+    # alarm was actually raised.
+    stmt = select(Message).where(
+        Message.channel == channel,
+        (Message.recipient_id == current_user["id"])
+        | (Message.sender_id == current_user["id"]),
+    )
     if unread_only:
         stmt = stmt.where(
             Message.read_at.is_(None), Message.recipient_id == current_user["id"]

@@ -9,7 +9,8 @@ from app.models.models import (
     Cow, CowStatus, NeedlingEnrollment, NeedlingRecord, EnrollmentStatus
 )
 from app.schemas.needling import (
-    BleedingEventBody, NeedlingEnrollmentCreate, NeedlingEnrollmentOut, CompleteRecordBody,
+    BleedingEventBody, CompleteRecordBody, NeedlingEnrollmentCreate,
+    NeedlingEnrollmentOut, RecordNoteBody,
 )
 from app.services import status_engine
 from app.services.access import get_cow_scoped, scope_to_farms
@@ -103,6 +104,38 @@ async def enroll_cow(
         .options(selectinload(NeedlingEnrollment.records))
     )
     return result.scalar_one()
+
+
+@router.patch("/records/{record_id}/note", response_model=dict)
+async def leave_note(
+    record_id: uuid.UUID,
+    body: RecordNoteBody,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Write the note that tells the farmer which cow needs which hormone.
+
+    Separate from /complete on purpose. On a farm that gives its own last
+    shot, the technician's job is to leave the instruction -- days before the
+    shot is due, and without ever claiming it was given. Completing the record
+    would do exactly that: record the farmer's injection as administered, by
+    the technician, before it has happened.
+    """
+    owner = await db.scalar(
+        select(NeedlingRecord.cow_id).where(NeedlingRecord.id == record_id)
+    )
+    if owner is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    # Object-level authorization (404 when out of scope).
+    await get_cow_scoped(db, current_user, owner)
+
+    record = await db.get(NeedlingRecord, record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    record.notes = body.note.strip()
+    record.technician_id = current_user["id"]
+    await db.commit()
+    return {"id": str(record.id), "notes": record.notes}
 
 
 @router.patch("/records/{record_id}/complete", response_model=dict)

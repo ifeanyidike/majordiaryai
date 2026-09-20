@@ -34,6 +34,13 @@ from app.services.worklists import (
 VET_REPORT_TYPES = frozenset({"pregnancy-check", "pregnant", "calving-due"})
 
 
+# How long a heat stays actionable. She is fertile for hours; a day later the
+# window has shut and she will show again in about three weeks. Past this the
+# row goes back to the ordinary "returned to the Insemination Program" line --
+# without a bound, a heat nobody bred read "Breed her TODAY — heat was 40 days
+# ago", overdue, forever.
+HEAT_ACTIONABLE_DAYS = 2
+
 # How far ahead the technician is prompted to leave the farmer a note. Long
 # enough that he is standing on the farm at least once before the shot is due,
 # short enough that the prompt is about this week's work.
@@ -88,6 +95,7 @@ async def _heat_events_by_cow(db: AsyncSession, current_user: dict, today: date,
         .join(Cow, Cow.id == HeatCheck.cow_id)
         .where(
             HeatCheck.heat_detected == True,  # noqa: E712
+            HeatCheck.check_date >= today - timedelta(days=HEAT_ACTIONABLE_DAYS),
             Cow.status == CowStatus.open,
             Cow.current_program == "Insemination",
         )

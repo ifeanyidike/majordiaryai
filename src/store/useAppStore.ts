@@ -774,7 +774,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   fetchUnreadMessageCounts: async () => {
     if (isDemoMode) {
-      set({ unreadMessages: { alarm: demoMessages('alarm').length, office_alert: 1 } });
+      // Count what is actually unread, or the badge disagrees with the feed
+      // it opens — one of the canned alarms is already read.
+      const unread = (c: MessageChannel) =>
+        demoMessages(c).filter((m) => !('readAt' in m && m.readAt)).length;
+      set({ unreadMessages: { alarm: unread('alarm'), office_alert: unread('office_alert') } });
       return;
     }
     try {

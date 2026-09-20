@@ -5,6 +5,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { EmptyState, Header, Screen, SkeletonList, Text } from '@/components';
 import { colors, radius, spacing, status } from '@/theme';
 import { AppMessage, MessageChannel, useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 /**
  * Alarms and Office Alerts share this screen, because they are the same
@@ -55,14 +56,21 @@ export default function MessageFeedScreen() {
   const meta = CHANNELS[channel];
 
   const { messages, messagesLoading, fetchMessages, markMessageRead } = useAppStore();
+  const myId = useAuthStore((s) => s.user?.id);
   const feed = messages[channel];
 
   useEffect(() => { fetchMessages(channel); }, [channel]);
 
-  const unread = useMemo(() => feed.filter((m) => !m.readAt).length, [feed]);
+  const unread = useMemo(
+    () => feed.filter((m) => !m.readAt && m.recipientId === myId).length,
+    [feed, myId],
+  );
 
   const open = (m: AppMessage) => {
-    if (!m.readAt) markMessageRead(m.id);
+    // The feed carries your outbox as well as your inbox, and only the
+    // RECIPIENT can mark a message read — marking your own sent message
+    // decremented a badge that never counted it, and the request 404s.
+    if (!m.readAt && m.recipientId === myId) markMessageRead(m.id);
     // A message about a specific cow is nearly always a request to go look at
     // her, so opening it goes where the work is.
     if (m.cowId) router.push({ pathname: '/cow/[id]', params: { id: m.cowId } });
@@ -93,7 +101,7 @@ export default function MessageFeedScreen() {
         renderItem={({ item: m }) => (
           <Pressable
             onPress={() => open(m)}
-            style={[styles.row, !m.readAt && styles.rowUnread]}
+            style={[styles.row, !m.readAt && m.recipientId === myId && styles.rowUnread]}
             accessibilityRole="button"
             accessibilityLabel={`${m.senderName ?? 'Message'}: ${m.body}`}
           >
@@ -128,7 +136,9 @@ export default function MessageFeedScreen() {
                 ) : null}
               </View>
             </View>
-            {!m.readAt ? <View style={[styles.dot, { backgroundColor: meta.color }]} /> : null}
+            {!m.readAt && m.recipientId === myId ? (
+              <View style={[styles.dot, { backgroundColor: meta.color }]} />
+            ) : null}
           </Pressable>
         )}
       />

@@ -1473,7 +1473,7 @@ CREATE POLICY messages_read ON public.messages FOR SELECT USING (((recipient_id 
 -- Name: messages messages_write; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY messages_write ON public.messages FOR INSERT WITH CHECK (((sender_id = auth.uid()) AND (((channel = 'alarm'::public.message_channel) AND (public.get_my_role() = ANY (ARRAY['farm'::public.user_role, 'admin'::public.user_role]))) OR ((channel = 'office_alert'::public.message_channel) AND (public.get_my_role() = 'admin'::public.user_role)))));
+CREATE POLICY messages_write ON public.messages FOR INSERT WITH CHECK (((sender_id = auth.uid()) AND (((channel = 'alarm'::public.message_channel) AND (public.get_my_role() = ANY (ARRAY['farm'::public.user_role, 'admin'::public.user_role]))) OR ((channel = 'office_alert'::public.message_channel) AND (public.get_my_role() = ANY (ARRAY['admin'::public.user_role, 'technician'::public.user_role]))))));
 
 
 --

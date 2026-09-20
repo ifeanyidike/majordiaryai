@@ -69,6 +69,44 @@ async def test_a_self_injecting_farm_gets_the_last_hormone_the_day_before(
     assert farmers.treatment == "2cc GnRH"
     assert "Insemination" not in farmers.treatment
 
+    # And it MOVED: the final day must no longer carry the hormone, or the cow
+    # is given GnRH on day 9 by the farmer and again on day 10 by the
+    # technician. The first version of this split added the shot without
+    # removing it, and this test only looked at the day-9 row.
+    final = next(r for r in records if r.is_final)
+    assert final.protocol_day == 10
+    assert final.treatment == "Insemination"
+    assert "GnRH" not in final.treatment, (
+        f"day {final.protocol_day} still gives the hormone the farmer already "
+        f"gave: {final.treatment!r}"
+    )
+
+
+async def test_an_ordinary_farm_still_gets_hormone_and_ai_together(
+    db, farm, api, make_user,
+):
+    """The split is only for farms that asked for it. Everywhere else the last
+    day stays one visit: hormone and insemination together."""
+    tech = await make_user(UserRole.technician)
+    farm.assigned_technician_id = tech.id
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="ORD-2",
+              status=CowStatus.open, lactation_number=1)
+    db.add(cow)
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        await client.post("/needling/enroll", json={
+            "cow_id": str(cow.id), "protocol": "ovsynch",
+            "start_date": TODAY.isoformat(),
+        })
+
+    from sqlalchemy import select
+    final = (await db.execute(
+        select(NeedlingRecord).where(
+            NeedlingRecord.cow_id == cow.id, NeedlingRecord.is_final == True)  # noqa: E712
+    )).scalar_one()
+    assert final.treatment == "2cc GnRH + Insemination"
+
 
 async def test_the_farm_is_told_which_cow_needs_which_hormone(db, farm, api, make_user):
     """The point of the arrangement: the farmer cannot give a shot nobody

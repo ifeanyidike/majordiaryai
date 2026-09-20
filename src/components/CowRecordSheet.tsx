@@ -18,6 +18,7 @@ import {
   RecordTarget,
   VaccinationForm,
 } from './CowActionsSheet';
+import { FarmerNoteForm } from './FarmerNoteForm';
 import { NeedlingCompleteForm } from './NeedlingCompleteForm';
 import { Button, ModalToastHost, Text } from '@/components';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,6 +35,7 @@ const TITLES: Record<RecordKind, string> = {
   calving: 'Record Calving',
   enroll: 'Enroll in Protocol',
   dry_off: 'Confirm Dry Off',
+  farmer_note: 'Note for the Farmer',
 };
 
 interface Props {
@@ -119,6 +121,17 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
         return <EnrollForm {...common} />;
       case 'dry_off':
         return <DryOffConfirmForm {...common} />;
+      case 'farmer_note':
+        return cow.needlingRecordId ? (
+          <FarmerNoteForm
+            cowLabel={cow.label}
+            recordId={cow.needlingRecordId}
+            treatment={cow.treatment}
+            context={cow.detail}
+            onCancel={onClose}
+            onComplete={done}
+          />
+        ) : null;
       case 'needling':
         return cow.needlingRecordId ? (
           <NeedlingCompleteForm

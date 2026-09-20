@@ -129,26 +129,41 @@ export const useSettingsStore = create<SettingsState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (s) => ({ notifications: s.notifications, hapticsEnabled: s.hapticsEnabled }),
       /**
-       * v1 stored {dryOff, calving, heat, pregnancyCheck, tasks}. Without a
-       * migration, persist merges that over the new defaults and the two new
-       * keys arrive `undefined` — which reads as "off", so anyone upgrading
-       * would silently stop seeing two thirds of their notifications and have
-       * no toggle to explain it.
+       * Bump this version every time a key is ADDED to NotificationPrefs.
        *
-       * dryOff is the one topic that survived, so it carries across; the rest
-       * were never wired to anything, so there is no real preference to
-       * preserve and the new topics start on.
+       * persist merges what is stored over the defaults, so a key the stored
+       * object does not have arrives `undefined` — and
+       * `notificationTypeEnabled` reads `undefined` as OFF. An upgrading
+       * device therefore stops seeing the new notifications and has a toggle
+       * that says they are on. It is invisible on a fresh install, which is
+       * where anyone would look.
+       *
+       * v1 stored {dryOff, calving, heat, pregnancyCheck, tasks}, of which
+       * only dryOff was ever wired to anything — so that is the one real
+       * preference to carry across, and every later topic starts on.
        */
-      version: 2,
+      version: 3,
       migrate: (persisted: any, from: number) => {
-        if (from >= 2) return persisted;
         const old = persisted?.notifications ?? {};
+        // Every key must be filled in, not just the ones a given version
+        // added. An absent key reads as `undefined`, which
+        // `notificationTypeEnabled` treats as OFF — so adding calving,
+        // pregnancy-check and self-inject to the interface WITHOUT bumping
+        // the version silently hid all three on every device that already had
+        // the app. They would have been visible only on a fresh install,
+        // which is exactly where nobody would think to look for the bug.
+        const keep = (value: unknown) => (typeof value === 'boolean' ? value : true);
         return {
           ...persisted,
           notifications: {
-            dryOff: typeof old.dryOff === 'boolean' ? old.dryOff : true,
-            readyToBreed: true,
-            needsDecision: true,
+            // v1 wired only dryOff to anything, so it is the only stored
+            // preference from before v2 worth carrying across.
+            dryOff: keep(old.dryOff),
+            readyToBreed: from >= 2 ? keep(old.readyToBreed) : true,
+            needsDecision: from >= 2 ? keep(old.needsDecision) : true,
+            calving: keep(old.calving),
+            pregChecks: keep(old.pregChecks),
+            selfInject: keep(old.selfInject),
           },
         };
       },

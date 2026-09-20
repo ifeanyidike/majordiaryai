@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from uuid import UUID
 from datetime import date, datetime
@@ -41,6 +41,19 @@ class NeedlingEnrollmentOut(BaseModel):
 class CompleteRecordBody(BaseModel):
     bleeding_event: bool = False
     notes: Optional[str] = None
+
+
+class RecordNoteBody(BaseModel):
+    """The instruction left for a farmer who gives the shot himself."""
+
+    note: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("note")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("note cannot be blank")
+        return v
 
 
 class BleedingEventBody(BaseModel):

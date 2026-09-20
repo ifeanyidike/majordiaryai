@@ -384,10 +384,25 @@ async def clear_visit_assignment(
             detail="Only an admin can remove a past visit assignment",
         )
 
+    # Who was covering, before the override goes. Withdrawing a hand-off is a
+    # route change like any other: without this, the relief is still told the
+    # farm was added to their route and the standing technician is still told
+    # it was taken off theirs, and neither is true any more.
+    previous = await db.scalar(
+        select(FarmVisitAssignment.assigned_technician_id).where(
+            FarmVisitAssignment.farm_id == farm_id,
+            FarmVisitAssignment.visit_date == visit_date,
+        )
+    )
     await db.execute(
         delete(FarmVisitAssignment).where(
             FarmVisitAssignment.farm_id == farm_id,
             FarmVisitAssignment.visit_date == visit_date,
         )
+    )
+    await messaging.announce_route_change(
+        db, current_user["id"], farm,
+        previous, farm.assigned_technician_id,
+        when=visit_date.isoformat(),
     )
     await db.commit()

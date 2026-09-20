@@ -35,7 +35,8 @@ from app.models.models import (
 )
 from app.services.notifications import create_notification
 from app.services.protocols import (
-    get_scheduled_records, self_inject_step, TIMED_AI_PROTOCOLS,
+    final_step_without_hormone, get_scheduled_records, self_inject_step,
+    TIMED_AI_PROTOCOLS,
 )
 
 GESTATION_DAYS = 283
@@ -219,22 +220,30 @@ async def add_protocol_records(
     Returns the farmer-administered record when one was created, so the caller
     can tell the farm about it.
     """
+    farm = await db.get(Farm, cow.farm_id)
+    self_inject = bool(farm and farm.self_inject_needling)
+    farmer_spec = self_inject_step(protocol, start_date) if self_inject else None
+    # The hormone MOVES to the farmer's day; it is not copied there. Adding the
+    # day-9 shot while leaving day 10 as "2cc GnRH + Insemination" gave the cow
+    # two doses of GnRH.
+    ai_only = final_step_without_hormone(protocol) if farmer_spec else None
+
     for spec in get_scheduled_records(protocol, start_date):
+        treatment = spec["treatment"]
+        if spec["is_final"] and ai_only:
+            treatment = ai_only
         db.add(NeedlingRecord(
             enrollment_id=enrollment_id,
             cow_id=cow.id,
             protocol_day=spec["protocol_day"],
             scheduled_date=spec["scheduled_date"],
-            treatment=spec["treatment"],
+            treatment=treatment,
             is_final=spec["is_final"],
         ))
 
-    farm = await db.get(Farm, cow.farm_id)
-    if not (farm and farm.self_inject_needling):
+    if farmer_spec is None:
         return None
-    spec = self_inject_step(protocol, start_date)
-    if spec is None:
-        return None
+    spec = farmer_spec
 
     record = NeedlingRecord(
         enrollment_id=enrollment_id,

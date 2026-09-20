@@ -111,7 +111,10 @@ export type RecordKind =
   | 'vaccination'
   | 'calving'
   | 'enroll'
-  | 'dry_off';
+  | 'dry_off'
+  // Not a recording at all: the note a technician leaves for a farm that
+  // gives its own last injection.
+  | 'farmer_note';
 
 export interface WorklistCow {
   cowId: string;

@@ -29,7 +29,8 @@ PROTOCOLS: Dict[str, List[Dict]] = {
     "ovsynch": [
         {"day": 1,  "treatment": "2cc GnRH"},
         {"day": 7,  "treatment": "2cc PGF"},
-        {"day": 10, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
+        {"day": 10, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH",
+         "without_hormone": "Insemination", "is_final": True},
     ],
     "prostaglandin_heat": [
         {"day": 1, "treatment": "2cc PGF"},
@@ -44,7 +45,8 @@ PROTOCOLS: Dict[str, List[Dict]] = {
         {"day": 17, "treatment": "2cc GnRH"},
         {"day": 24, "treatment": "2cc PGF"},
         {"day": 25, "treatment": "2cc PGF"},
-        {"day": 27, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
+        {"day": 27, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH",
+         "without_hormone": "Insemination", "is_final": True},
     ],
     "presynch": [
         {"day": 1,  "treatment": "2cc PGF"},
@@ -52,19 +54,22 @@ PROTOCOLS: Dict[str, List[Dict]] = {
         {"day": 17, "treatment": "2cc GnRH"},
         {"day": 24, "treatment": "2cc GnRH"},
         {"day": 31, "treatment": "2cc PGF"},
-        {"day": 34, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
+        {"day": 34, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH",
+         "without_hormone": "Insemination", "is_final": True},
     ],
     "general_synch": [
         {"day": 1,  "treatment": "2cc PGF"},
         {"day": 12, "treatment": "2cc GnRH"},
         {"day": 19, "treatment": "2cc PGF"},
-        {"day": 22, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
+        {"day": 22, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH",
+         "without_hormone": "Insemination", "is_final": True},
     ],
     "general_synch_2": [
         {"day": 1,  "treatment": "2cc PGF"},
         {"day": 10, "treatment": "2cc GnRH"},
         {"day": 17, "treatment": "2cc PGF"},
-        {"day": 20, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
+        {"day": 20, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH",
+         "without_hormone": "Insemination", "is_final": True},
     ],
 }
 
@@ -125,6 +130,19 @@ def get_scheduled_records(protocol: str, start_date: date) -> List[Dict]:
         }
         for step in get_protocol_steps(protocol)
     ]
+
+
+def final_step_without_hormone(protocol: str) -> Optional[str]:
+    """What the final day becomes once the farm has given the hormone itself.
+
+    Without this the split only ever ADDED a shot: the farmer gave the hormone
+    on day 9 and the technician still gave the full "2cc GnRH + Insemination"
+    on day 10, double-dosing the cow. The client's note says the farm does
+    that needling *instead of* the technician, so the hormone has to leave the
+    final day when it moves.
+    """
+    final = next((s for s in get_protocol_steps(protocol) if s.get("is_final")), None)
+    return final.get("without_hormone") if final else None
 
 
 def self_inject_step(protocol: str, start_date: date) -> Optional[Dict]:
