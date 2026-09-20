@@ -21,6 +21,9 @@ export default function CowSearchScreen() {
       (c) =>
         c.id.toLowerCase().includes(q) ||
         c.earTag.toLowerCase().includes(q) ||
+        // A farm that names its cows searches by name — typing "Bluebell"
+        // finding nothing is the whole reason the name exists.
+        (c.name ?? '').toLowerCase().includes(q) ||
         c.breed.toLowerCase().includes(q) ||
         farmById(state, c.farmId)?.name.toLowerCase().includes(q),
     );
@@ -32,7 +35,7 @@ export default function CowSearchScreen() {
       <SearchBar
         value={query}
         onChangeText={setQuery}
-        placeholder="Search by ID, ear tag, breed, farm"
+        placeholder="Search by name, ear tag, breed, farm"
         autoFocus
       />
 
@@ -51,7 +54,7 @@ export default function CowSearchScreen() {
             <ListRow
               key={cow.id}
               icon="analytics-outline"
-              title={cow.earTag}
+              title={cow.label}
               subtitle={`${farmById(state, cow.farmId)?.name ?? 'Unknown farm'} · ${cow.breed} · Lact ${cow.lactationNumber}`}
               right={<StatusPill kind={cow.status} />}
               onPress={() => router.push({ pathname: '/cow/[id]', params: { id: cow.id } })}

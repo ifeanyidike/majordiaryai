@@ -34,6 +34,9 @@ _NON_NULLABLE_FIELDS = {"lactation_number", "status"}
 def _cow_dict(cow: Cow, farm_name=None) -> dict:
     return {**{c.key: getattr(cow, c.key) for c in cow.__table__.columns},
             "farm_name": farm_name,
+            # `label` is a property, not a column, so the comprehension above
+            # misses it — and every screen would fall back to the bare tag.
+            "label": cow.label,
             # Derived from status + calving (see status_engine.is_milking).
             "is_milking": status_engine.is_milking(cow)}
 

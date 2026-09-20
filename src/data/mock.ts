@@ -121,7 +121,18 @@ export const vets: Vet[] = [
 
 const h = (id: string, date: string, detail: string) => ({ id, date, detail });
 
-export const cows: Cow[] = [
+/**
+ * `label` is how a cow is named to a person — her herd name with the tag in
+ * brackets, or just the tag. The API computes it server-side; deriving it here
+ * from the same rule keeps demo mode identical to the real thing, and means a
+ * cow added to this file below cannot forget it.
+ */
+const labelled = <T extends { earTag: string; name?: string }>(c: T) => ({
+  ...c,
+  label: c.name ? `${c.name} (${c.earTag})` : c.earTag,
+});
+
+export const cows: Cow[] = ([
   {
     id: 'GV-1042',
     earTag: 'CA 124 578 1042',
@@ -414,7 +425,7 @@ export const cows: Cow[] = [
       calvings: [h('c1', '2025-11-16', 'Bull calf, assisted')],
     },
   },
-];
+] as const).map((c) => labelled(c) as unknown as Cow);
 
 /**
  * Demo work list — a canned payload in the exact shape the API returns.
@@ -450,7 +461,7 @@ export const demoWorklist: Worklist = {
           subtitle: '1 cow requires injection',
           canRecord: true,
           cows: [{
-            cowId: 'GV-1102', earTag: 'CA 124 578 1102', farmId: 'f1',
+            cowId: 'GV-1102', earTag: 'CA 124 578 1102', label: 'CA 124 578 1102', farmId: 'f1',
             status: 'needling',
             action: 'Requires 2cc PGF injection today (Ovsynch, Day 7)',
             detail: 'Ovsynch · injection due today',
@@ -474,7 +485,7 @@ export const demoWorklist: Worklist = {
           subtitle: '1 cow due the 2cc shot',
           canRecord: true,
           cows: [{
-            cowId: 'GV-1156', earTag: 'CA 124 578 1156', farmId: 'f1',
+            cowId: 'GV-1156', earTag: 'CA 124 578 1156', label: 'CA 124 578 1156', farmId: 'f1',
             status: 'fresh',
             action: 'Requires 2cc vaccine shot (Day 34 post calving — complete by day 50)',
             detail: 'Day 34 post calving · complete by day 50',
@@ -510,7 +521,7 @@ export const demoWorklist: Worklist = {
           // The same-day overlap rule in demo form: final injection folded into
           // the insemination, and absent from the Needling report above.
           cows: [{
-            cowId: 'SF-2334', earTag: 'CA 118 442 2334', farmId: 'f2',
+            cowId: 'SF-2334', earTag: 'CA 118 442 2334', label: 'CA 118 442 2334', farmId: 'f2',
             status: 'needling',
             action: 'Give final 2cc GnRH + inseminate today (Ovsynch, Day 10 — final day)',
             detail: 'Ovsynch · inseminate today',
@@ -550,7 +561,7 @@ export const demoWorklist: Worklist = {
           subtitle: '1 cow to check for heat',
           canRecord: true,
           cows: [{
-            cowId: 'MR-3120', earTag: 'CA 131 209 3120', farmId: 'f3',
+            cowId: 'MR-3120', earTag: 'CA 131 209 3120', label: 'CA 131 209 3120', farmId: 'f3',
             status: 'inseminated',
             action: 'Requires checking for heat',
             // Must agree with the MR-3120 cow record above — the demo shows
@@ -565,3 +576,45 @@ export const demoWorklist: Worklist = {
     },
   ],
 };
+
+/**
+ * Canned Alarms and Office Alerts for demo mode, in the shape the API returns.
+ * Alarms come from the barn, Office Alerts from the office — the whole point
+ * of two feeds is that you know which without reading them.
+ */
+export function demoMessages(channel: 'alarm' | 'office_alert') {
+  const hoursAgo = (h: number) =>
+    new Date(Date.now() - h * 3600_000).toISOString();
+
+  if (channel === 'alarm') {
+    return [
+      {
+        id: 'al-1', channel: 'alarm' as const,
+        senderId: 'owner-1', senderName: 'John Smith', senderRole: 'farm',
+        recipientId: 'tech-1',
+        farmId: 'f1', farmName: 'Green Valley Dairy',
+        cowId: 'GV-1102', cowLabel: 'CA 124 578 1102',
+        body: 'She is off her feed this morning and standing away from the group.',
+        createdAt: hoursAgo(2),
+      },
+      {
+        id: 'al-2', channel: 'alarm' as const,
+        senderId: 'owner-2', senderName: 'David Brown', senderRole: 'farm',
+        recipientId: 'tech-1',
+        farmId: 'f2', farmName: 'Sunrise Farms',
+        body: 'Gate code changed to 1180 — the old one will not work today.',
+        readAt: hoursAgo(4), createdAt: hoursAgo(6),
+      },
+    ];
+  }
+  return [
+    {
+      id: 'oa-1', channel: 'office_alert' as const,
+      senderId: 'admin-1', senderName: 'Dispatch', senderRole: 'admin',
+      recipientId: 'tech-1',
+      farmId: 'f3', farmName: 'Maple Ridge Dairy',
+      body: 'Maple Ridge Dairy has been added to your route on 2026-09-21.',
+      createdAt: hoursAgo(1),
+    },
+  ];
+}

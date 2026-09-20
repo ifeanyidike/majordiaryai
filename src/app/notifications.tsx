@@ -19,6 +19,9 @@ const TYPE_META: Record<NotificationType, { icon: keyof typeof Ionicons.glyphMap
   dry_off:      { icon: 'moon', color: status.dry.fg },
   breeding_due: { icon: 'flame', color: status.heat.fg },
   open:         { icon: 'ellipse-outline', color: status.open.fg },
+  calving:      { icon: 'heart', color: status.fresh.fg },
+  preg_check:   { icon: 'medkit', color: status.inseminated.fg },
+  self_inject:  { icon: 'create', color: status.needling.fg },
 };
 
 function metaFor(type: string) {
@@ -38,7 +41,7 @@ function relativeTime(iso: string): string {
 export default function NotificationsScreen() {
   const router = useRouter();
   const {
-    notifications: allNotifications, notificationsLoading, farms,
+    notifications: allNotifications, notificationsLoading, farms, cows,
     fetchNotifications, markNotificationRead, markAllNotificationsRead,
   } = useAppStore();
   const prefs = useSettingsStore((s) => s.notifications);
@@ -54,6 +57,10 @@ export default function NotificationsScreen() {
   const hiddenCount = allNotifications.length - notifications.length;
 
   const farmName = (id: string) => farms.find((f) => f.id === id)?.name;
+  // The message already names her, but the footer is what a technician scans
+  // down the list for — and it is the name the farm uses, not just the tag.
+  const cowLabel = (id?: string) =>
+    id ? cows.find((c) => c.id === id)?.label : undefined;
 
   const onPress = (n: AppNotification) => {
     if (!n.read) markNotificationRead(n.id);
@@ -137,12 +144,29 @@ export default function NotificationsScreen() {
                 <Ionicons name={meta.icon} size={20} color={meta.color} />
               </View>
               <View style={styles.body}>
+                {/* Farm first, then the message, then the cow. Which farm is
+                    the context you need before the detail makes sense — a
+                    technician reading a feed that spans a dozen of them
+                    cannot act on "she is due" until they know whose barn. */}
+                <View style={styles.topLine}>
+                  <Text variant="label" color={meta.color} numberOfLines={1} style={styles.flex1}>
+                    {farmName(n.farmId) ?? 'Unassigned farm'}
+                  </Text>
+                  <Text variant="caption" color={colors.textMuted}>
+                    {relativeTime(n.createdAt)}
+                  </Text>
+                </View>
                 <Text variant="body" numberOfLines={3}>
                   {n.message}
                 </Text>
-                <Text variant="caption" color={colors.textMuted}>
-                  {[farmName(n.farmId), relativeTime(n.createdAt)].filter(Boolean).join(' · ')}
-                </Text>
+                {cowLabel(n.cowId) ? (
+                  <View style={styles.cowLine}>
+                    <Ionicons name="pricetag-outline" size={13} color={colors.textMuted} />
+                    <Text variant="caption" color={colors.textMuted} numberOfLines={1}>
+                      {cowLabel(n.cowId)}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
               {!n.read ? <View style={styles.dot} /> : null}
             </Pressable>
@@ -154,6 +178,19 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex1: { flex: 1 },
+  topLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.hairline,
+  },
+  cowLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
   hiddenNote: {
     flexDirection: 'row',
     alignItems: 'center',

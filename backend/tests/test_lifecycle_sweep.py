@@ -69,7 +69,11 @@ async def test_dry_off_notifies_the_farm_to_change_pen(db, farm):
         select(Notification).where(Notification.cow_id == cow.id)
     )).scalars().all()
     assert [n.type for n in notes] == ["dry_off"]
-    assert "change pen" in notes[0].message.lower()
+    message = notes[0].message.lower()
+    # Both halves of the instruction: she comes out of the milking string AND
+    # moves pen. The message used to say only the second.
+    assert "stop milking" in message, message
+    assert "pen" in message, message
 
 
 async def test_a_pregnant_cow_with_no_dry_date_is_left_alone(db, farm):

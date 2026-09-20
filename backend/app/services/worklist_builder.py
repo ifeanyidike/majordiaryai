@@ -6,7 +6,7 @@ Built server-side so the counts at layer 2 and the rows at layer 3 come from the
 same evaluation — they cannot disagree, and the client owns no membership rule.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -14,8 +14,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
-    Cow, Farm, FarmVisitAssignment, NeedlingEnrollment, NeedlingRecord, User,
-    VaccinationRecord,
+    Cow, CowStatus, EnrollmentStatus, Farm, FarmVisitAssignment, HeatCheck,
+    NeedlingEnrollment, NeedlingRecord, User, VaccinationRecord,
 )
 from app.services.access import scope_to_farms
 from app.services.report_catalog import WorklistContext, build_reports
@@ -32,6 +32,77 @@ from app.services.worklists import (
 # worklist carries the pregnancy work plus the read-only context around it —
 # not the technician's needling/heat/breeding route.
 VET_REPORT_TYPES = frozenset({"pregnancy-check", "pregnant", "calving-due"})
+
+
+# How far ahead the technician is prompted to leave the farmer a note. Long
+# enough that he is standing on the farm at least once before the shot is due,
+# short enough that the prompt is about this week's work.
+FARMER_NOTE_LEAD_DAYS = 7
+
+
+async def _farmer_injections_by_cow(db: AsyncSession, current_user: dict, today: date,
+                                    farm_id: Optional[UUID]) -> dict:
+    """Shots the FARMER gives, coming up, that nobody has written a note for.
+
+    The technician does not give these, so they are not on his Injection
+    report. What is his job is telling the farmer which cow needs which
+    hormone -- so this is the prompt for that note, and it disappears as soon
+    as the note exists.
+    """
+    stmt = (
+        select(NeedlingRecord, Cow)
+        .join(Cow, Cow.id == NeedlingRecord.cow_id)
+        .join(NeedlingEnrollment, NeedlingEnrollment.id == NeedlingRecord.enrollment_id)
+        .where(
+            NeedlingRecord.self_administered == True,  # noqa: E712
+            NeedlingRecord.completed == False,  # noqa: E712
+            NeedlingRecord.notes.is_(None),
+            NeedlingRecord.scheduled_date <= today + timedelta(days=FARMER_NOTE_LEAD_DAYS),
+            NeedlingEnrollment.status == EnrollmentStatus.active,
+            Cow.status.notin_(TERMINAL_STATUSES),
+        )
+        .order_by(NeedlingRecord.scheduled_date)
+    )
+    stmt = scope_to_farms(stmt, current_user, farm_id, col=Cow.farm_id)
+    out = {}
+    for record, cow in (await db.execute(stmt)).all():
+        out.setdefault(str(cow.id), {
+            "id": str(record.id),
+            "treatment": record.treatment,
+            "scheduled_date": record.scheduled_date,
+            "days_until": (record.scheduled_date - today).days,
+        })
+    return out
+
+
+async def _heat_events_by_cow(db: AsyncSession, current_user: dict, today: date,
+                              farm_id: Optional[UUID]) -> dict:
+    """The heat that put each cow back on the breeding list, and when.
+
+    Only heats since her last insemination count: an older one belongs to a
+    cycle that has already been bred, and dating today's urgency from it would
+    report a cow as weeks late on a heat she never had.
+    """
+    stmt = (
+        select(HeatCheck, Cow)
+        .join(Cow, Cow.id == HeatCheck.cow_id)
+        .where(
+            HeatCheck.heat_detected == True,  # noqa: E712
+            Cow.status == CowStatus.open,
+            Cow.current_program == "Insemination",
+        )
+        .order_by(HeatCheck.check_date.desc())
+    )
+    stmt = scope_to_farms(stmt, current_user, farm_id, col=Cow.farm_id)
+    out: dict = {}
+    for check, cow in (await db.execute(stmt)).all():
+        key = str(cow.id)
+        if key in out:
+            continue  # ordered newest first, so the first is the current heat
+        if cow.last_insemination_date and check.check_date < cow.last_insemination_date:
+            continue
+        out[key] = {"detected_on": check.check_date}
+    return out
 
 
 async def _needling_by_cow(db: AsyncSession, current_user: dict, today: date,
@@ -215,6 +286,8 @@ async def build_worklist(
     breeding = await _breeding_by_cow(db, current_user, today, farm_id)
     vaccinations = await _vaccinations_by_cow(db, current_user, today, farm_id)
     post_calving = await _post_calving_by_cow(db, current_user, farm_id)
+    farmer_injections = await _farmer_injections_by_cow(db, current_user, today, farm_id)
+    heat_events = await _heat_events_by_cow(db, current_user, today, farm_id)
 
     by_farm: dict = {}
     for cow in cows:
@@ -243,7 +316,8 @@ async def build_worklist(
         ctx = WorklistContext(
             today=today, role=role, cows=by_farm.get(farm.id, []),
             needling=needling, breeding=breeding, vaccinations=vaccinations,
-            post_calving=post_calving,
+            post_calving=post_calving, farmer_injections=farmer_injections,
+            heat_events=heat_events, farm_self_vaccinate=farm.self_vaccinate,
         )
         reports = build_reports(ctx)
         if role == "vet":

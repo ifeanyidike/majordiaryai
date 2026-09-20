@@ -26,6 +26,21 @@ import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/
  * screen decides nothing about membership — including which form opens, since
  * offering one the API would answer with a 403 is worse than offering none.
  */
+/**
+ * What the pill says on a report row, where that differs from the cow's status.
+ *
+ * On these two screens the pill names the JOB, not the animal: a cow on the
+ * Heat Report needs checking for heat, one on the Pregnancy Report needs a
+ * pregnancy check. Everywhere else — her profile, the herd list — she is
+ * still "In Heat" and "Inseminated", because that is what she IS. Renaming
+ * the global vocabulary instead would leave the herd list telling you to
+ * check a pregnancy where it used to tell you her status.
+ */
+const ROW_PILL_LABEL: Record<string, string> = {
+  heat: 'Check Heat',
+  'pregnancy-check': 'Check Pregnancy',
+};
+
 export default function ReportDetailScreen() {
   const motion = useMotion();
   const { type, farmId } = useLocalSearchParams<{ type: string; farmId?: string }>();
@@ -137,14 +152,17 @@ export default function ReportDetailScreen() {
             >
               <View style={styles.rowTop}>
                 <Text variant="subheading" style={styles.flex1} numberOfLines={1}>
-                  {cow.earTag}
+                  {cow.label}
                 </Text>
                 {cow.overdue ? (
                   <View style={styles.overdue}>
                     <Text variant="caption" color={colors.danger}>Overdue</Text>
                   </View>
                 ) : null}
-                <StatusPill kind={report.type === 'heat' ? 'heat' : cow.status} />
+                <StatusPill
+                  kind={report.type === 'heat' ? 'heat' : cow.status}
+                  label={ROW_PILL_LABEL[report.type]}
+                />
               </View>
 
               {/* Action Required — the imperative instruction for today */}

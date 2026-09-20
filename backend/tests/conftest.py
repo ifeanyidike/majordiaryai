@@ -113,6 +113,30 @@ async def engine():
     await eng.dispose()
 
 
+@pytest.fixture(autouse=True)
+def never_email_from_a_test(monkeypatch):
+    """Stop a committed notification from reaching for the APPLICATION database.
+
+    `create_notification` queues an email and fires it after COMMIT. The task
+    it spawns opens its own session from `app.core.database.SessionLocal` --
+    the application engine, built from `settings`, which in this repo points at
+    production. So any test that commits a notification through an endpoint
+    schedules a task that reads a production farm and writes `email_status`
+    back to a production row.
+
+    Nothing has been corrupted yet only because the test event loop closes
+    before the task runs, which surfaces as a stack of "Event loop is closed"
+    tracebacks rather than as a write. That is luck, not isolation, and this
+    file's own docstring promises the opposite.
+    """
+    from app.services import notifications
+
+    monkeypatch.setattr(
+        notifications, "_schedule_email",
+        lambda *args, **kwargs: None,
+    )
+
+
 @pytest_asyncio.fixture
 async def db(engine):
     """A session whose work is always rolled back."""

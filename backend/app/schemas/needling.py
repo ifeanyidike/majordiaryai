@@ -18,6 +18,10 @@ class NeedlingRecordOut(BaseModel):
     completed_date: Optional[date] = None
     treatment: str
     is_final: bool
+    # The FARMER gives this one, not the technician. Without it on the wire the
+    # app shows the farm's shot as a job for the technician — which is the one
+    # thing this whole arrangement exists to avoid.
+    self_administered: bool = False
     completed: bool
     bleeding_event: bool
     notes: Optional[str] = None

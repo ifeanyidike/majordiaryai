@@ -44,6 +44,7 @@ export default function CowEditScreen() {
   const isEdit = !!id;
 
   const [earTag, setEarTag] = useState('');
+  const [name, setName] = useState('');
   const [farmId, setFarmId] = useState<string | undefined>(farmIdParam);
   const [breed, setBreed] = useState('');
   const [dob, setDob] = useState('');
@@ -60,6 +61,7 @@ export default function CowEditScreen() {
   useEffect(() => {
     if (!existing) return;
     setEarTag(existing.earTag);
+    setName(existing.name ?? '');
     setFarmId(existing.farmId);
     setBreed(existing.breed ?? '');
     setDob(existing.dateOfBirth ?? '');
@@ -113,6 +115,7 @@ export default function CowEditScreen() {
     try {
       const input: CowInput = {
         earTag: earTag.trim(),
+        name: name.trim() || undefined,
         farmId: farmId!,
         breed: breed.trim(),
         dateOfBirth: dob.trim(),
@@ -169,6 +172,16 @@ export default function CowEditScreen() {
             error={err('earTag')}
           />
         )}
+
+        {/* Optional: a farm that names its cows can search and read her that
+            way. The tag above is still the identity — unique per farm, and
+            what every other record keys on — so this never replaces it. */}
+        <FormRow
+          label="Name (optional)"
+          value={name}
+          onChangeText={setName}
+          placeholder="e.g. Bluebell"
+        />
 
         {isEdit ? null : (
           <>

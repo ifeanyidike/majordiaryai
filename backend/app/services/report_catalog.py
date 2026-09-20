@@ -21,10 +21,10 @@ from typing import Callable, Dict, List, Optional
 
 from app.models.models import Cow, CowStatus, HealthStatus
 from app.services.protocols import protocol_label
-from app.services.status_engine import HEAT_WINDOW  # single source with checks.py
+# Single source with checks.py and the sweep's pregnancy-check reminder.
+from app.services.status_engine import HEAT_WINDOW, PREGNANCY_REPORT_DAY
 
 # ── thresholds (spec) ────────────────────────────────────────────────
-PREGNANCY_REPORT_DAY = 30       # appears on the Pregnancy Report
 PREGNANCY_WARNING_DAY = 50      # Pregnancy Check Warning
 VACCINATION_WINDOW = (30, 50)   # days post calving
 
@@ -63,12 +63,19 @@ class ReportRow:
     missed_shots: int = 0
     # Additional pending injections beyond the one shown (Needling rows).
     also_pending: int = 0
+    # The FARM does this one, not the technician (self-inject / self-vaccinate).
+    # The row stays on the list because reminding them is the technician's job.
+    farm_administered: bool = False
 
     def serialize(self, today: date) -> dict:
         cow = self.cow
         return {
             "cow_id": str(cow.id),
             "ear_tag": cow.ear_tag,
+            # A farm that names its cows calls her by name; the tag stays,
+            # because it is the identity every other system knows her by.
+            "name": cow.name,
+            "label": cow.label,
             "status": cow.status.value,
             "farm_id": str(cow.farm_id),
             "action": self.action,
@@ -95,6 +102,7 @@ class ReportRow:
             "overdue": self.overdue,
             "missed_shots": self.missed_shots,
             "also_pending": self.also_pending,
+            "farm_administered": self.farm_administered,
         }
 
 
@@ -135,6 +143,13 @@ class WorklistContext:
     vaccinations: Dict[str, dict] = field(default_factory=dict)
     # cow_id -> {"completed_on": date} of her latest completed vaccination
     post_calving: Dict[str, dict] = field(default_factory=dict)
+    # cow_id -> a shot the FARMER gives soon, with no note written for him yet
+    farmer_injections: Dict[str, dict] = field(default_factory=dict)
+    # This farm gives the post-calving vaccine itself (farms.self_vaccinate).
+    farm_self_vaccinate: bool = False
+    # cow_id -> {"detected_on": date} of the heat that put her back on the
+    # breeding list, so the same-day rule can say how late she is.
+    heat_events: Dict[str, dict] = field(default_factory=dict)
 
     def may_record(self, definition: "ReportDef") -> bool:
         return not definition.record_roles or self.role in definition.record_roles
@@ -250,6 +265,29 @@ def _insemination_program(ctx: WorklistContext) -> List[ReportRow]:
     for cow in ctx.cows:
         if cow.status != CowStatus.open or cow.current_program != "Insemination":
             continue
+        heat = ctx.heat_events.get(str(cow.id))
+        if heat:
+            # A cow standing in heat is fertile for hours, not days: the window
+            # closes long before the next Monday/Tuesday/Saturday breeding day
+            # comes round. So a heat event overrides the breeding-day rota --
+            # she is bred the day she shows, or the heat is wasted and the herd
+            # waits another cycle.
+            detected = heat["detected_on"]
+            days_late = (ctx.today - detected).days
+            if days_late <= 0:
+                action = "Breed her TODAY — heat detected"
+                detail = "In heat today · breed on the same day, whatever the rota says"
+            else:
+                action = (f"Breed her TODAY — heat was {days_late} day"
+                          f"{'' if days_late == 1 else 's'} ago")
+                detail = (f"Heat detected {_fmt(detected)} · she should have been bred "
+                          "that day")
+            rows.append(ReportRow(
+                cow=cow, action=action, detail=detail,
+                record_kind="insemination",
+                overdue=days_late > 0,
+            ))
+            continue
         if cow.last_insemination_date:
             action = "Returned to the Insemination Program — breed her"
             detail = f"Heat detected · last AI {_fmt(cow.last_insemination_date)}"
@@ -261,6 +299,40 @@ def _insemination_program(ctx: WorklistContext) -> List[ReportRow]:
             action=action,
             detail=detail,
             record_kind="insemination",
+        ))
+    return rows
+
+
+def _farmer_injection(ctx: WorklistContext) -> List[ReportRow]:
+    """Leave the farmer a note saying which cow needs which hormone.
+
+    On a farm that gives its own last shot, the injection itself is not the
+    technician's work -- but telling the farmer exactly what to give is, and
+    it has to happen while he is standing there. The farm gets an automatic
+    notification with the same facts; this is the human sentence that goes
+    with it, and the row clears as soon as the note is written.
+    """
+    rows = []
+    for cow in ctx.cows:
+        row = ctx.farmer_injections.get(str(cow.id))
+        if not row:
+            continue
+        due = row["scheduled_date"]
+        days = row["days_until"]
+        when = ("today" if days == 0 else
+                "tomorrow" if days == 1 else
+                f"in {days} days" if days > 0 else
+                f"{-days} day(s) ago")
+        rows.append(ReportRow(
+            cow=cow,
+            action=f"Leave a note for the farmer: {row['treatment']}, {when}",
+            detail=f"Farm gives this one · {row['treatment']} due {_fmt(due)}",
+            record_kind="farmer_note",
+            needling_record_id=row["id"],
+            treatment=row["treatment"],
+            farm_administered=True,
+            # Past its date with still no note: the farmer was never told.
+            overdue=days < 0,
         ))
     return rows
 
@@ -345,11 +417,23 @@ def _post_calving(ctx: WorklistContext) -> List[ReportRow]:
                 done["completed_on"] >= cow.last_calving_date:
             continue
         late = d > hi
+        # On a farm that vaccinates its own cows the shot is still owed and
+        # still tracked here -- what changes is whose hands give it. The
+        # technician's job becomes making sure the farmer knows, and recording
+        # it once they have.
+        mine = not ctx.farm_self_vaccinate
         rows.append(ReportRow(
             cow=cow,
-            action=(f"OVERDUE: 2cc vaccine shot still not given (Day {d} — was due by day {hi})"
-                    if late
-                    else f"Give 2cc vaccine shot (Day {d} post calving — complete by day {hi})"),
+            action=(
+                (f"OVERDUE: 2cc vaccine shot still not given (Day {d} — was due by day {hi})"
+                 if late
+                 else f"Give 2cc vaccine shot (Day {d} post calving — complete by day {hi})")
+                if mine else
+                (f"OVERDUE: remind the farm to give her 2cc vaccine (Day {d} — was due by day {hi})"
+                 if late
+                 else f"Farm gives this 2cc vaccine — remind them (Day {d}, complete by day {hi})")
+            ),
+            farm_administered=not mine,
             detail=(f"Day {d} post calving · {d - hi} days past the day-{hi} deadline"
                     if late else f"Day {d} post calving · complete by day {hi}"),
             record_kind="vaccination",
@@ -495,9 +579,12 @@ REPORTS: List[ReportDef] = [
     ReportDef("timed-breeding", "Timed Breeding", "flask", "inseminated", True, _timed_breeding,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} insemination"),
-    ReportDef("needling", "Needling Report", "fitness", "needling", True, _needling,
+    ReportDef("needling", "Injection Report", "fitness", "needling", True, _needling,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} injection"),
+    ReportDef("farmer-injection", "Farmer Injection", "create", "needling", True,
+              _farmer_injection, record_roles=WORK_ROLES,
+              subtitle=lambda n: f"{n} {'note' if n == 1 else 'notes'} to leave for the farmer"),
     ReportDef("insemination", "Insemination Program", "git-branch", "inseminated", True,
               _insemination_program, record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} returned for breeding"),
@@ -506,13 +593,13 @@ REPORTS: List[ReportDef] = [
     ReportDef("pregnancy-check", "Pregnancy Report", "medkit", "inseminated", True,
               _pregnancy_check, record_roles=PREGNANCY_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} due for check"),
-    ReportDef("vaccination", "Vaccination Report", "shield-checkmark", "fresh", True, _vaccination,
+    ReportDef("vaccination", "Scheduled Vaccinations", "shield-checkmark", "fresh", True, _vaccination,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} scheduled {'vaccination' if n == 1 else 'vaccinations'} due"),
     ReportDef("dry-report", "Dry Report", "moon", "dry", True, _dry,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to dry off"),
-    ReportDef("post-calving", "Post Calving Report", "bandage", "fresh", True, _post_calving,
+    ReportDef("post-calving", "Vaccine Report", "bandage", "fresh", True, _post_calving,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} due the 2cc shot"),
     ReportDef("fresh", "Fresh / Calving Report", "heart", "fresh", True, _fresh,

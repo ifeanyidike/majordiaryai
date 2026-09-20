@@ -31,6 +31,11 @@ class FarmCreate(BaseModel):
     # Visit weekdays, Mon=0 … Sun=6. "5-day farm" = Mon–Fri [0-4];
     # "6-day farm" = Mon–Sat [0-5], which is the default.
     visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
+    # This farm gives the last protocol hormone itself, the day before the
+    # technician comes to inseminate.
+    self_inject_needling: bool = False
+    # …and the post-calving 2cc vaccine.
+    self_vaccinate: bool = False
     notes: Optional[str] = None
 
     _check_weekdays = field_validator("visit_weekdays")(_clean_weekdays)
@@ -48,6 +53,8 @@ class FarmUpdate(BaseModel):
     herd_size: Optional[int] = Field(default=None, ge=0)
     assigned_technician_id: Optional[UUID] = None
     visit_weekdays: Optional[List[int]] = None
+    self_inject_needling: Optional[bool] = None
+    self_vaccinate: Optional[bool] = None
     notes: Optional[str] = None
 
     _check_weekdays = field_validator("visit_weekdays")(_clean_weekdays)
@@ -78,6 +85,8 @@ class FarmOut(BaseModel):
     visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
     # Human label for the schedule, e.g. "Mon–Sat"
     visit_schedule_label: Optional[str] = None
+    self_inject_needling: bool = False
+    self_vaccinate: bool = False
     notes: Optional[str] = None
     created_at: datetime
     # computed counts (populated via JOIN)

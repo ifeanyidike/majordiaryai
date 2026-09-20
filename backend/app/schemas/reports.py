@@ -85,6 +85,12 @@ class DailyTaskSummary(BaseModel):
 class WorklistCow(BaseModel):
     cow_id: UUID
     ear_tag: str
+    # Her herd name, and the two combined. The builder puts both on every row
+    # so no screen has to fetch the cow again just to print her name — but a
+    # field missing from this model is dropped from the response, which is how
+    # they went silently absent the first time.
+    name: Optional[str] = None
+    label: Optional[str] = None
     farm_id: UUID
     status: str
     # The imperative instruction for today ("Action Required" in the spec).
@@ -109,6 +115,9 @@ class WorklistCow(BaseModel):
     missed_shots: int = 0
     # Needling: pending injections beyond the one shown.
     also_pending: int = 0
+    # The FARM performs this one (self-inject / self-vaccinate); the row stays
+    # because reminding them is the technician's job.
+    farm_administered: bool = False
 
 
 class WorklistReport(BaseModel):

@@ -10,10 +10,8 @@
 -- PostgreSQL database dump
 --
 
-\restrict AQQT8donUtvdiMLnrIYt0DEL9RlcmoLQfwmHfNMm6eNyM4iQfL55rmPYbniJjoe
-
--- Dumped from database version 16.14
--- Dumped by pg_dump version 16.14
+-- Dumped from database version 16.13 (Postgres.app)
+-- Dumped by pg_dump version 16.8 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -88,6 +86,16 @@ CREATE TYPE public.enrollment_status AS ENUM (
 CREATE TYPE public.health_status AS ENUM (
     'healthy',
     'sick'
+);
+
+
+--
+-- Name: message_channel; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.message_channel AS ENUM (
+    'alarm',
+    'office_alert'
 );
 
 
@@ -268,6 +276,7 @@ CREATE TABLE public.cows (
     health_status public.health_status DEFAULT 'healthy'::public.health_status,
     recheck_due_date date,
     dry_off_confirmed_date date,
+    name character varying,
     CONSTRAINT ck_cows_lactation_number_non_negative CHECK ((lactation_number >= 0))
 );
 
@@ -320,6 +329,8 @@ CREATE TABLE public.farms (
     notes text,
     created_at timestamp with time zone DEFAULT now(),
     visit_weekdays smallint[] DEFAULT '{0,1,2,3,4,5}'::smallint[] NOT NULL,
+    self_inject_needling boolean DEFAULT false NOT NULL,
+    self_vaccinate boolean DEFAULT false NOT NULL,
     CONSTRAINT ck_farms_herd_size_non_negative CHECK ((herd_size >= 0)),
     CONSTRAINT ck_farms_visit_weekdays_valid CHECK ((((cardinality(visit_weekdays) >= 1) AND (cardinality(visit_weekdays) <= 7)) AND (visit_weekdays <@ '{0,1,2,3,4,5,6}'::smallint[])))
 );
@@ -365,6 +376,24 @@ CREATE TABLE public.inseminations (
 
 
 --
+-- Name: messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.messages (
+    id uuid NOT NULL,
+    channel public.message_channel NOT NULL,
+    sender_id uuid NOT NULL,
+    recipient_id uuid NOT NULL,
+    farm_id uuid,
+    cow_id uuid,
+    body character varying NOT NULL,
+    read_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_messages_body_not_blank CHECK ((length(btrim((body)::text)) > 0))
+);
+
+
+--
 -- Name: needling_enrollments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -397,6 +426,7 @@ CREATE TABLE public.needling_records (
     notes text,
     created_at timestamp with time zone DEFAULT now(),
     is_final boolean DEFAULT false NOT NULL,
+    self_administered boolean DEFAULT false NOT NULL,
     CONSTRAINT ck_needling_records_day_positive CHECK ((protocol_day > 0))
 );
 
@@ -590,6 +620,14 @@ ALTER TABLE ONLY public.heat_checks
 
 ALTER TABLE ONLY public.inseminations
     ADD CONSTRAINT inseminations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: messages messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_pkey PRIMARY KEY (id);
 
 
 --
@@ -878,10 +916,24 @@ CREATE INDEX ix_bulls_farm_active ON public.bulls USING btree (farm_id, active);
 
 
 --
+-- Name: ix_cows_farm_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_cows_farm_name ON public.cows USING btree (farm_id, lower((name)::text));
+
+
+--
 -- Name: ix_farm_visit_assignments_date; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ix_farm_visit_assignments_date ON public.farm_visit_assignments USING btree (visit_date, assigned_technician_id);
+
+
+--
+-- Name: ix_messages_recipient_channel; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_messages_recipient_channel ON public.messages USING btree (recipient_id, channel, created_at DESC);
 
 
 --
@@ -1047,6 +1099,38 @@ ALTER TABLE ONLY public.inseminations
 
 ALTER TABLE ONLY public.inseminations
     ADD CONSTRAINT inseminations_technician_id_fkey FOREIGN KEY (technician_id) REFERENCES public.users(id);
+
+
+--
+-- Name: messages messages_cow_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_cow_id_fkey FOREIGN KEY (cow_id) REFERENCES public.cows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: messages messages_farm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_farm_id_fkey FOREIGN KEY (farm_id) REFERENCES public.farms(id) ON DELETE CASCADE;
+
+
+--
+-- Name: messages messages_recipient_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_recipient_id_fkey FOREIGN KEY (recipient_id) REFERENCES public.users(id);
+
+
+--
+-- Name: messages messages_sender_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id);
 
 
 --
@@ -1366,6 +1450,33 @@ CREATE POLICY inseminations_write ON public.inseminations USING ((public.get_my_
 
 
 --
+-- Name: messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: messages messages_mark_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY messages_mark_read ON public.messages FOR UPDATE USING ((recipient_id = auth.uid())) WITH CHECK ((recipient_id = auth.uid()));
+
+
+--
+-- Name: messages messages_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY messages_read ON public.messages FOR SELECT USING (((recipient_id = auth.uid()) OR (sender_id = auth.uid()) OR (public.get_my_role() = 'admin'::public.user_role)));
+
+
+--
+-- Name: messages messages_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY messages_write ON public.messages FOR INSERT WITH CHECK (((sender_id = auth.uid()) AND (((channel = 'alarm'::public.message_channel) AND (public.get_my_role() = ANY (ARRAY['farm'::public.user_role, 'admin'::public.user_role]))) OR ((channel = 'office_alert'::public.message_channel) AND (public.get_my_role() = 'admin'::public.user_role)))));
+
+
+--
 -- Name: needling_enrollments; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1527,6 +1638,4 @@ CREATE POLICY vets_read ON public.vets FOR SELECT USING ((public.get_my_role() =
 --
 -- PostgreSQL database dump complete
 --
-
-\unrestrict AQQT8donUtvdiMLnrIYt0DEL9RlcmoLQfwmHfNMm6eNyM4iQfL55rmPYbniJjoe
 

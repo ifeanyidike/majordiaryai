@@ -20,7 +20,7 @@ endpoints and POST /admin/run-transitions — never as a GET side effect.
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import HTTPException
@@ -30,11 +30,13 @@ from sqlalchemy.orm import aliased
 
 from app.core.timeutils import local_today
 from app.models.models import (
-    Cow, CowStatus, Insemination, NeedlingEnrollment, NeedlingRecord,
+    Cow, CowStatus, Farm, Insemination, NeedlingEnrollment, NeedlingRecord,
     EnrollmentStatus, ProtocolType,
 )
 from app.services.notifications import create_notification
-from app.services.protocols import get_scheduled_records, TIMED_AI_PROTOCOLS
+from app.services.protocols import (
+    get_scheduled_records, self_inject_step, TIMED_AI_PROTOCOLS,
+)
 
 GESTATION_DAYS = 283
 DRY_OFF_DAY = 223            # days after insemination
@@ -45,6 +47,11 @@ FRESH_TO_OPEN_DAY = 70       # days after calving
 CALF_TO_HEIFER_DAY = 60      # days after birth
 HEIFER_BREEDING_DAY = 395    # ~13 months after birth
 BREEDING_WEEKDAYS = (0, 1, 5)  # Monday, Tuesday, Saturday
+# Day a cow comes due for her pregnancy check. Lives here rather than in
+# report_catalog because report_catalog imports this module, and the sweep's
+# reminder needs the same number the report uses -- one definition, or the
+# farm is told on a different day from the one the technician sees.
+PREGNANCY_REPORT_DAY = 30
 # Days past a protocol's final day after which an un-inseminated cow is treated
 # as abandoned: the synchronisation has lapsed, so cancel and return her to Open
 # rather than leaving her pinned on Timed Breeding indefinitely.
@@ -200,6 +207,57 @@ async def cancel_active_enrollments(
         enrollment.status = new_status
 
 
+async def add_protocol_records(
+    cow: Cow, enrollment_id, protocol: str, start_date: date, db: AsyncSession,
+) -> Optional[NeedlingRecord]:
+    """Lay out a protocol's injections, and the farmer's own if the farm does that.
+
+    Both enrollment paths (the endpoint and the bleeding-event transfer) went
+    through their own copy of this loop, so a self-injecting farm would have
+    been honoured on one route and silently ignored on the other.
+
+    Returns the farmer-administered record when one was created, so the caller
+    can tell the farm about it.
+    """
+    for spec in get_scheduled_records(protocol, start_date):
+        db.add(NeedlingRecord(
+            enrollment_id=enrollment_id,
+            cow_id=cow.id,
+            protocol_day=spec["protocol_day"],
+            scheduled_date=spec["scheduled_date"],
+            treatment=spec["treatment"],
+            is_final=spec["is_final"],
+        ))
+
+    farm = await db.get(Farm, cow.farm_id)
+    if not (farm and farm.self_inject_needling):
+        return None
+    spec = self_inject_step(protocol, start_date)
+    if spec is None:
+        return None
+
+    record = NeedlingRecord(
+        enrollment_id=enrollment_id,
+        cow_id=cow.id,
+        protocol_day=spec["protocol_day"],
+        scheduled_date=spec["scheduled_date"],
+        treatment=spec["treatment"],
+        is_final=False,
+        self_administered=True,
+    )
+    db.add(record)
+    # The farm is told which cow and which hormone, on the day it is due. The
+    # technician is prompted separately to leave a note saying the same thing
+    # in his own words -- see the Farmer Injection report.
+    create_notification(
+        db, cow.farm_id, cow.id, "self_inject",
+        f"{cow.label} needs {spec['treatment']} on "
+        f"{spec['scheduled_date'].isoformat()} — you are giving this one yourself, "
+        "the day before insemination.",
+    )
+    return record
+
+
 async def on_insemination(cow: Cow, insemination: Insemination, db: AsyncSession) -> None:
     """Called immediately after an insemination is recorded."""
     cow.status = CowStatus.inseminated
@@ -221,7 +279,7 @@ async def on_heat_detected(cow: Cow, db: AsyncSession) -> None:
     cow.dry_off_confirmed_date = None
     create_notification(
         db, cow.farm_id, cow.id, "breeding_due",
-        f"Cow {cow.ear_tag} was detected in heat and returned to the Insemination Program.",
+        f"{cow.label} was detected in heat and returned to the Insemination Program.",
     )
 
 
@@ -239,7 +297,7 @@ async def on_pregnancy_negative(cow: Cow, db: AsyncSession) -> None:
     _clear_reproductive_fields(cow)
     create_notification(
         db, cow.farm_id, cow.id, "open",
-        f"Cow {cow.ear_tag} is Open — select a needling protocol.",
+        f"{cow.label} is Open — select a needling protocol.",
     )
 
 
@@ -270,7 +328,7 @@ async def on_final_record_completed(
     cow.current_program = None
     create_notification(
         db, cow.farm_id, cow.id, "open",
-        f"Cow {cow.ear_tag} finished {enrollment.protocol.value} — "
+        f"{cow.label} finished {enrollment.protocol.value} — "
         "returned to Open for a breeding decision.",
     )
 
@@ -295,21 +353,14 @@ async def on_bleeding_before_insemination(cow: Cow, db: AsyncSession, start_date
     )
     db.add(enrollment)
     await db.flush()
-    for s in get_scheduled_records(ProtocolType.ovsynch.value, start_date):
-        db.add(NeedlingRecord(
-            enrollment_id=enrollment.id,
-            cow_id=cow.id,
-            protocol_day=s["protocol_day"],
-            scheduled_date=s["scheduled_date"],
-            treatment=s["treatment"],
-            is_final=s["is_final"],
-        ))
+    await add_protocol_records(
+        cow, enrollment.id, ProtocolType.ovsynch.value, start_date, db)
     ensure_transition(cow, CowStatus.needling)
     cow.status = CowStatus.needling
     cow.current_program = ProtocolType.ovsynch.value
     create_notification(
         db, cow.farm_id, cow.id, "open",
-        f"Cow {cow.ear_tag} had a bleeding event and was transferred into the Ovsynch needling program.",
+        f"{cow.label} had a bleeding event and was transferred into the Ovsynch needling program.",
     )
 
 
@@ -337,6 +388,14 @@ async def on_calving(cow: Cow, calving_date: date, db: AsyncSession) -> None:
     cow.last_calving_date = calving_date
     cow.current_program = None
     _clear_reproductive_fields(cow)
+    # Dry-off has always notified the farm; calving -- the other end of the
+    # same pen change, and the moment she goes back into the milking string --
+    # silently did not.
+    create_notification(
+        db, cow.farm_id, cow.id, "calving",
+        f"{cow.label} has calved and is now Fresh — she goes back into the "
+        "milking herd.",
+    )
 
 
 async def on_cull(cow: Cow, db: AsyncSession) -> None:
@@ -401,7 +460,8 @@ async def run_lifecycle_transitions(
             cow.status = CowStatus.dry
             create_notification(
                 db, cow.farm_id, cow.id, "dry_off",
-                f"Cow {cow.ear_tag} is now Dry — change pen.",
+                f"{cow.label} has reached day {DRY_OFF_DAY} and is now Dry — "
+                "stop milking her and change her pen.",
             )
             changed += 1
             continue
@@ -415,7 +475,7 @@ async def run_lifecycle_transitions(
                 cow.current_program = None
                 create_notification(
                     db, cow.farm_id, cow.id, "open",
-                    f"Cow {cow.ear_tag} entered the Open Program — select a needling protocol.",
+                    f"{cow.label} entered the Open Program — select a needling protocol.",
                 )
                 changed += 1
             continue
@@ -434,15 +494,74 @@ async def run_lifecycle_transitions(
             cow.current_program = "Insemination"
             create_notification(
                 db, cow.farm_id, cow.id, "open",
-                f"Heifer {cow.ear_tag} reached breeding age — ready for the Insemination Program.",
+                f"Heifer {cow.label} reached breeding age — ready for the Insemination Program.",
             )
             changed += 1
 
     changed += await _expire_stale_enrollments(db, farm_ids, today)
+    changed += await _remind_pregnancy_checks(db, farm_ids, today)
 
     if changed:
         await db.commit()
     return changed
+
+
+async def _remind_pregnancy_checks(
+    db: AsyncSession, farm_ids: Optional[Iterable[uuid.UUID]], today: date,
+) -> int:
+    """Tell the farm when a cow comes due for her pregnancy check.
+
+    The check has always appeared on the technician's Pregnancy report on the
+    day it falls due; nobody told the FARM, so booking the vet depended on
+    somebody opening the app that morning.
+
+    Sent once per insemination, not once per sweep: the sweep runs several
+    times a day, and "due for a check" arriving four times before lunch is how
+    a farmer learns to ignore the feed. The guard is a notification of this
+    type already sitting against the cow since she was last bred -- which also
+    survives a restart, unlike anything held in memory.
+    """
+    from app.models.models import Notification
+
+    stmt = (
+        select(Cow)
+        .where(
+            Cow.status == CowStatus.inseminated,
+            Cow.last_insemination_date.isnot(None),
+            # `== today` rather than `<=`: a cow already past her due day was
+            # reminded on the day, and re-reminding her every sweep afterwards
+            # is the noise this guard exists to prevent.
+            Cow.last_insemination_date == today - timedelta(days=PREGNANCY_REPORT_DAY),
+        )
+        .order_by(Cow.id)
+    )
+    if farm_ids is not None:
+        farm_ids = list(farm_ids)
+        if not farm_ids:
+            return 0
+        stmt = stmt.where(Cow.farm_id.in_(farm_ids))
+
+    sent = 0
+    for cow in (await db.execute(stmt)).scalars().all():
+        already = await db.execute(
+            select(Notification.id)
+            .where(
+                Notification.cow_id == cow.id,
+                Notification.type == "preg_check",
+                Notification.created_at
+                >= datetime.combine(cow.last_insemination_date, time.min, tzinfo=timezone.utc),
+            )
+            .limit(1)
+        )
+        if already.scalar() is not None:
+            continue
+        create_notification(
+            db, cow.farm_id, cow.id, "preg_check",
+            f"{cow.label} is day {PREGNANCY_REPORT_DAY} since insemination — "
+            "she is due for her pregnancy check.",
+        )
+        sent += 1
+    return sent
 
 
 async def _expire_stale_enrollments(
@@ -506,7 +625,7 @@ async def _expire_stale_enrollments(
         days_late = (today - final_date).days
         create_notification(
             db, cow.farm_id, cow.id, "open",
-            f"Cow {cow.ear_tag} was not inseminated {days_late} days after her "
+            f"{cow.label} was not inseminated {days_late} days after her "
             f"{enrollment.protocol.value} final day — protocol cancelled, she is "
             "Open and needs a new breeding decision.",
         )

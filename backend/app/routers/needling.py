@@ -69,8 +69,11 @@ async def enroll_cow(
             ),
         )
 
+    # Validate the protocol name before anything is written: the records
+    # themselves are laid out by add_protocol_records below, which raises the
+    # same error but only after the enrollment row exists.
     try:
-        scheduled = get_scheduled_records(body.protocol.value, body.start_date)
+        get_scheduled_records(body.protocol.value, body.start_date)
     except UnknownProtocolError:
         raise HTTPException(status_code=422, detail=f"Unknown protocol: {body.protocol}")
 
@@ -85,16 +88,10 @@ async def enroll_cow(
     db.add(enrollment)
     await db.flush()
 
-    # Pre-generate all scheduled records for this protocol
-    for s in scheduled:
-        db.add(NeedlingRecord(
-            enrollment_id=enrollment.id,
-            cow_id=body.cow_id,
-            protocol_day=s["protocol_day"],
-            scheduled_date=s["scheduled_date"],
-            treatment=s["treatment"],
-            is_final=s["is_final"],
-        ))
+    # Pre-generate all scheduled records for this protocol -- and, on a farm
+    # that does its own needling, the shot the farmer gives the day before.
+    await status_engine.add_protocol_records(
+        cow, enrollment.id, body.protocol.value, body.start_date, db)
 
     cow.status = CowStatus.needling
     cow.current_program = body.protocol.value

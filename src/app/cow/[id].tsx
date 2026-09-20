@@ -89,7 +89,7 @@ export default function CowProfileScreen() {
           <View style={styles.heroTop}>
             <View style={styles.heroTitleCol}>
               <Text variant="display" color={onDark.text}>
-                {cow.earTag}
+                {cow.label}
               </Text>
               <Text variant="caption" color={onDark.textSecondary}>
                 {[cow.breed, `Lactation ${cow.lactationNumber}`].filter(Boolean).join(' · ')}

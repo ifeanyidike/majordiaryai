@@ -9,6 +9,7 @@ import {
 import {
   cows as demoCows,
   farms as demoFarms,
+  demoMessages,
   demoWorklist,
   vets as demoVets,
 } from '@/data/mock';
@@ -25,11 +26,13 @@ interface ApiFarm {
   assigned_technician_id?: string; assigned_technician_name?: string | null;
   assigned_technician_phone?: string | null;
   visit_weekdays?: number[]; visit_schedule_label?: string | null;
+  self_inject_needling?: boolean; self_vaccinate?: boolean;
   notes?: string | null;
 }
 
 interface ApiCow {
-  id: string; ear_tag: string; farm_id: string; farm_name?: string;
+  id: string; ear_tag: string; name?: string | null; label?: string;
+  farm_id: string; farm_name?: string;
   status: string; breed?: string; date_of_birth?: string;
   lactation_number: number; current_program?: string;
   notes?: string | null;
@@ -52,7 +55,8 @@ interface ApiVet {
 }
 
 interface ApiWorklistCow {
-  cow_id: string; ear_tag: string; farm_id: string; status: string;
+  cow_id: string; ear_tag: string; name?: string | null; label?: string;
+  farm_id: string; status: string;
   action: string; detail: string;
   lactation_number?: number;
   days_in_milk?: number | null; days_post_ai?: number | null;
@@ -106,6 +110,8 @@ interface ApiHerdSummary {
 /** What the cow form collects. Creating needs a farm; editing never moves one. */
 export interface CowInput {
   earTag: string;
+  /** Optional herd name; the tag stays the identity. */
+  name?: string;
   farmId: string;
   breed?: string;
   dateOfBirth?: string;
@@ -136,6 +142,10 @@ export interface FarmInput {
   herdSize: number;
   assignedTechnicianId?: string;
   visitWeekdays: number[];
+  /** This farm gives the last protocol hormone itself, the day before AI. */
+  selfInjectNeedling?: boolean;
+  /** …and the post-calving 2cc vaccine. */
+  selfVaccinate?: boolean;
   notes?: string;
 }
 
@@ -157,6 +167,8 @@ function mapFarm(f: ApiFarm): Farm {
     assignedTechnicianPhone: f.assigned_technician_phone ?? undefined,
     visitWeekdays: f.visit_weekdays ?? [0, 1, 2, 3, 4, 5],
     visitScheduleLabel: f.visit_schedule_label ?? undefined,
+    selfInjectNeedling: f.self_inject_needling ?? false,
+    selfVaccinate: f.self_vaccinate ?? false,
     // The farm record carries no vet id and no activity feed. Both are
     // derived: the vet from its own farm coverage list (vetForFarm) and the
     // activities from the herd's real dates (farmUpcomingActivities). These
@@ -200,6 +212,10 @@ function mapCow(c: ApiCow): Cow {
 
   return {
     id: c.id, earTag: c.ear_tag, farmId: c.farm_id,
+    name: c.name ?? undefined,
+    // The API computes the label so every screen names her identically; fall
+    // back to the tag for a payload from an older server.
+    label: c.label ?? c.ear_tag,
     status,
     inHeat,
     breed: c.breed ?? '', dateOfBirth: c.date_of_birth ?? '',
@@ -255,6 +271,8 @@ function mapWorklist(w: ApiWorklist): Worklist {
         cows: (r.cows ?? []).map((c) => ({
           cowId: c.cow_id,
           earTag: c.ear_tag,
+          name: c.name ?? undefined,
+          label: c.label ?? c.ear_tag,
           farmId: c.farm_id,
           status: c.status as CowStatus,
           action: c.action,
@@ -311,6 +329,54 @@ export interface HerdKpis {
   upcomingCalvings30d: number;
 }
 
+/** The two person-to-person feeds. Alarms come from the farm owner, Office
+ *  Alerts from the administrator — unlike a notification, which the system
+ *  generates and addresses to a farm. */
+export type MessageChannel = 'alarm' | 'office_alert';
+
+export interface AppMessage {
+  id: string;
+  channel: MessageChannel;
+  senderId: string;
+  senderName?: string;
+  senderRole?: string;
+  recipientId: string;
+  farmId?: string;
+  farmName?: string;
+  cowId?: string;
+  cowLabel?: string;
+  body: string;
+  readAt?: string;
+  createdAt: string;
+}
+
+interface ApiMessage {
+  id: string; channel: MessageChannel;
+  sender_id: string; sender_name?: string | null; sender_role?: string | null;
+  recipient_id: string;
+  farm_id?: string | null; farm_name?: string | null;
+  cow_id?: string | null; cow_label?: string | null;
+  body: string; read_at?: string | null; created_at: string;
+}
+
+function mapMessage(m: ApiMessage): AppMessage {
+  return {
+    id: m.id,
+    channel: m.channel,
+    senderId: m.sender_id,
+    senderName: m.sender_name ?? undefined,
+    senderRole: m.sender_role ?? undefined,
+    recipientId: m.recipient_id,
+    farmId: m.farm_id ?? undefined,
+    farmName: m.farm_name ?? undefined,
+    cowId: m.cow_id ?? undefined,
+    cowLabel: m.cow_label ?? undefined,
+    body: m.body,
+    readAt: m.read_at ?? undefined,
+    createdAt: m.created_at,
+  };
+}
+
 export interface AppNotification {
   id: string;
   farmId: string;
@@ -345,6 +411,9 @@ interface AppState {
   vetsLoading: boolean;
   worklistLoading: boolean;
   notificationsLoading: boolean;
+  messages: Record<MessageChannel, AppMessage[]>;
+  messagesLoading: boolean;
+  unreadMessages: Record<MessageChannel, number>;
   farmsError: string | null;
   cowsError: string | null;
   vetsError: string | null;
@@ -364,6 +433,13 @@ interface AppState {
   completeWorklistCowDemo: (reportType: string, cowId: string) => void;
   fetchKpis: (farmId?: string) => Promise<void>;
   fetchNotifications: () => Promise<void>;
+  fetchMessages: (channel: MessageChannel) => Promise<void>;
+  fetchUnreadMessageCounts: () => Promise<void>;
+  sendMessage: (input: {
+    channel: MessageChannel; body: string;
+    recipientId?: string; farmId?: string; cowId?: string;
+  }) => Promise<void>;
+  markMessageRead: (id: string) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   /** Mark every notification the user can currently see as read. */
   markAllNotificationsRead: () => Promise<void>;
@@ -468,6 +544,9 @@ const initialData = {
   vetsLoading: false,
   worklistLoading: false,
   notificationsLoading: false,
+  messages: { alarm: [], office_alert: [] },
+  messagesLoading: false,
+  unreadMessages: { alarm: 0, office_alert: 0 },
   farmsError: null as string | null,
   cowsError: null as string | null,
   vetsError: null as string | null,
@@ -676,6 +755,83 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  fetchMessages: async (channel) => {
+    if (isDemoMode) {
+      set((st) => ({ messages: { ...st.messages, [channel]: demoMessages(channel) } }));
+      return;
+    }
+    set({ messagesLoading: true });
+    try {
+      const raw = await api.get<ApiMessage[]>(`/messages/?channel=${channel}`);
+      set((st) => ({
+        messages: { ...st.messages, [channel]: raw.map(mapMessage) },
+        messagesLoading: false,
+      }));
+    } catch {
+      set({ messagesLoading: false });
+    }
+  },
+
+  fetchUnreadMessageCounts: async () => {
+    if (isDemoMode) {
+      set({ unreadMessages: { alarm: demoMessages('alarm').length, office_alert: 1 } });
+      return;
+    }
+    try {
+      const counts = await api.get<{ alarm: number; office_alert: number }>(
+        '/messages/unread-counts',
+      );
+      set({ unreadMessages: counts });
+    } catch {
+      // Badges are decoration; a failed count must not blank the dashboard.
+    }
+  },
+
+  sendMessage: async ({ channel, body, recipientId, farmId, cowId }) => {
+    if (isDemoMode) return;
+    const sent = await api.post<ApiMessage>('/messages/', {
+      channel,
+      body,
+      recipient_id: recipientId,
+      farm_id: farmId,
+      cow_id: cowId,
+    });
+    set((st) => ({
+      messages: { ...st.messages, [channel]: [mapMessage(sent), ...st.messages[channel]] },
+    }));
+  },
+
+  markMessageRead: async (id) => {
+    // Optimistic: the badge should drop the moment it is opened, and the
+    // request only confirms it.
+    const now = new Date().toISOString();
+    set((st) => {
+      const next = { ...st.messages };
+      let channel: MessageChannel | null = null;
+      (Object.keys(next) as MessageChannel[]).forEach((key) => {
+        next[key] = next[key].map((m) => {
+          if (m.id !== id || m.readAt) return m;
+          channel = key;
+          return { ...m, readAt: now };
+        });
+      });
+      if (!channel) return { messages: next };
+      return {
+        messages: next,
+        unreadMessages: {
+          ...st.unreadMessages,
+          [channel]: Math.max(0, st.unreadMessages[channel] - 1),
+        },
+      };
+    });
+    if (isDemoMode) return;
+    try {
+      await api.patch(`/messages/${id}/read`, {});
+    } catch {
+      // Left marked read locally; the next fetch reconciles it.
+    }
+  },
+
   fetchNotifications: async () => {
     if (isDemoMode) {
       set({ notifications: demoNotifications(get().cows.length ? get().cows : demoCows) });
@@ -750,6 +906,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       herd_size: input.herdSize,
       assigned_technician_id: input.assignedTechnicianId ?? null,
       visit_weekdays: input.visitWeekdays,
+      self_inject_needling: input.selfInjectNeedling ?? false,
+      self_vaccinate: input.selfVaccinate ?? false,
       notes: input.notes || null,
     };
     const saved = farmId
@@ -764,6 +922,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveCow: async (input, cowId) => {
     if (!isApiConfigured) throw new Error('Demo mode — connect the API to save cows.');
     const common = {
+      // The name is editable, unlike the tag: a farm can start naming a cow
+      // it has had for years, or correct a spelling, without her identity
+      // moving.
+      name: input.name || null,
       breed: input.breed || null,
       date_of_birth: input.dateOfBirth || null,
       lactation_number: input.lactationNumber,

@@ -10,21 +10,30 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 /**
  * The notifications this system actually sends.
  *
- * There are exactly three, and they are the three `create_notification` calls
- * in the backend (services/status_engine.py). Kept as a const tuple so the
+ * These are the `create_notification` calls in the backend
+ * (services/status_engine.py) and nothing else. Kept as a const tuple so the
  * map below is exhaustive by construction, and pinned to the backend by
  * tests/test_migrations.py — the earlier version of this file was built from
- * the SCREEN'S ICON TABLE instead, which lists aspirational types like `heat`
- * and `calving` that nothing has ever emitted. Four of the five toggles
- * therefore filtered nothing at all.
+ * the SCREEN'S ICON TABLE instead, which listed aspirational types nothing
+ * had ever emitted, so four of the five toggles filtered nothing at all.
  */
-export const NOTIFICATION_TYPES = ['dry_off', 'breeding_due', 'open'] as const;
+export const NOTIFICATION_TYPES = [
+  'dry_off',
+  'breeding_due',
+  'open',
+  'calving',
+  'preg_check',
+  'self_inject',
+] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export interface NotificationPrefs {
   dryOff: boolean;
   readyToBreed: boolean;
   needsDecision: boolean;
+  calving: boolean;
+  pregChecks: boolean;
+  selfInject: boolean;
 }
 
 export const NOTIFICATION_TOPICS: {
@@ -45,6 +54,21 @@ export const NOTIFICATION_TOPICS: {
     label: 'Needs a breeding decision',
     hint: 'A cow went Open — finished a protocol, lost a pregnancy, or came of age',
   },
+  {
+    key: 'calving',
+    label: 'Calving',
+    hint: 'A cow calved and is Fresh — she goes back into the milking herd',
+  },
+  {
+    key: 'pregChecks',
+    label: 'Pregnancy checks due',
+    hint: 'A cow reached day 30 since insemination and is due for her check',
+  },
+  {
+    key: 'selfInject',
+    label: 'Injections you give yourself',
+    hint: 'Which cow needs which hormone, on a farm that does its own needling',
+  },
 ];
 
 /**
@@ -56,6 +80,9 @@ const TOPIC_FOR_TYPE: Record<NotificationType, keyof NotificationPrefs> = {
   dry_off: 'dryOff',
   breeding_due: 'readyToBreed',
   open: 'needsDecision',
+  calving: 'calving',
+  preg_check: 'pregChecks',
+  self_inject: 'selfInject',
 };
 
 /** True when the user still wants to see this notification type in-app. */
@@ -82,6 +109,9 @@ const DEFAULT_NOTIFICATIONS: NotificationPrefs = {
   dryOff: true,
   readyToBreed: true,
   needsDecision: true,
+  calving: true,
+  pregChecks: true,
+  selfInject: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(

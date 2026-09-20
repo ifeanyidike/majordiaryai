@@ -10,6 +10,7 @@ from app.schemas.farms import (
     FarmCreate, FarmNoteCreate, FarmUpdate, FarmOut, VisitAssignmentBody,
     VisitAssignmentOut,
 )
+from app.services import messaging
 from app.services.access import check_farm_access, scope_to_farms
 from datetime import date
 from typing import List, Optional
@@ -25,7 +26,13 @@ ACTIVE_STATUSES = (CowStatus.calf, CowStatus.heifer, CowStatus.fresh, CowStatus.
                    CowStatus.needling, CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry)
 
 # Non-nullable columns that a PATCH must never null out.
-_NON_NULLABLE_FIELDS = {"name", "owner_name", "herd_size"}
+# Columns the database refuses to hold NULL. A PATCH that sends an explicit
+# null for one of these is treated as "leave it alone" rather than allowed
+# through to die on the constraint.
+_NON_NULLABLE_FIELDS = {
+    "name", "owner_name", "herd_size", "visit_weekdays",
+    "self_inject_needling", "self_vaccinate",
+}
 
 
 def _with_counts(stmt):
@@ -147,12 +154,23 @@ async def update_farm(
     data = body.model_dump(exclude_unset=True)
     if "assigned_technician_id" in data:
         await _check_assigned_technician(db, data["assigned_technician_id"])
+    previous_technician_id = farm.assigned_technician_id
 
     # exclude_unset: explicit nulls clear nullable fields
     for field, value in data.items():
         if value is None and field in _NON_NULLABLE_FIELDS:
             continue
         setattr(farm, field, value)
+
+    # Both technicians hear about it, by message rather than by notification:
+    # the one losing the farm loses access to that farm's notifications in the
+    # same breath, so a farm-addressed alert would reach everyone except the
+    # person whose route just changed.
+    if "assigned_technician_id" in data:
+        await messaging.announce_route_change(
+            db, current_user["id"], farm,
+            previous_technician_id, farm.assigned_technician_id,
+        )
 
     await db.commit()
     result = await db.execute(_with_counts(select(Farm).where(Farm.id == farm_id)))
@@ -309,8 +327,15 @@ async def set_visit_assignment(
     if assignment is None:
         assignment = FarmVisitAssignment(farm_id=farm_id, visit_date=body.visit_date)
         db.add(assignment)
+    previous_technician_id = assignment.assigned_technician_id or farm.assigned_technician_id
     assignment.assigned_technician_id = body.assigned_technician_id
     assignment.reason = body.reason
+
+    await messaging.announce_route_change(
+        db, current_user["id"], farm,
+        previous_technician_id, assignment.assigned_technician_id,
+        when=body.visit_date.isoformat(),
+    )
 
     try:
         await db.commit()

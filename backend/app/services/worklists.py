@@ -90,6 +90,10 @@ def needling_due_stmt(today: date):
         .where(
             NeedlingRecord.scheduled_date <= today,
             NeedlingRecord.completed == False,  # noqa: E712
+            # The farmer gives this one. It is real work on a real date, but
+            # not the technician's, and counting it onto his route would send
+            # him out for a shot that is not his to give.
+            NeedlingRecord.self_administered == False,  # noqa: E712
             ~defers_to_timed_breeding(today),
             NeedlingEnrollment.status == EnrollmentStatus.active,
             Cow.status.notin_(TERMINAL_STATUSES),

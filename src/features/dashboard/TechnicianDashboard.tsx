@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
   HeroHeader,
@@ -42,6 +42,13 @@ export function TechnicianDashboard() {
 
   const route = farmsToVisit(store);
   const outstanding = worklistTotal(store);
+  const alarms = store.unreadMessages.alarm;
+  const officeAlerts = store.unreadMessages.office_alert;
+
+  // Both badges in one call, so the two feed cards can show what is waiting
+  // without pulling either feed.
+  const { fetchUnreadMessageCounts } = store;
+  useEffect(() => { fetchUnreadMessageCounts(); }, []);
 
   const heroStats = [
     { value: route.length, label: 'Farms today' },
@@ -49,19 +56,40 @@ export function TechnicianDashboard() {
     { value: summary.total, label: 'Cows' },
   ];
 
-  const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [
+  // The four the client asked for. Reports and Cow Search moved down to the
+  // quick links rather than going away: Reports is per farm now, so the farm
+  // list is the honest route to it — but Cow Search has no other entry point
+  // anywhere in the app, and dropping it would strand the only way to find a
+  // cow whose farm you cannot remember.
+  const mainActions: {
+    label: string; caption: string; icon: IconName; badge?: number; onPress: () => void;
+  }[] = [
     // "All" matters: the hero above shows farms on TODAY'S route, and on a day
     // when every farm is scheduled the two numbers are identical. Without a
     // qualifier the pair reads as the same statistic printed twice.
     { label: 'Farms CRM', caption: `All ${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
+    {
+      label: 'Alarms',
+      caption: alarms ? `${alarms} from the barn` : 'From the farm owners',
+      icon: 'alert-circle',
+      badge: alarms,
+      onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'alarm' } }),
+    },
+    {
+      label: 'Office Alerts',
+      caption: officeAlerts ? `${officeAlerts} from the office` : 'From the office',
+      icon: 'briefcase',
+      badge: officeAlerts,
+      onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }),
+    },
     { label: 'To Do List', caption: route.length ? `${route.length} farms · ${outstanding} cows` : 'All clear', icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
-    // Reports are per farm (client correction), so this points at the farm
-    // list rather than a merged hub: pick the farm, then its Reports button.
-    { label: 'Reports', caption: 'By farm — pick one', icon: 'bar-chart', onPress: () => router.push('/(tabs)/farms') },
-    { label: 'Cow Search', caption: 'Find any cow', icon: 'search', onPress: () => router.push('/cow-search') },
   ];
 
   const quickLinks: { label: string; icon: IconName; badge?: number; onPress: () => void }[] = [
+    // Reports are per farm (client correction), so this points at the farm
+    // list rather than a merged hub: pick the farm, then its Reports button.
+    { label: 'Reports', icon: 'bar-chart-outline', onPress: () => router.push('/(tabs)/farms') },
+    { label: 'Cow Search', icon: 'search-outline', onPress: () => router.push('/cow-search') },
     { label: 'Notifications', icon: 'notifications-outline', badge: unread, onPress: () => router.push('/notifications') },
     { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/settings') },
     { label: 'My Profile', icon: 'person-outline', onPress: () => router.push('/(tabs)/profile') },
@@ -101,7 +129,19 @@ export function TechnicianDashboard() {
           {mainActions.map((a) => (
             <View key={a.label} style={styles.gridItem}>
               <PressableScale onPress={a.onPress} style={styles.actionCard}>
-                <IconCircle name={a.icon} size={52} />
+                <View>
+                  <IconCircle name={a.icon} size={52} />
+                  {/* Unread count sits on the icon, not beside the label: two
+                      of these four cards are feeds, and the number is the
+                      reason to tap before the words are read. */}
+                  {a.badge && a.badge > 0 ? (
+                    <View style={styles.cardBadge}>
+                      <Text variant="label" color={onDark.text}>
+                        {a.badge > 99 ? '99+' : a.badge}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
                 <View>
                   <Text variant="heading">{a.label}</Text>
                   <Text variant="caption" color={colors.textSecondary}>
@@ -193,6 +233,21 @@ const styles = StyleSheet.create({
   },
   linkRowLast: { borderBottomWidth: 0 },
   linkLabel: { flex: 1 },
+  cardBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Lifts the count clear of the icon circle behind it.
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
   badge: {
     minWidth: 22,
     height: 22,

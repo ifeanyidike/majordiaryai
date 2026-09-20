@@ -13,6 +13,9 @@ from app.schemas.vaccinations import VaccinationOut
 
 class CowCreate(BaseModel):
     ear_tag: str
+    # Optional herd name. The tag is still the identity — it carries the
+    # per-farm unique constraint — so this never replaces it.
+    name: Optional[str] = None
     farm_id: UUID
     breed: Optional[str] = None
     date_of_birth: Optional[date] = None
@@ -29,6 +32,7 @@ class CowCreate(BaseModel):
 
 
 class CowUpdate(BaseModel):
+    name: Optional[str] = None
     breed: Optional[str] = None
     date_of_birth: Optional[date] = None
     lactation_number: Optional[int] = Field(default=None, ge=0)
@@ -48,6 +52,10 @@ class CowOut(BaseModel):
     is_milking: bool = False
     id: UUID
     ear_tag: str
+    name: Optional[str] = None
+    # "Bluebell (CA 124 578 1042)", or just the tag when she has no name —
+    # computed once here so every screen names her the same way.
+    label: Optional[str] = None
     farm_id: UUID
     breed: Optional[str] = None
     date_of_birth: Optional[date] = None

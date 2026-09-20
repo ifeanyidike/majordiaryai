@@ -14,6 +14,10 @@ export interface HistoryEvent {
 export interface Cow {
   id: string;
   earTag: string;
+  /** Herd name, if this farm names its cows. The tag is still the identity. */
+  name?: string;
+  /** "Bluebell (CA 124 578 1042)", or just the tag when she has no name. */
+  label: string;
   farmId: string;
   status: CowStatus;
   inHeat?: boolean;
@@ -66,6 +70,10 @@ export interface Farm {
   assignedTechnicianPhone?: string;
   /** Weekdays this farm is visited, Mon=0 … Sun=6 (5-day = Mon–Fri). */
   visitWeekdays: number[];
+  /** This farm gives the last protocol hormone itself, the day before AI. */
+  selfInjectNeedling?: boolean;
+  /** …and the post-calving 2cc vaccine. */
+  selfVaccinate?: boolean;
   /** Display label for the schedule, e.g. "Mon–Sat". */
   visitScheduleLabel?: string;
   vetId: string;
@@ -108,6 +116,8 @@ export type RecordKind =
 export interface WorklistCow {
   cowId: string;
   earTag: string;
+  name?: string;
+  label: string;
   farmId: string;
   status: CowStatus;
   /** "Action Required" — the imperative instruction for this cow today. */

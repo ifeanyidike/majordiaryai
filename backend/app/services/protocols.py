@@ -12,7 +12,7 @@ TIMED_AI_PROTOCOLS for that distinction.
 """
 
 from datetime import date, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 # Protocols that end in a scheduled (timed) insemination. Prostaglandin Heat is
 # deliberately absent — its final day is heat observation with AI only if the
@@ -29,7 +29,7 @@ PROTOCOLS: Dict[str, List[Dict]] = {
     "ovsynch": [
         {"day": 1,  "treatment": "2cc GnRH"},
         {"day": 7,  "treatment": "2cc PGF"},
-        {"day": 10, "treatment": "2cc GnRH + Insemination", "is_final": True},
+        {"day": 10, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
     ],
     "prostaglandin_heat": [
         {"day": 1, "treatment": "2cc PGF"},
@@ -44,7 +44,7 @@ PROTOCOLS: Dict[str, List[Dict]] = {
         {"day": 17, "treatment": "2cc GnRH"},
         {"day": 24, "treatment": "2cc PGF"},
         {"day": 25, "treatment": "2cc PGF"},
-        {"day": 27, "treatment": "2cc GnRH + Insemination", "is_final": True},
+        {"day": 27, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
     ],
     "presynch": [
         {"day": 1,  "treatment": "2cc PGF"},
@@ -52,19 +52,19 @@ PROTOCOLS: Dict[str, List[Dict]] = {
         {"day": 17, "treatment": "2cc GnRH"},
         {"day": 24, "treatment": "2cc GnRH"},
         {"day": 31, "treatment": "2cc PGF"},
-        {"day": 34, "treatment": "2cc GnRH + Insemination", "is_final": True},
+        {"day": 34, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
     ],
     "general_synch": [
         {"day": 1,  "treatment": "2cc PGF"},
         {"day": 12, "treatment": "2cc GnRH"},
         {"day": 19, "treatment": "2cc PGF"},
-        {"day": 22, "treatment": "2cc GnRH + Insemination", "is_final": True},
+        {"day": 22, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
     ],
     "general_synch_2": [
         {"day": 1,  "treatment": "2cc PGF"},
         {"day": 10, "treatment": "2cc GnRH"},
         {"day": 17, "treatment": "2cc PGF"},
-        {"day": 20, "treatment": "2cc GnRH + Insemination", "is_final": True},
+        {"day": 20, "treatment": "2cc GnRH + Insemination", "hormone": "2cc GnRH", "is_final": True},
     ],
 }
 
@@ -125,3 +125,37 @@ def get_scheduled_records(protocol: str, start_date: date) -> List[Dict]:
         }
         for step in get_protocol_steps(protocol)
     ]
+
+
+def self_inject_step(protocol: str, start_date: date) -> Optional[Dict]:
+    """The shot a self-injecting farm gives, the day before the technician comes.
+
+    On a timed-AI protocol the last day is one hormone plus the insemination,
+    given together. A farm that wants to do its own needling takes the hormone
+    the day before and leaves the insemination to the technician -- so this
+    splits that final step: the hormone moves to `final_day - 1` and the
+    insemination stays where it is.
+
+    `hormone` is a declared field on the step, never parsed out of the
+    treatment text. Returns None for a protocol that does not end in a timed
+    AI (Prostaglandin Heat ends on observed heat, so there is no fixed day to
+    inject the day before).
+    """
+    if protocol not in TIMED_AI_PROTOCOLS:
+        return None
+    final = next(s for s in get_protocol_steps(protocol) if s.get("is_final"))
+    hormone = final.get("hormone")
+    if not hormone:
+        return None
+    day = final["day"] - 1
+    # Every timed-AI table leaves the day before the final one free; if one
+    # ever does not, the farmer's shot would collide with a scheduled step.
+    if any(s["day"] == day for s in get_protocol_steps(protocol)):
+        return None
+    return {
+        "protocol_day": day,
+        "scheduled_date": start_date + timedelta(days=day - 1),
+        "treatment": hormone,
+        "is_final": False,
+        "self_administered": True,
+    }

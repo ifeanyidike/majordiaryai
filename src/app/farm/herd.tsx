@@ -74,7 +74,7 @@ export default function HerdScreen() {
           <Animated.View entering={motion.down(index)}>
             <ListRow
               icon="analytics-outline"
-              title={cow.earTag}
+              title={cow.label}
               subtitle={`${cow.breed} · Lact ${cow.lactationNumber} · ${cow.daysInMilk} DIM`}
               right={<StatusPill kind={cow.status} />}
               onPress={() => router.push({ pathname: '/cow/[id]', params: { id: cow.id } })}

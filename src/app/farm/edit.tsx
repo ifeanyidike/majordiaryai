@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
+  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, View,
 } from 'react-native';
 import {
   Button,
@@ -60,6 +60,8 @@ export default function FarmEditScreen() {
   const [herdSize, setHerdSize] = useState('');
   const [technicianId, setTechnicianId] = useState<string | undefined>();
   const [weekdays, setWeekdays] = useState<number[]>(MON_SAT);
+  const [selfInject, setSelfInject] = useState(false);
+  const [selfVaccinate, setSelfVaccinate] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -82,6 +84,8 @@ export default function FarmEditScreen() {
     setHerdSize(existing.reportedHerdSize ? String(existing.reportedHerdSize) : '');
     setTechnicianId(existing.assignedTechnicianId);
     setWeekdays(existing.visitWeekdays?.length ? existing.visitWeekdays : MON_SAT);
+    setSelfInject(existing.selfInjectNeedling ?? false);
+    setSelfVaccinate(existing.selfVaccinate ?? false);
     setNotes(existing.notes?.[0] ?? '');
   }, [existing?.id]);
 
@@ -146,6 +150,8 @@ export default function FarmEditScreen() {
         herdSize: herdSize.trim() ? Number(herdSize.trim()) : 0,
         assignedTechnicianId: technicianId,
         visitWeekdays: weekdays,
+        selfInjectNeedling: selfInject,
+        selfVaccinate: selfVaccinate,
         notes: notes.trim(),
       };
       const savedId = await saveFarm(input, id);
@@ -265,6 +271,26 @@ export default function FarmEditScreen() {
           <Text variant="caption" color={colors.danger} style={styles.blurb}>{errors.weekdays}</Text>
         ) : null}
 
+        <SectionHeader title="What the farm does itself" />
+        <Text variant="caption" color={colors.textMuted} style={styles.blurb}>
+          Turn these on and the work stays on the list, but as a reminder to the
+          farm rather than a job for the technician.
+        </Text>
+        <View style={styles.selfServe}>
+          <SelfServeRow
+            label="Farmer gives the last needling"
+            hint="The hormone the day before insemination. The farm is told which cow needs which hormone, and the technician is prompted to leave a note."
+            value={selfInject}
+            onValueChange={setSelfInject}
+          />
+          <SelfServeRow
+            label="Farmer gives the post-calving vaccine"
+            hint="The 2cc shot due 30–50 days after calving stays on the Vaccine Report as a reminder."
+            value={selfVaccinate}
+            onValueChange={setSelfVaccinate}
+          />
+        </View>
+
         <SectionHeader title="Assigned Technician" />
         {technicians.length === 0 ? (
           <Text variant="caption" color={colors.textMuted} style={styles.blurb}>
@@ -318,6 +344,32 @@ function PresetChip({ label, active, onPress }: { label: string; active: boolean
   );
 }
 
+/** One "the farm does this itself" switch, with the consequence spelled out. */
+function SelfServeRow({
+  label, hint, value, onValueChange,
+}: {
+  label: string;
+  hint: string;
+  value: boolean;
+  onValueChange: (v: boolean) => void;
+}) {
+  return (
+    <View style={styles.selfServeRow}>
+      <View style={styles.selfServeText}>
+        <Text variant="bodyBold">{label}</Text>
+        <Text variant="caption" color={colors.textMuted}>{hint}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: colors.cream.line, true: colors.primary }}
+        thumbColor={colors.cream.base}
+        accessibilityLabel={label}
+      />
+    </View>
+  );
+}
+
 function TechOption({
   label, sublabel, active, onPress,
 }: { label: string; sublabel?: string; active: boolean; onPress: () => void }) {
@@ -344,6 +396,14 @@ function TechOption({
 }
 
 const styles = StyleSheet.create({
+  selfServe: { gap: spacing.md },
+  selfServeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  selfServeText: { flex: 1, gap: spacing.xs },
   content: { paddingHorizontal: spacing.xl, paddingBottom: spacing.huge },
   row: { flexDirection: 'row', gap: spacing.md },
   flex1: { flex: 1 },
