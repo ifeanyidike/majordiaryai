@@ -462,3 +462,145 @@ def test_the_needling_record_schema_carries_who_gives_the_shot():
     from app.schemas.needling import NeedlingRecordOut
 
     assert "self_administered" in NeedlingRecordOut.model_fields
+
+
+# ── day 283: dry becomes fresh on her own ────────────────────────────
+
+async def test_a_dry_cow_becomes_fresh_on_her_due_date(db, farm):
+    """The client on the call: "on 283 days, the status changes from dry to
+    fresh." Day 283 from the insemination is her due date.
+
+    The written summary rendered this as "day of calving", which is what
+    on_calving already did — an event somebody has to record. This is the
+    timed version he actually described.
+    """
+    from sqlalchemy import select
+
+    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS)
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="D2F-1", name="Clover",
+              status=CowStatus.dry, lactation_number=3,
+              last_insemination_date=ai,
+              due_date=status_engine.compute_due_date(ai),
+              dry_date=status_engine.compute_dry_date(ai))
+    db.add(cow)
+    await db.flush()
+    assert cow.due_date == TODAY
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+
+    assert cow.status is CowStatus.fresh
+    # She needs a calving date or she is a fresh cow with no clock: the day-70
+    # sweep would never move her and the vaccine report could never find her.
+    assert cow.last_calving_date == TODAY
+    notes = (await db.execute(
+        select(Notification).where(Notification.cow_id == cow.id)
+    )).scalars().all()
+    assert [n.type for n in notes] == ["calving"]
+    assert "confirm" in notes[0].message.lower()
+
+
+async def test_the_timed_flip_does_not_claim_a_lactation(db, farm):
+    """Nobody has said she calved. Counting the lactation here would make the
+    real calving record count it twice."""
+    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS)
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="D2F-2",
+              status=CowStatus.dry, lactation_number=3,
+              last_insemination_date=ai,
+              due_date=status_engine.compute_due_date(ai))
+    db.add(cow)
+    await db.flush()
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+    assert cow.lactation_number == 3
+
+    # Recording the calving is what advances it, and corrects the assumed date.
+    real_calving = TODAY - timedelta(days=2)
+    await status_engine.on_calving(cow, real_calving, db)
+    assert cow.lactation_number == 4
+    assert cow.last_calving_date == real_calving
+
+
+async def test_a_dry_cow_short_of_her_due_date_stays_dry(db, farm):
+    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS - 5)
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="D2F-3",
+              status=CowStatus.dry, lactation_number=2,
+              last_insemination_date=ai,
+              due_date=status_engine.compute_due_date(ai))
+    db.add(cow)
+    await db.flush()
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+    assert cow.status is CowStatus.dry
+
+
+# ── tag or name, but never neither ───────────────────────────────────
+
+async def test_a_cow_can_be_kept_on_her_name_alone(db, farm, api, make_user):
+    """Asked on the call whether both fields could be optional, the client
+    said yes. Some farms name their cows and never tag them."""
+    tech = await make_user(UserRole.technician)
+    farm.assigned_technician_id = tech.id
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post("/cows/", json={
+            "farm_id": str(farm.id), "name": "Bluebell", "lactation_number": 1,
+        })
+
+    assert r.status_code == 201, r.text
+    assert r.json()["ear_tag"] is None
+    assert r.json()["label"] == "Bluebell"
+
+
+async def test_a_cow_with_neither_is_refused(db, farm, api, make_user):
+    """A record of an animal nobody can refer to."""
+    tech = await make_user(UserRole.technician)
+    farm.assigned_technician_id = tech.id
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post("/cows/", json={
+            "farm_id": str(farm.id), "lactation_number": 1,
+        })
+
+    assert r.status_code == 422
+    assert "ear tag" in r.text.lower()
+
+
+async def test_clearing_the_last_identifier_is_refused(db, farm, api, make_user):
+    """The CHECK would catch this as a 500; the endpoint should say what is
+    wrong instead."""
+    tech = await make_user(UserRole.technician)
+    farm.assigned_technician_id = tech.id
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag=None, name="Clover",
+              status=CowStatus.open, lactation_number=1)
+    db.add(cow)
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.patch(f"/cows/{cow.id}", json={"name": None})
+
+    assert r.status_code == 422
+    assert "neither" in r.json()["detail"]
+
+
+async def test_two_name_only_cows_can_share_a_farm(db, farm):
+    """NULLs are distinct in a unique index, so (farm_id, ear_tag) does not
+    collapse every untagged cow into one row."""
+    for name in ("Daisy", "Buttercup"):
+        db.add(Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag=None, name=name,
+                   status=CowStatus.open, lactation_number=1))
+    await db.flush()  # must not raise
+
+
+def test_the_label_never_comes_back_empty():
+    tag_only = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag="CA 1", name=None,
+                   status=CowStatus.open, lactation_number=1)
+    name_only = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag=None, name="Daisy",
+                    status=CowStatus.open, lactation_number=1)
+    both = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag="CA 2", name="Rosie",
+               status=CowStatus.open, lactation_number=1)
+
+    assert tag_only.label == "CA 1"
+    assert name_only.label == "Daisy"
+    assert both.label == "Rosie (CA 2)"

@@ -64,3 +64,5 @@ test-accounts.txt
 *.credentials.txt
 *.secrets.txt
 issues.txt
+*.m4a
+*.transcript.txt

@@ -31,7 +31,7 @@ interface ApiFarm {
 }
 
 interface ApiCow {
-  id: string; ear_tag: string; name?: string | null; label?: string;
+  id: string; ear_tag?: string | null; name?: string | null; label?: string;
   farm_id: string; farm_name?: string;
   status: string; breed?: string; date_of_birth?: string;
   lactation_number: number; current_program?: string;
@@ -55,7 +55,7 @@ interface ApiVet {
 }
 
 interface ApiWorklistCow {
-  cow_id: string; ear_tag: string; name?: string | null; label?: string;
+  cow_id: string; ear_tag?: string | null; name?: string | null; label?: string;
   farm_id: string; status: string;
   action: string; detail: string;
   lactation_number?: number;
@@ -109,8 +109,8 @@ interface ApiHerdSummary {
 
 /** What the cow form collects. Creating needs a farm; editing never moves one. */
 export interface CowInput {
-  earTag: string;
-  /** Optional herd name; the tag stays the identity. */
+  /** Either identifier, or both — the API refuses neither. */
+  earTag?: string;
   name?: string;
   farmId: string;
   breed?: string;
@@ -211,11 +211,11 @@ function mapCow(c: ApiCow): Cow {
   const inHeat = status === 'inseminated' && dsi >= 20 && dsi <= 25;
 
   return {
-    id: c.id, earTag: c.ear_tag, farmId: c.farm_id,
+    id: c.id, earTag: c.ear_tag ?? undefined, farmId: c.farm_id,
     name: c.name ?? undefined,
     // The API computes the label so every screen names her identically; fall
-    // back to the tag for a payload from an older server.
-    label: c.label ?? c.ear_tag,
+    // back to whichever identifier a payload from an older server carries.
+    label: c.label ?? c.name ?? c.ear_tag ?? '',
     status,
     inHeat,
     breed: c.breed ?? '', dateOfBirth: c.date_of_birth ?? '',
@@ -270,9 +270,9 @@ function mapWorklist(w: ApiWorklist): Worklist {
         canRecord: r.can_record,
         cows: (r.cows ?? []).map((c) => ({
           cowId: c.cow_id,
-          earTag: c.ear_tag,
+          earTag: c.ear_tag ?? undefined,
           name: c.name ?? undefined,
-          label: c.label ?? c.ear_tag,
+          label: c.label ?? c.name ?? c.ear_tag ?? '',
           farmId: c.farm_id,
           status: c.status as CowStatus,
           action: c.action,
@@ -930,6 +930,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // it has had for years, or correct a spelling, without her identity
       // moving.
       name: input.name || null,
+      ear_tag: input.earTag || null,
       breed: input.breed || null,
       date_of_birth: input.dateOfBirth || null,
       lactation_number: input.lactationNumber,

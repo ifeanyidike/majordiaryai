@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 from uuid import UUID
 from datetime import date, datetime
@@ -12,9 +12,11 @@ from app.schemas.vaccinations import VaccinationOut
 
 
 class CowCreate(BaseModel):
-    ear_tag: str
-    # Optional herd name. The tag is still the identity — it carries the
-    # per-farm unique constraint — so this never replaces it.
+    # Either will do, but not neither. Some farms tag, some name, some do
+    # both; the database enforces the same rule (ck_cows_has_an_identifier),
+    # and catching it here turns a 500 on the constraint into a 422 that says
+    # what is wrong.
+    ear_tag: Optional[str] = None
     name: Optional[str] = None
     farm_id: UUID
     breed: Optional[str] = None
@@ -29,6 +31,12 @@ class CowCreate(BaseModel):
         if v is not None and v > local_today():
             raise ValueError("date_of_birth cannot be in the future")
         return v
+
+    @model_validator(mode="after")
+    def needs_an_identifier(self):
+        if not (self.ear_tag or "").strip() and not (self.name or "").strip():
+            raise ValueError("Give the cow an ear tag, a name, or both")
+        return self
 
 
 class CowUpdate(BaseModel):
@@ -51,7 +59,7 @@ class CowOut(BaseModel):
     # Derived: in milk from calving until dry-off (Master Structure, Milk Cycle)
     is_milking: bool = False
     id: UUID
-    ear_tag: str
+    ear_tag: Optional[str] = None
     name: Optional[str] = None
     # "Bluebell (CA 124 578 1042)", or just the tag when she has no name —
     # computed once here so every screen names her the same way.

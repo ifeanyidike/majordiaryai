@@ -13,8 +13,8 @@ export interface HistoryEvent {
 
 export interface Cow {
   id: string;
-  earTag: string;
-  /** Herd name, if this farm names its cows. The tag is still the identity. */
+  /** Either identifier may be absent — but never both. Use `label` to show her. */
+  earTag?: string;
   name?: string;
   /** "Bluebell (CA 124 578 1042)", or just the tag when she has no name. */
   label: string;
@@ -118,7 +118,7 @@ export type RecordKind =
 
 export interface WorklistCow {
   cowId: string;
-  earTag: string;
+  earTag?: string;
   name?: string;
   label: string;
   farmId: string;

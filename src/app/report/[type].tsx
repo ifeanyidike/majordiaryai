@@ -148,7 +148,7 @@ export default function ReportDetailScreen() {
                   : router.push({ pathname: '/cow/[id]', params: { id: cow.cowId } })
               }
               accessibilityRole="button"
-              accessibilityLabel={`${cow.earTag}. ${cow.action}`}
+              accessibilityLabel={`${cow.label}. ${cow.action}`}
             >
               <View style={styles.rowTop}>
                 <Text variant="subheading" style={styles.flex1} numberOfLines={1}>

@@ -20,7 +20,7 @@ export default function CowSearchScreen() {
     return cows.filter(
       (c) =>
         c.id.toLowerCase().includes(q) ||
-        c.earTag.toLowerCase().includes(q) ||
+        (c.earTag ?? '').toLowerCase().includes(q) ||
         // A farm that names its cows searches by name — typing "Bluebell"
         // finding nothing is the whole reason the name exists.
         (c.name ?? '').toLowerCase().includes(q) ||

@@ -208,6 +208,16 @@ async def update_cow(
             continue  # never null out non-nullable columns
         setattr(cow, field, value)
 
+    # Clearing her name when she has no tag (or vice versa) would leave a cow
+    # nobody can refer to. ck_cows_has_an_identifier catches it, but only as a
+    # 500 on the constraint — this says what is actually wrong.
+    if not (cow.ear_tag or "").strip() and not (cow.name or "").strip():
+        await db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail="A cow needs an ear tag or a name — this would leave her with neither",
+        )
+
     await db.commit()
     result = await db.execute(
         select(Cow).where(Cow.id == cow_id).options(selectinload(Cow.farm))

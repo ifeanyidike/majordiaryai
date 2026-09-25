@@ -254,7 +254,9 @@ function FormActions({
  */
 export interface RecordTarget {
   id: string;
-  earTag: string;
+  /** How to name her to a person — her name, her tag, or both. Always set. */
+  label: string;
+  earTag?: string;
   status: CowStatus;
   /**
    * Which farm's bull list to offer.
@@ -327,7 +329,7 @@ export function InseminationForm({
           notes: notes.trim() || null,
         });
         toast.show(
-          `Bleeding recorded — ${cow.earTag} moves to Open and restarts on Ovsynch`,
+          `Bleeding recorded — ${cow.label} moves to Open and restarts on Ovsynch`,
           'water',
           'success',
         );
@@ -351,8 +353,8 @@ export function InseminationForm({
       });
       toast.success(
         banner
-          ? `Final injection + AI recorded — ${cow.earTag} is now Inseminated`
-          : `AI recorded — ${cow.earTag} is now Inseminated`,
+          ? `Final injection + AI recorded — ${cow.label} is now Inseminated`
+          : `AI recorded — ${cow.label} is now Inseminated`,
       );
       onComplete();
     } catch (e: any) {
@@ -684,7 +686,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
             : null,
         notes: notes.trim() ? `${timeNote} — ${notes.trim()}` : timeNote,
       });
-      toast.success(`Calving recorded — ${cow.earTag} is now Fresh`);
+      toast.success(`Calving recorded — ${cow.label} is now Fresh`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to record calving');
@@ -861,7 +863,7 @@ export function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
         // record it ad-hoc rather than telling the technician "no".
         await api.post(`/vaccinations/cow/${cow.id}`, body);
       }
-      toast.success(`Vaccination recorded for ${cow.earTag}`);
+      toast.success(`Vaccination recorded for ${cow.label}`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to record vaccination');
@@ -947,7 +949,7 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         protocol,
         start_date: startDate,
       });
-      toast.success(`${cow.earTag} enrolled in ${protocolByValue(protocol)?.label}`);
+      toast.success(`${cow.label} enrolled in ${protocolByValue(protocol)?.label}`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to enroll in protocol');
@@ -1073,7 +1075,7 @@ export function DryOffConfirmForm({ cow, onCancel, onComplete }: FormProps) {
     setLoading(true);
     try {
       await api.post(`/cows/${cow.id}/dry-off-confirm`, {});
-      toast.success(`${cow.earTag} confirmed in the dry pen`);
+      toast.success(`${cow.label} confirmed in the dry pen`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to confirm dry off');
@@ -1085,7 +1087,7 @@ export function DryOffConfirmForm({ cow, onCancel, onComplete }: FormProps) {
   return (
     <>
       <Text variant="body" color={colors.textSecondary} style={styles.fieldHint}>
-        Confirm {cow.earTag} has been moved to the dry pen. She leaves the Dry Report once
+        Confirm {cow.label} has been moved to the dry pen. She leaves the Dry Report once
         recorded — without this it repeats every day.
       </Text>
       <TechnicianRow />
@@ -1118,7 +1120,7 @@ function CullConfirm({ cow, onCancel, onComplete }: FormProps) {
         reason: reason.trim(),
         notes: notes.trim() || null,
       });
-      toast.success(`${cow.earTag} marked as Cull`);
+      toast.success(`${cow.label} marked as Cull`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to cull cow');
@@ -1130,7 +1132,7 @@ function CullConfirm({ cow, onCancel, onComplete }: FormProps) {
   return (
     <>
       <Text variant="body" color={colors.textSecondary} style={{ marginBottom: spacing.lg }}>
-        Mark <Text variant="bodyBold">{cow.earTag}</Text> as cull? She'll be removed from all
+        Mark <Text variant="bodyBold">{cow.label}</Text> as cull? She'll be removed from all
         active programs and breeding schedules.
       </Text>
       <FormLabel>Cull Date</FormLabel>
@@ -1163,7 +1165,7 @@ function FinalStatusConfirm({ cow, onCancel, onComplete, kind }: FormProps & { k
     setLoading(true);
     try {
       await api.post(`/cows/${cow.id}/mark-${kind}`, { reason: notes.trim() || null });
-      toast.success(`${cow.earTag} marked as ${kind === 'sold' ? 'Sold' : 'Dead'}`);
+      toast.success(`${cow.label} marked as ${kind === 'sold' ? 'Sold' : 'Dead'}`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to update status');
@@ -1175,7 +1177,7 @@ function FinalStatusConfirm({ cow, onCancel, onComplete, kind }: FormProps & { k
   return (
     <>
       <Text variant="body" color={colors.textSecondary} style={{ marginBottom: spacing.lg }}>
-        Mark <Text variant="bodyBold">{cow.earTag}</Text> as {kind}? This is final and cannot be
+        Mark <Text variant="bodyBold">{cow.label}</Text> as {kind}? This is final and cannot be
         undone.
       </Text>
       <FormLabel>Notes</FormLabel>
@@ -1308,7 +1310,7 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
                 {activeAction ? MODAL_TITLES[activeAction] : ''}
               </Text>
               <Text variant="caption" color={colors.textSecondary}>
-                {cow.earTag}
+                {cow.label}
               </Text>
             </View>
             <ScrollView

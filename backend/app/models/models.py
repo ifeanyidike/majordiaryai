@@ -240,16 +240,20 @@ class Bull(Base):
 class Cow(Base):
     __tablename__ = "cows"
     __table_args__ = (
+        # NULLs are distinct in a unique index, so any number of name-only
+        # cows coexist while two cows still cannot share a real tag.
         UniqueConstraint("farm_id", "ear_tag"),
         CheckConstraint("lactation_number >= 0", name="ck_cows_lactation_number_non_negative"),
+        # One identifier at minimum. A cow with neither is a record of nothing.
+        CheckConstraint("ear_tag IS NOT NULL OR name IS NOT NULL",
+                        name="ck_cows_has_an_identifier"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    ear_tag: Mapped[str] = mapped_column(String, nullable=False)
-    # Farms that name their cows want to search and read them that way. The tag
-    # stays the identity — it is what is unique per farm and what the
-    # regulator cares about — so this is an optional alias, never a
-    # replacement.
+    # Either identifier may be absent, but not both (ck_cows_has_an_identifier).
+    # Some farms tag, some name, some do both — the client was asked directly
+    # whether both fields could be optional and said yes.
+    ear_tag: Mapped[Optional[str]] = mapped_column(String)
     name: Mapped[Optional[str]] = mapped_column(String)
     farm_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("farms.id"), nullable=False)
     breed: Mapped[Optional[str]] = mapped_column(String)
@@ -294,12 +298,13 @@ class Cow(Base):
     def label(self) -> str:
         """How this cow should be named to a person.
 
-        A farm that names its cows wants to read the name; everyone still
-        needs the tag, because that is the identity the herd book and the
-        unique constraint use. So a named cow reads "Bluebell (CA 124 578
-        1042)" and an unnamed one is just her tag.
+        Both identifiers when she has both — "Bluebell (CA 124 578 1042)" —
+        and whichever one she has when she does not. The constraint guarantees
+        there is always one, so this never returns an empty string.
         """
-        return f"{self.name} ({self.ear_tag})" if self.name else self.ear_tag
+        if self.name and self.ear_tag:
+            return f"{self.name} ({self.ear_tag})"
+        return self.name or self.ear_tag or ""
 
 
 class Insemination(Base):

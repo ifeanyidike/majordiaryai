@@ -4,7 +4,6 @@ import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
   HeroHeader,
-  HeroStats,
   IconCircle,
   PressableScale,
   Screen,
@@ -13,7 +12,7 @@ import {
 } from '@/components';
 import { colors, gradients, onDark, radius, shadows, spacing } from '@/theme';
 import {
-  farmsToVisit, summarize, unreadNotificationCount, useAppStore, worklistTotal,
+  farmsToVisit, unreadNotificationCount, useAppStore, worklistTotal,
 } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -22,7 +21,6 @@ type IconName = keyof typeof Ionicons.glyphMap;
 export function TechnicianDashboard() {
   const router = useRouter();
   const store = useAppStore();
-  const { cows } = store;
   const unread = unreadNotificationCount(store);
   const { user, signOut } = useAuthStore();
   const today = new Date().toLocaleDateString('en-CA', {
@@ -30,7 +28,6 @@ export function TechnicianDashboard() {
     month: 'long',
     day: 'numeric',
   });
-  const summary = summarize(cows);
   // Both figures come from the work list itself, so this caption and the To-Do
   // screen it links to always agree. "Farms" here means farms on today's route,
   // not every farm assigned to the technician.
@@ -50,17 +47,13 @@ export function TechnicianDashboard() {
   const { fetchUnreadMessageCounts } = store;
   useEffect(() => { fetchUnreadMessageCounts(); }, []);
 
-  const heroStats = [
-    { value: route.length, label: 'Farms today' },
-    { value: outstanding, label: 'Cows to do' },
-    { value: summary.total, label: 'Cows' },
-  ];
-
-  // The four the client asked for. Reports and Cow Search moved down to the
-  // quick links rather than going away: Reports is per farm now, so the farm
-  // list is the honest route to it — but Cow Search has no other entry point
-  // anywhere in the app, and dropping it would strand the only way to find a
-  // cow whose farm you cannot remember.
+  // The four the client asked for, verbatim: "Reports and Cow Search to
+  // remove, and replace it with alarms and office alerts." Reports is reached
+  // through a farm now, which is where per-farm reports belong.
+  //
+  // NOTE: /cow-search is left in the router but no longer linked from
+  // anywhere. Raised with the client — finding a cow whose farm you cannot
+  // remember has no other route in the app.
   const mainActions: {
     label: string; caption: string; icon: IconName; badge?: number; onPress: () => void;
   }[] = [
@@ -86,10 +79,6 @@ export function TechnicianDashboard() {
   ];
 
   const quickLinks: { label: string; icon: IconName; badge?: number; onPress: () => void }[] = [
-    // Reports are per farm (client correction), so this points at the farm
-    // list rather than a merged hub: pick the farm, then its Reports button.
-    { label: 'Reports', icon: 'bar-chart-outline', onPress: () => router.push('/(tabs)/farms') },
-    { label: 'Cow Search', icon: 'search-outline', onPress: () => router.push('/cow-search') },
     { label: 'Notifications', icon: 'notifications-outline', badge: unread, onPress: () => router.push('/notifications') },
     { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/settings') },
     { label: 'My Profile', icon: 'person-outline', onPress: () => router.push('/(tabs)/profile') },
@@ -119,8 +108,6 @@ export function TechnicianDashboard() {
             {(user?.name ?? 'there').split(' ')[0]}
           </Text>
         </View>
-
-        <HeroStats tone="scrim" items={heroStats} style={styles.heroStats} />
       </HeroHeader>
 
       {/* Action cards overlapping the hero */}
@@ -190,9 +177,6 @@ export function TechnicianDashboard() {
 }
 
 const styles = StyleSheet.create({
-  heroStats: {
-    marginTop: spacing.xxl,
-  },
   body: {
     paddingHorizontal: spacing.xl,
     marginTop: -spacing.xxxl,

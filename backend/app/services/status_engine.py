@@ -435,7 +435,8 @@ async def run_lifecycle_transitions(
     """Apply all timed status transitions. Invoked by report endpoints and
     POST /admin/run-transitions; commits once if anything changed.
 
-      pregnant + dry_date reached      → dry (+ "change pen" notification)
+      pregnant + dry_date reached      → dry (+ "stop milking" notification)
+      dry + due_date reached (day 283) → fresh (+ "confirm the calving")
       fresh + day 70 (next Mon/Tue/Sat)→ open (+ notification)
       calf + day 60                    → heifer
       heifer + day 395 (~13 months)    → open (breeding-eligible, + notification)
@@ -447,7 +448,13 @@ async def run_lifecycle_transitions(
 
     stmt = (
         select(Cow)
-        .where(Cow.status.in_([CowStatus.pregnant, CowStatus.fresh, CowStatus.calf, CowStatus.heifer]))
+        # `dry` is in the list because the due-date branch below moves her on;
+        # without it that branch is unreachable and a dry cow never becomes
+        # fresh on her own.
+        .where(Cow.status.in_([
+            CowStatus.pregnant, CowStatus.dry, CowStatus.fresh,
+            CowStatus.calf, CowStatus.heifer,
+        ]))
         # Deterministic lock order — two concurrent sweeps over overlapping
         # farm scopes must acquire row locks in the same sequence or they
         # deadlock (FOR UPDATE without ORDER BY locks in scan order).
@@ -471,6 +478,36 @@ async def run_lifecycle_transitions(
                 db, cow.farm_id, cow.id, "dry_off",
                 f"{cow.label} has reached day {DRY_OFF_DAY} and is now Dry — "
                 "stop milking her and change her pen.",
+            )
+            changed += 1
+            continue
+
+        if cow.status == CowStatus.dry and cow.due_date and cow.due_date <= today:
+            # "On 283 days, the status changes from dry to fresh" -- the
+            # client's own words. Day 283 is GESTATION_DAYS from the
+            # insemination, which is her due date.
+            #
+            # Deliberately conservative about everything EXCEPT the status.
+            # Nobody has told us she actually calved, so:
+            #   * last_calving_date is set to the due date as an ASSUMPTION,
+            #     because without it she is a fresh cow with no clock -- the
+            #     day-70 sweep below would never move her again and the
+            #     vaccine report could never find her;
+            #   * lactation_number is NOT incremented. That belongs to the
+            #     calving itself, and recording the real one later increments
+            #     it and overwrites the assumed date with the true one. If the
+            #     calving is never recorded she stays a lactation behind,
+            #     which is the honest answer: we never confirmed it happened.
+            assumed_calving = cow.due_date
+            cow.status = CowStatus.fresh
+            cow.current_program = None
+            _clear_reproductive_fields(cow)
+            cow.last_calving_date = assumed_calving
+            create_notification(
+                db, cow.farm_id, cow.id, "calving",
+                f"{cow.label} has reached her due date ({assumed_calving.isoformat()}) "
+                "and is now Fresh — confirm the calving so her lactation and "
+                "dates are right.",
             )
             changed += 1
             continue

@@ -60,7 +60,7 @@ export default function CowEditScreen() {
 
   useEffect(() => {
     if (!existing) return;
-    setEarTag(existing.earTag);
+    setEarTag(existing.earTag ?? '');
     setName(existing.name ?? '');
     setFarmId(existing.farmId);
     setBreed(existing.breed ?? '');
@@ -71,14 +71,18 @@ export default function CowEditScreen() {
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
-    if (!isEdit && !earTag.trim()) e.earTag = 'Ear tag is required';
+    // Either identifier will do; the API and the database both refuse
+    // neither, so say so here rather than letting the save fail.
+    if (!isEdit && !earTag.trim() && !name.trim()) {
+      e.earTag = 'Give her an ear tag, a name, or both';
+    }
     if (!isEdit && !farmId) e.farmId = 'Choose the farm this cow belongs to';
     if (dob.trim() && !isValidPastOrTodayDate(dob.trim())) {
       e.dob = 'Use YYYY-MM-DD, today or earlier';
     }
     if (lactation.trim() && !/^\d+$/.test(lactation.trim())) e.lactation = 'Numbers only';
     return e;
-  }, [earTag, farmId, dob, lactation, isEdit]);
+  }, [earTag, name, farmId, dob, lactation, isEdit]);
 
   const valid = Object.keys(errors).length === 0;
 
@@ -114,7 +118,7 @@ export default function CowEditScreen() {
     setSaving(true);
     try {
       const input: CowInput = {
-        earTag: earTag.trim(),
+        earTag: earTag.trim() || undefined,
         name: name.trim() || undefined,
         farmId: farmId!,
         breed: breed.trim(),
@@ -124,7 +128,9 @@ export default function CowEditScreen() {
         notes: notes.trim(),
       };
       const savedId = await saveCow(input, id);
-      toast.success(isEdit ? 'Cow updated' : `${input.earTag} added`);
+      toast.success(
+        isEdit ? 'Cow updated' : `${input.name || input.earTag} added`,
+      );
       router.replace({ pathname: '/cow/[id]', params: { id: savedId } });
     } catch (e: any) {
       toast.error(e?.message ?? 'Could not save the cow');
@@ -150,21 +156,21 @@ export default function CowEditScreen() {
         <Header
           back
           title={isEdit ? 'Edit Cow' : 'Add Cow'}
-          subtitle={isEdit ? existing?.earTag : 'New cow record'}
+          subtitle={isEdit ? existing?.label : 'New cow record'}
         />
 
         <SectionHeader title="Identity" />
         {isEdit ? (
           <View style={styles.locked}>
             <Text variant="label" color={colors.textSecondary}>Ear Tag</Text>
-            <Text variant="bodyBold">{existing?.earTag}</Text>
+            <Text variant="bodyBold">{existing?.label}</Text>
             <Text variant="caption" color={colors.textMuted}>
               An ear tag identifies the animal — re-tagging is a separate process.
             </Text>
           </View>
         ) : (
           <FormRow
-            label="Ear Tag"
+            label="Ear Tag (optional if she has a name)"
             value={earTag}
             onChangeText={setEarTag}
             placeholder="e.g. CA 124 578 1042"
@@ -177,7 +183,7 @@ export default function CowEditScreen() {
             way. The tag above is still the identity — unique per farm, and
             what every other record keys on — so this never replaces it. */}
         <FormRow
-          label="Name (optional)"
+          label="Name (optional if she has a tag)"
           value={name}
           onChangeText={setName}
           placeholder="e.g. Bluebell"

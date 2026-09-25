@@ -41,10 +41,13 @@ VET_REPORT_TYPES = frozenset({"pregnancy-check", "pregnant", "calving-due"})
 # ago", overdue, forever.
 HEAT_ACTIONABLE_DAYS = 2
 
-# How far ahead the technician is prompted to leave the farmer a note. Long
-# enough that he is standing on the farm at least once before the shot is due,
-# short enough that the prompt is about this week's work.
-FARMER_NOTE_LEAD_DAYS = 7
+# How far ahead the technician is prompted to leave the farmer a note.
+#
+# The client was specific on the call: "the day before, the technician gets a
+# notification ... leave a note for the farmer to do the injection." A week's
+# warning was my own reading -- that he would want to be standing on the farm
+# at least once before it fell due -- and it is not what he asked for.
+FARMER_NOTE_LEAD_DAYS = 1
 
 
 async def _farmer_injections_by_cow(db: AsyncSession, current_user: dict, today: date,

@@ -84,7 +84,9 @@ class DailyTaskSummary(BaseModel):
 
 class WorklistCow(BaseModel):
     cow_id: UUID
-    ear_tag: str
+    # Optional since 0017: a cow may be identified by her name instead.
+    # `label` always has something in it.
+    ear_tag: Optional[str] = None
     # Her herd name, and the two combined. The builder puts both on every row
     # so no screen has to fetch the cow again just to print her name — but a
     # field missing from this model is dropped from the response, which is how

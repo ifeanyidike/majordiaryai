@@ -52,6 +52,7 @@ interface Props {
 function asTarget(cow: WorklistCow): RecordTarget {
   return {
     id: cow.cowId,
+    label: cow.label,
     earTag: cow.earTag,
     status: cow.status,
     farmId: cow.farmId,
@@ -180,7 +181,7 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
           <Text variant="heading">{kind ? TITLES[kind] : ''}</Text>
           {cow ? (
             <Text variant="caption" color={colors.textSecondary} style={styles.subtitle}>
-              {cow.earTag}
+              {cow.label}
             </Text>
           ) : null}
           <ScrollView

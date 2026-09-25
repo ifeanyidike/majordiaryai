@@ -256,7 +256,7 @@ CREATE TABLE public.calving_records (
 
 CREATE TABLE public.cows (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-    ear_tag text NOT NULL,
+    ear_tag text,
     farm_id uuid NOT NULL,
     breed text,
     date_of_birth date,
@@ -277,6 +277,7 @@ CREATE TABLE public.cows (
     recheck_due_date date,
     dry_off_confirmed_date date,
     name character varying,
+    CONSTRAINT ck_cows_has_an_identifier CHECK (((ear_tag IS NOT NULL) OR (name IS NOT NULL))),
     CONSTRAINT ck_cows_lactation_number_non_negative CHECK ((lactation_number >= 0))
 );
 
