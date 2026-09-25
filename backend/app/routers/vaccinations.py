@@ -48,6 +48,7 @@ async def vaccinations_due(
             "id": record.id,
             "cow_id": cow.id,
             "ear_tag": cow.ear_tag,
+            "label": cow.label,
             "farm_id": cow.farm_id,
             "farm_name": farm.name,
             "scheduled_date": record.scheduled_date,

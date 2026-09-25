@@ -108,9 +108,17 @@ async def test_an_ordinary_farm_still_gets_hormone_and_ai_together(
     assert final.treatment == "2cc GnRH + Insemination"
 
 
-async def test_the_farm_is_told_which_cow_needs_which_hormone(db, farm, api, make_user):
-    """The point of the arrangement: the farmer cannot give a shot nobody
-    named to them."""
+async def test_the_farm_is_told_the_day_before_not_at_enrollment(
+    db, farm, api, make_user,
+):
+    """The client: "the day before, the technician gets a notification".
+
+    The first version announced it at enrollment -- nine days early on
+    Ovsynch, which is how a shot gets filed and forgotten. Now the sweep
+    raises it the day before, and enrolling says nothing.
+    """
+    from sqlalchemy import select
+
     tech = await make_user(UserRole.technician)
     farm.self_inject_needling = True
     farm.assigned_technician_id = tech.id
@@ -125,15 +133,106 @@ async def test_the_farm_is_told_which_cow_needs_which_hormone(db, farm, api, mak
             "start_date": TODAY.isoformat(),
         })
 
-    from sqlalchemy import select
-    notes = (await db.execute(
-        select(Notification).where(Notification.cow_id == cow.id)
-    )).scalars().all()
-    assert [n.type for n in notes] == ["self_inject"]
-    message = notes[0].message
-    assert "2cc GnRH" in message
+    def notes():
+        return db.execute(select(Notification).where(
+            Notification.cow_id == cow.id, Notification.type == "self_inject"))
+
+    assert (await notes()).scalars().all() == [], "announced at enrollment"
+
+    # Day 9 is TODAY + 8; the day before it is TODAY + 7.
+    await status_engine.run_lifecycle_transitions(
+        db, farm_ids=[farm.id], today=TODAY + timedelta(days=6))
+    assert (await notes()).scalars().all() == [], "announced two days early"
+
+    await status_engine.run_lifecycle_transitions(
+        db, farm_ids=[farm.id], today=TODAY + timedelta(days=7))
+    sent = (await notes()).scalars().all()
+    assert len(sent) == 1
+    message = sent[0].message
+    assert "2cc GnRH" in message and "tomorrow" in message
     # Named as the farm knows her, with the tag still there to remove all doubt.
     assert "Bluebell" in message and "SELF-2" in message
+
+    # Six-hourly sweeps must not repeat it.
+    await status_engine.run_lifecycle_transitions(
+        db, farm_ids=[farm.id], today=TODAY + timedelta(days=7))
+    assert len((await notes()).scalars().all()) == 1
+
+
+async def test_a_missed_sweep_still_announces_the_farmers_shot(db, farm, api, make_user):
+    """If nothing ran on the day before (an outage, a stalled redeploy), the
+    next sweep catches up rather than skipping it for good."""
+    from sqlalchemy import select
+
+    tech = await make_user(UserRole.technician)
+    farm.self_inject_needling = True
+    farm.assigned_technician_id = tech.id
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="SELF-4",
+              status=CowStatus.open, lactation_number=1)
+    db.add(cow)
+    await db.flush()
+    async with api("technician", user_id=tech.id) as client:
+        await client.post("/needling/enroll", json={
+            "cow_id": str(cow.id), "protocol": "ovsynch",
+            "start_date": TODAY.isoformat(),
+        })
+
+    # Nothing ran on TODAY+7; the sweep first runs ON the shot's day.
+    await status_engine.run_lifecycle_transitions(
+        db, farm_ids=[farm.id], today=TODAY + timedelta(days=8))
+    sent = (await db.execute(select(Notification).where(
+        Notification.cow_id == cow.id, Notification.type == "self_inject"
+    ))).scalars().all()
+    assert len(sent) == 1
+    assert "today" in sent[0].message
+
+
+async def test_recording_the_ai_closes_the_farmers_shot(db, farm, api, make_user):
+    """Nobody else ever completes the day-9 record -- the farmer has no app
+    action for it -- so without this it read as a missed shot for ever."""
+    from sqlalchemy import select
+
+    tech = await make_user(UserRole.technician)
+    farm.self_inject_needling = True
+    farm.assigned_technician_id = tech.id
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="SELF-5",
+              status=CowStatus.open, lactation_number=1)
+    db.add(cow)
+    await db.flush()
+    # Start nine days ago so the final (AI) day is today. The enroll endpoint
+    # refuses to back-date more than a day (a typo'd year books a route decades
+    # out), so lay the protocol down through the same builder it uses.
+    start = TODAY - timedelta(days=9)
+    enrollment = NeedlingEnrollment(
+        id=uuid.uuid4(), cow_id=cow.id, protocol=ProtocolType.ovsynch,
+        start_date=start, current_day=10, status=EnrollmentStatus.active,
+    )
+    db.add(enrollment)
+    await db.flush()
+    await status_engine.add_protocol_records(cow, enrollment.id, "ovsynch", start, db)
+    cow.status = CowStatus.needling
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post("/inseminations/", json={
+            "cow_id": str(cow.id), "date": TODAY.isoformat(),
+            "bull_name": "Mogul 7HO11314", "semen_type": "conventional",
+        })
+        assert r.status_code == 201, r.text
+
+    records = (await db.execute(
+        select(NeedlingRecord).where(NeedlingRecord.cow_id == cow.id)
+        .order_by(NeedlingRecord.protocol_day)
+    )).scalars().all()
+    farmers = next(r for r in records if r.self_administered)
+    final = next(r for r in records if r.is_final)
+
+    assert farmers.completed is True
+    assert farmers.completed_date == farmers.scheduled_date
+    assert farmers.technician_id is None, "the technician did not give it"
+    assert "farm" in (farmers.notes or "").lower()
+    # And the final record no longer claims he gave a hormone with the AI.
+    assert "hormone the day before" in (final.notes or "")
 
 
 async def test_an_ordinary_farm_gets_no_extra_shot(db, farm, api, make_user):
@@ -604,3 +703,43 @@ def test_the_label_never_comes_back_empty():
     assert tag_only.label == "CA 1"
     assert name_only.label == "Daisy"
     assert both.label == "Rosie (CA 2)"
+
+
+async def test_a_missed_sweep_still_reminds_about_the_check(db, farm):
+    """Day 30 fell on an outage. The next sweep catches up instead of
+    skipping her for good."""
+    from sqlalchemy import select
+
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="PC-4",
+              status=CowStatus.inseminated, lactation_number=1,
+              last_insemination_date=TODAY - timedelta(
+                  days=status_engine.PREGNANCY_REPORT_DAY + 2))
+    db.add(cow)
+    await db.flush()
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+
+    notes = (await db.execute(
+        select(Notification).where(Notification.cow_id == cow.id)
+    )).scalars().all()
+    assert [n.type for n in notes] == ["preg_check"]
+
+
+async def test_a_cow_far_past_the_window_is_not_swept_up(db, farm):
+    """The catch-up is bounded: on the first deploy every inseminated cow
+    older than the window would otherwise be announced at once."""
+    from sqlalchemy import select
+
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="PC-5",
+              status=CowStatus.inseminated, lactation_number=1,
+              last_insemination_date=TODAY - timedelta(
+                  days=status_engine.PREGNANCY_REPORT_DAY
+                  + status_engine.REMINDER_CATCHUP_DAYS + 1))
+    db.add(cow)
+    await db.flush()
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+    notes = (await db.execute(
+        select(Notification).where(Notification.cow_id == cow.id)
+    )).scalars().all()
+    assert notes == []

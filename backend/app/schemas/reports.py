@@ -35,7 +35,10 @@ class HerdSummary(BaseModel):
 
 class CowReportRow(BaseModel):
     id: UUID
-    ear_tag: str
+    # Optional since 0017 — a cow may be identified by name. `label` is the
+    # one to show; it always has something in it.
+    ear_tag: Optional[str] = None
+    label: Optional[str] = None
     farm_id: UUID
     farm_name: str
     breed: Optional[str] = None
@@ -60,7 +63,8 @@ class PregnancyCheckDueReport(BaseModel):
 
 class TimedBreedingRow(BaseModel):
     cow_id: UUID
-    ear_tag: str
+    ear_tag: Optional[str] = None
+    label: Optional[str] = None
     farm_id: UUID
     farm_name: Optional[str] = None
     enrollment_id: UUID

@@ -53,6 +53,10 @@ BREEDING_WEEKDAYS = (0, 1, 5)  # Monday, Tuesday, Saturday
 # reminder needs the same number the report uses -- one definition, or the
 # farm is told on a different day from the one the technician sees.
 PREGNANCY_REPORT_DAY = 30
+# How many days late a timed reminder may still be raised, so a missed sweep
+# does not silently drop it. Bounded because the "already sent" guards cannot
+# tell "missed" from "pre-dates the feature".
+REMINDER_CATCHUP_DAYS = 3
 # Days past a protocol's final day after which an un-inseminated cow is treated
 # as abandoned: the synchronisation has lapsed, so cancel and return her to Open
 # rather than leaving her pinned on Timed Breeding indefinitely.
@@ -255,15 +259,10 @@ async def add_protocol_records(
         self_administered=True,
     )
     db.add(record)
-    # The farm is told which cow and which hormone, on the day it is due. The
-    # technician is prompted separately to leave a note saying the same thing
-    # in his own words -- see the Farmer Injection report.
-    create_notification(
-        db, cow.farm_id, cow.id, "self_inject",
-        f"{cow.label} needs {spec['treatment']} on "
-        f"{spec['scheduled_date'].isoformat()} — you are giving this one yourself, "
-        "the day before insemination.",
-    )
+    # Nobody is told here. The client was specific: "the day before, the
+    # technician gets a notification". Telling the farm at enrollment -- nine
+    # days early on Ovsynch -- is how a shot gets filed and forgotten. The
+    # sweep's _announce_self_injections raises it at the right time.
     return record
 
 
@@ -546,10 +545,83 @@ async def run_lifecycle_transitions(
 
     changed += await _expire_stale_enrollments(db, farm_ids, today)
     changed += await _remind_pregnancy_checks(db, farm_ids, today)
+    changed += await _announce_self_injections(db, farm_ids, today)
 
     if changed:
         await db.commit()
     return changed
+
+
+async def _announce_self_injections(
+    db: AsyncSession, farm_ids: Optional[Iterable[uuid.UUID]], today: date,
+) -> int:
+    """The day before a farmer gives his own shot, say so -- once.
+
+    "The day before, the technician gets a notification ... leave a note for
+    the farmer to do the injection." The notification is farm-addressed, which
+    is what reaches both of them: the farm learns which cow needs which
+    hormone tomorrow, and the technician covering that farm sees the same
+    line and is prompted to leave the note (the Farmer Injection row on his
+    To-Do list opens the form).
+
+    Same shape as the pregnancy reminder: a short catch-up window so a missed
+    sweep does not lose it, and a guard on an existing notification so it is
+    not repeated every six hours.
+    """
+    from app.models.models import Notification
+
+    lead = timedelta(days=1)
+    stmt = (
+        select(NeedlingRecord, Cow, NeedlingEnrollment)
+        .join(Cow, Cow.id == NeedlingRecord.cow_id)
+        .join(NeedlingEnrollment, NeedlingEnrollment.id == NeedlingRecord.enrollment_id)
+        .where(
+            NeedlingRecord.self_administered == True,  # noqa: E712
+            NeedlingRecord.completed == False,  # noqa: E712
+            NeedlingEnrollment.status == EnrollmentStatus.active,
+            # Due tomorrow, or due within the catch-up window and not yet told.
+            NeedlingRecord.scheduled_date <= today + lead,
+            NeedlingRecord.scheduled_date >= today - timedelta(days=REMINDER_CATCHUP_DAYS),
+        )
+        .order_by(Cow.id)
+    )
+    if farm_ids is not None:
+        farm_ids = list(farm_ids)
+        if not farm_ids:
+            return 0
+        stmt = stmt.where(Cow.farm_id.in_(farm_ids))
+
+    sent = 0
+    for record, cow, enrollment in (await db.execute(stmt)).all():
+        already = await db.execute(
+            select(Notification.id).where(
+                Notification.cow_id == cow.id,
+                Notification.type == "self_inject",
+                # "Told during THIS protocol". Keyed on the enrollment's start
+                # rather than on the shot's date: the announcement is always
+                # written after day 1, so its wall-clock created_at is always
+                # past start_date -- whereas comparing created_at against the
+                # shot's calendar date breaks the moment `today` and the wall
+                # clock disagree (a sweep run for a past date, or a test).
+                # A day of slack covers the farm-timezone/UTC seam.
+                Notification.created_at >= datetime.combine(
+                    enrollment.start_date - timedelta(days=1),
+                    time.min, tzinfo=timezone.utc,
+                ),
+            ).limit(1)
+        )
+        if already.scalar() is not None:
+            continue
+        when = ("tomorrow" if record.scheduled_date == today + lead
+                else "today" if record.scheduled_date == today
+                else f"on {record.scheduled_date.isoformat()}")
+        create_notification(
+            db, cow.farm_id, cow.id, "self_inject",
+            f"{cow.label} needs {record.treatment} {when} — the farm gives this "
+            "one, the day before insemination. Technician: leave the note.",
+        )
+        sent += 1
+    return sent
 
 
 async def _remind_pregnancy_checks(
@@ -574,10 +646,18 @@ async def _remind_pregnancy_checks(
         .where(
             Cow.status == CowStatus.inseminated,
             Cow.last_insemination_date.isnot(None),
-            # `== today` rather than `<=`: a cow already past her due day was
-            # reminded on the day, and re-reminding her every sweep afterwards
-            # is the noise this guard exists to prevent.
-            Cow.last_insemination_date == today - timedelta(days=PREGNANCY_REPORT_DAY),
+            # A short window rather than the exact day. The sweep runs every
+            # six hours and on every boot, but a day-long outage -- a stalled
+            # redeploy, the scheduler switched off -- would otherwise skip that
+            # day's cows for good, and nothing would ever say so. The window is
+            # short because the "already told" guard below only knows about
+            # cows told AFTER this feature shipped: on the first deploy every
+            # cow inside the window is announced at once, so it is kept to a
+            # few days rather than a week.
+            Cow.last_insemination_date
+            <= today - timedelta(days=PREGNANCY_REPORT_DAY),
+            Cow.last_insemination_date
+            >= today - timedelta(days=PREGNANCY_REPORT_DAY + REMINDER_CATCHUP_DAYS),
         )
         .order_by(Cow.id)
     )

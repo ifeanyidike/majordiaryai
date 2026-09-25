@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import ensure_aware, local_today, to_local_date
-from app.models.models import Bull, Insemination, NeedlingEnrollment
+from app.models.models import Bull, Insemination, NeedlingEnrollment, NeedlingRecord
 from app.services.protocols import TIMED_AI_PROTOCOLS
 from app.services.worklists import pending_final_record_stmt
 from app.schemas.inseminations import InseminationCreate, InseminationOut
@@ -119,14 +119,34 @@ async def record_insemination(
     final_record = await db.scalar(pending_final_record_stmt(cow.id, local_today()))
     if final_record is not None:
         enrollment = await db.get(NeedlingEnrollment, final_record.enrollment_id)
+        # On a self-injecting farm the hormone moved to the farmer's record the
+        # day before. Nothing else ever completes that record: the farmer has
+        # no app action for it, so it sat as "not given" in her history for
+        # ever. The technician arriving to inseminate is the confirmation the
+        # protocol proceeded, so close it here -- dated to its scheduled day,
+        # and left without a technician_id, because he did not give it.
+        farmer_shots = (await db.execute(
+            select(NeedlingRecord).where(
+                NeedlingRecord.enrollment_id == final_record.enrollment_id,
+                NeedlingRecord.self_administered == True,  # noqa: E712
+                NeedlingRecord.completed == False,  # noqa: E712
+            )
+        )).scalars().all()
+        for shot in farmer_shots:
+            shot.completed = True
+            shot.completed_date = shot.scheduled_date
+            shot.notes = (shot.notes or "") + ("\n" if shot.notes else "") + \
+                "Given by the farm (assumed from the insemination that followed)"
         # Timed-AI protocols pair a real injection with the AI; Prostaglandin
         # Heat's last day is observation with conditional AI, so don't claim an
-        # injection was given that the protocol never scheduled.
-        note = (
-            "Final injection given with insemination"
-            if enrollment is not None and enrollment.protocol in TIMED_AI_PROTOCOLS
-            else "Insemination recorded on this protocol day"
-        )
+        # injection was given that the protocol never scheduled -- and on a
+        # self-injecting farm the hormone was the farmer's, the day before.
+        if farmer_shots:
+            note = "Insemination given; the farm gave the hormone the day before"
+        elif enrollment is not None and enrollment.protocol in TIMED_AI_PROTOCOLS:
+            note = "Final injection given with insemination"
+        else:
+            note = "Insemination recorded on this protocol day"
         final_record.completed = True
         final_record.completed_date = insemination_date
         final_record.technician_id = current_user["id"]

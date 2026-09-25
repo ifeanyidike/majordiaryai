@@ -22,7 +22,8 @@ class VaccinationOut(BaseModel):
 class VaccinationDueRow(BaseModel):
     id: UUID
     cow_id: UUID
-    ear_tag: str
+    ear_tag: Optional[str] = None
+    label: Optional[str] = None
     farm_id: UUID
     farm_name: Optional[str] = None
     scheduled_date: date

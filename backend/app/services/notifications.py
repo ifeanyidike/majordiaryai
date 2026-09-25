@@ -15,6 +15,18 @@ from app.services.email import is_configured, send_email
 
 logger = logging.getLogger("app.notifications")
 
+# What each notification type is called on the farmer's email. Anything not
+# listed falls back to a title-cased type name, which is fine for a word like
+# "calving" and wrong for an abbreviation.
+EMAIL_SUBJECTS = {
+    "dry_off": "Dry-off",
+    "breeding_due": "Ready to breed",
+    "open": "Breeding decision needed",
+    "calving": "Calving",
+    "preg_check": "Pregnancy check due",
+    "self_inject": "Injection to give tomorrow",
+}
+
 # Keep strong references to fire-and-forget email tasks so they aren't GC'd
 # mid-flight.
 _bg_tasks: set = set()
@@ -63,7 +75,9 @@ async def _email_notification(
             await _record_outcome(notification_id, "no_email")
             logger.warning("Farm %s has no email; notification not delivered", farm_id)
             return
-        title = type_.replace("_", " ").title()
+        # Subjects are read by farmers. `type.title()` produced "Preg Check"
+        # and "Self Inject" the moment those types existed.
+        title = EMAIL_SUBJECTS.get(type_) or type_.replace("_", " ").title()
         ok = await send_email(
             to=farm.email,
             subject=f"Major Dairy AI — {title}",

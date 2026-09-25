@@ -509,14 +509,14 @@ function demoNotifications(cows: Cow[]): AppNotification[] {
     if (c.status === 'dry') {
       items.push({
         id: `n-dry-${c.id}`, farmId: c.farmId, cowId: c.id, type: 'dry_off',
-        message: `${c.earTag} has dried off — move her to the dry pen.`,
+        message: `${c.label} has dried off — move her to the dry pen.`,
         read: false, createdAt: c.dryDate ?? '',
       });
     }
     if (c.status === 'fresh') {
       items.push({
         id: `n-fresh-${c.id}`, farmId: c.farmId, cowId: c.id, type: 'calving',
-        message: `${c.earTag} just calved — now Fresh.`,
+        message: `${c.label} just calved — now Fresh.`,
         read: true, createdAt: c.lastCalvingDate ?? '',
       });
     }
@@ -1174,13 +1174,13 @@ export const farmUpcomingActivities = (
     if (cow.dryDate && cow.dryDate >= today && cow.status !== 'dry') {
       out.push({
         id: `dry-${cow.id}`, icon: 'dry',
-        label: `Dry off ${cow.earTag}`, date: cow.dryDate,
+        label: `Dry off ${cow.label}`, date: cow.dryDate,
       });
     }
     if (cow.dueDate && cow.dueDate >= today) {
       out.push({
         id: `calving-${cow.id}`, icon: 'calving',
-        label: `${cow.earTag} due to calve`, date: cow.dueDate,
+        label: `${cow.label} due to calve`, date: cow.dueDate,
       });
     }
   }

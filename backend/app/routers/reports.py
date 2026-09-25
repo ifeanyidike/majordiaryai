@@ -56,6 +56,7 @@ def _cow_to_report_row(cow: Cow, today: date) -> dict:
     return {
         "id": cow.id,
         "ear_tag": cow.ear_tag,
+        "label": cow.label,
         "farm_id": cow.farm_id,
         "farm_name": cow.farm.name if cow.farm else "",
         "breed": cow.breed,
@@ -283,6 +284,7 @@ async def timed_breeding(
         {
             "cow_id": cow.id,
             "ear_tag": cow.ear_tag,
+            "label": cow.label,
             "farm_id": cow.farm_id,
             "farm_name": farm.name,
             "enrollment_id": enrollment.id,
