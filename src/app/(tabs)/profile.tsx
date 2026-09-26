@@ -14,7 +14,7 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { colors, gradients, onDark, spacing, status } from '@/theme';
-import { summarize, unreadNotificationCount, useAppStore, worklistTotal } from '@/store/useAppStore';
+import { pregnancyCounts, summarize, unreadNotificationCount, useAppStore, worklistTotal } from '@/store/useAppStore';
 import { useAuthStore, useRole } from '@/store/useAuthStore';
 
 export default function ProfileScreen() {
@@ -63,10 +63,18 @@ export default function ProfileScreen() {
             { value: herdSummary.total, label: 'Total Cows', accent: colors.primary },
             { value: herdSummary.pregnant, label: 'Pregnant', accent: status.pregnant.fg },
           ]
-        : [
-            { value: farms.length, label: 'Assigned Farms', accent: colors.primary },
-            { value: outstanding, label: 'Cows To Do', accent: status.pregnant.fg },
-          ];
+        : role === 'vet'
+          ? [
+              { value: farms.length, label: 'Assigned Farms', accent: colors.primary },
+              // A vet has no To-Do list; her work is the pregnancy checks her
+              // home screen counts. worklistTotal() read 0 here beside a
+              // dashboard showing 12 due.
+              { value: pregnancyCounts(store).due, label: 'Due for Check', accent: status.pregnant.fg },
+            ]
+          : [
+              { value: farms.length, label: 'Assigned Farms', accent: colors.primary },
+              { value: outstanding, label: 'Cows To Do', accent: status.pregnant.fg },
+            ];
 
   const handleLogout = async () => {
     setSigningOut(true);

@@ -38,6 +38,9 @@ import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/
 const ROW_PILL_LABEL: Record<string, string> = {
   heat: 'Check Heat',
   'pregnancy-check': 'Check Pregnancy',
+  // The Needling Report became the Injection Report; its rows said
+  // "NEEDLING" under the new title.
+  needling: 'Give Injection',
 };
 
 export default function ReportDetailScreen() {

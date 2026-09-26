@@ -453,7 +453,7 @@ export const demoWorklist: Worklist = {
       reports: [
         {
           type: 'needling',
-          title: 'Needling Report',
+          title: 'Injection Report',
           icon: 'fitness',
           statusKey: 'needling',
           isWorkReport: true,
@@ -477,7 +477,7 @@ export const demoWorklist: Worklist = {
           // Vaccination Report is for separately scheduled vaccines. Keep the
           // demo consistent with the backend catalog's semantics.
           type: 'post-calving',
-          title: 'Post Calving Report',
+          title: 'Vaccine Report',
           icon: 'bandage',
           statusKey: 'fresh',
           isWorkReport: true,

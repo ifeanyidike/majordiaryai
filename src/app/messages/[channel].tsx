@@ -34,6 +34,28 @@ const CHANNELS: Record<
   },
 };
 
+/**
+ * The CHANNELS wording is the technician's (he receives both). A farm owner
+ * reading Alarms is reading what HE sent, and the office reading Office
+ * Alerts is reading its own outbox — "From the farm owners on your route"
+ * was wrong for both.
+ */
+function wordingFor(channel: MessageChannel, role: string | null | undefined) {
+  const base = CHANNELS[channel];
+  if (channel === 'alarm' && role === 'farm') {
+    return { subtitle: 'Sent to your technician',
+             empty: 'Alarms you raise are listed here. Use the pencil to raise one.' };
+  }
+  if (channel === 'alarm' && role === 'admin') {
+    return { subtitle: 'From farm owners to their technicians', empty: base.empty };
+  }
+  if (channel === 'office_alert' && role === 'admin') {
+    return { subtitle: 'Sent to technicians',
+             empty: 'Office alerts you send are listed here. Use the pencil to send one.' };
+  }
+  return { subtitle: base.subtitle, empty: base.empty };
+}
+
 function relativeTime(iso: string): string {
   if (!iso) return '';
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -58,6 +80,7 @@ export default function MessageFeedScreen() {
   const { messages, messagesLoading, fetchMessages, markMessageRead } = useAppStore();
   const myId = useAuthStore((s) => s.user?.id);
   const role = useRole();
+  const wording = wordingFor(channel, role);
   // Mirrors SENDER_ROLES in routers/messages.py: owners raise alarms, only the
   // office writes office alerts. Technicians read both and write neither.
   const canWrite =
@@ -87,7 +110,7 @@ export default function MessageFeedScreen() {
     <Screen>
       <Header
         title={meta.title}
-        subtitle={unread ? `${unread} unread · ${meta.subtitle}` : meta.subtitle}
+        subtitle={unread ? `${unread} unread · ${wording.subtitle}` : wording.subtitle}
         back
         right={
           canWrite ? (
@@ -113,7 +136,7 @@ export default function MessageFeedScreen() {
           messagesLoading ? (
             <SkeletonList count={4} />
           ) : (
-            <EmptyState icon={meta.icon} title={`No ${meta.title.toLowerCase()}`} message={meta.empty} />
+            <EmptyState icon={meta.icon} title={`No ${meta.title.toLowerCase()}`} message={wording.empty} />
           )
         }
         renderItem={({ item: m }) => (
