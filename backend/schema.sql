@@ -1494,24 +1494,10 @@ CREATE POLICY inseminations_write ON public.inseminations USING ((public.get_my_
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: messages messages_mark_read; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY messages_mark_read ON public.messages FOR UPDATE USING ((recipient_id = auth.uid())) WITH CHECK ((recipient_id = auth.uid()));
-
-
---
 -- Name: messages messages_read; Type: POLICY; Schema: public; Owner: -
 --
 
 CREATE POLICY messages_read ON public.messages FOR SELECT USING (((recipient_id = auth.uid()) OR (sender_id = auth.uid()) OR (public.get_my_role() = 'admin'::public.user_role)));
-
-
---
--- Name: messages messages_write; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY messages_write ON public.messages FOR INSERT WITH CHECK (((sender_id = auth.uid()) AND (((channel = 'alarm'::public.message_channel) AND (public.get_my_role() = ANY (ARRAY['farm'::public.user_role, 'admin'::public.user_role]))) OR ((channel = 'office_alert'::public.message_channel) AND (public.get_my_role() = ANY (ARRAY['admin'::public.user_role, 'technician'::public.user_role]))))));
 
 
 --

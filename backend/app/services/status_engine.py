@@ -519,6 +519,14 @@ async def run_lifecycle_transitions(
             continue
 
         if cow.status == CowStatus.fresh and cow.last_calving_date:
+            if cow.calving_assumed:
+                # Her calving date is the sweep's guess, not a record. Moving
+                # her to Open would take "Record Calving" away for good, and
+                # recording it once she is bred again would be worse: a
+                # calving resets her pregnancy. The voluntary waiting period is
+                # measured from the REAL calving anyway, so she waits here, on
+                # the Fresh report, until someone records it.
+                continue
             entry_date = adjust_to_breeding_day(
                 cow.last_calving_date + timedelta(days=FRESH_TO_OPEN_DAY)
             )

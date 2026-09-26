@@ -31,6 +31,14 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger("app.push")
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
+# Expo: "We recommend checking push receipts 15 minutes after sending"; they
+# are cleared after 24 hours.
+RECEIPT_DELAY_SECONDS = 15 * 60
+# Receipt errors that mean OUR setup is broken, not one phone. These never
+# appear in the immediate tickets, so without the receipt check a wrong or
+# revoked Firebase key fails every alarm with nothing logged at all.
+CREDENTIAL_ERRORS = {"InvalidCredentials", "MismatchSenderId"}
 # Expo accepts at most 100 messages per request.
 EXPO_BATCH = 100
 # Android notification channels. The app creates both at start-up; an alarm
@@ -74,6 +82,23 @@ def dead_tokens(sent: Sequence[Dict], tickets: Sequence[Dict]) -> List[str]:
         if ticket.get("status") == "error" and details.get("error") == "DeviceNotRegistered":
             dead.append(message["to"])
     return dead
+
+
+def receipt_outcome(receipts: Dict[str, Dict], token_by_ticket: Dict[str, str]):
+    """Read Expo's receipts: which tokens are gone, and what else went wrong.
+
+    Returns (dead_tokens, problems) where problems maps each error code to how
+    many receipts carried it.
+    """
+    dead, problems = [], {}
+    for ticket_id, receipt in receipts.items():
+        if receipt.get("status") != "error":
+            continue
+        code = (receipt.get("details") or {}).get("error") or "Unknown"
+        problems[code] = problems.get(code, 0) + 1
+        if code == "DeviceNotRegistered" and ticket_id in token_by_ticket:
+            dead.append(token_by_ticket[ticket_id])
+    return dead, problems
 
 
 def queue_push(db: AsyncSession, user_id: uuid.UUID, title: str, body: str,
@@ -122,6 +147,7 @@ async def _deliver(user_id, title, body, data, channel) -> None:
 
             payloads = build_payloads(tokens, title, body, data, channel)
             dead: List[str] = []
+            token_by_ticket: Dict[str, str] = {}
             async with httpx.AsyncClient(timeout=10) as client:
                 for i in range(0, len(payloads), EXPO_BATCH):
                     batch = payloads[i:i + EXPO_BATCH]
@@ -130,13 +156,59 @@ async def _deliver(user_id, title, body, data, channel) -> None:
                         logger.warning("Expo push rejected (%s): %s",
                                        resp.status_code, resp.text[:300])
                         continue
-                    dead += dead_tokens(batch, resp.json().get("data") or [])
+                    tickets = resp.json().get("data") or []
+                    dead += dead_tokens(batch, tickets)
+                    for message, ticket in zip(batch, tickets):
+                        if ticket.get("status") == "ok" and ticket.get("id"):
+                            token_by_ticket[ticket["id"]] = message["to"]
 
-            if dead:
-                # Prune, or every future alarm to this user pays for a device
-                # that will never answer.
-                await session.execute(delete(PushToken).where(PushToken.token.in_(dead)))
-                await session.commit()
-                logger.info("Pruned %d dead push token(s) for user %s", len(dead), user_id)
+            await _prune(session, dead, user_id)
     except Exception:
         logger.exception("Push delivery failed for user %s", user_id)
+        return
+
+    if token_by_ticket:
+        # Accepted is not delivered. Whether FCM/APNs actually took it -- and
+        # whether our Firebase key even works -- is only in the receipts.
+        await _check_receipts(user_id, token_by_ticket)
+
+
+async def _prune(session, dead: List[str], user_id) -> None:
+    from app.models.models import PushToken
+
+    if not dead:
+        return
+    # Prune, or every future alarm to this user pays for a device that will
+    # never answer.
+    await session.execute(delete(PushToken).where(PushToken.token.in_(dead)))
+    await session.commit()
+    logger.info("Pruned %d dead push token(s) for user %s", len(dead), user_id)
+
+
+async def _check_receipts(user_id, token_by_ticket: Dict[str, str]) -> None:
+    """Best-effort: a restart during the wait loses this check, not the push."""
+    from app.core.database import SessionLocal
+
+    try:
+        await asyncio.sleep(RECEIPT_DELAY_SECONDS)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(EXPO_RECEIPTS_URL, json={"ids": list(token_by_ticket)})
+        if resp.status_code != 200:
+            logger.warning("Expo receipts unavailable (%s)", resp.status_code)
+            return
+        dead, problems = receipt_outcome(resp.json().get("data") or {}, token_by_ticket)
+        for code, n in problems.items():
+            if code in CREDENTIAL_ERRORS:
+                # Named for what it is, at ERROR: this is every alarm failing.
+                logger.error(
+                    "PUSH CREDENTIALS BROKEN: Expo reported %s on %d receipt(s) -- "
+                    "the Firebase key uploaded to EAS is wrong or revoked; no "
+                    "Android phone is receiving alarms", code, n)
+            elif code != "DeviceNotRegistered":
+                logger.warning("Push receipt error %s on %d message(s) for user %s",
+                               code, n, user_id)
+        if dead:
+            async with SessionLocal() as session:
+                await _prune(session, dead, user_id)
+    except Exception:
+        logger.exception("Push receipt check failed for user %s", user_id)

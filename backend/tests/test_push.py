@@ -165,3 +165,28 @@ def test_a_transient_error_does_not_prune():
     sent = [{"to": TOKEN_A}]
     tickets = [{"status": "error", "details": {"error": "MessageRateExceeded"}}]
     assert push.dead_tokens(sent, tickets) == []
+
+
+# ── receipts: where a broken Firebase key actually shows up ──────────
+
+def test_a_broken_firebase_key_is_recognised_in_receipts():
+    """Expo reports InvalidCredentials / MismatchSenderId only in receipts,
+    never in the immediate tickets."""
+    receipts = {
+        "t1": {"status": "error", "details": {"error": "InvalidCredentials"}},
+        "t2": {"status": "error", "details": {"error": "InvalidCredentials"}},
+    }
+    dead, problems = push.receipt_outcome(receipts, {"t1": TOKEN_A, "t2": TOKEN_B})
+    assert problems == {"InvalidCredentials": 2}
+    assert dead == [], "a credential problem is not a dead phone"
+    assert "InvalidCredentials" in push.CREDENTIAL_ERRORS
+
+
+def test_a_phone_reported_gone_in_a_receipt_is_pruned_too():
+    receipts = {
+        "t1": {"status": "ok"},
+        "t2": {"status": "error", "details": {"error": "DeviceNotRegistered"}},
+    }
+    dead, problems = push.receipt_outcome(receipts, {"t1": TOKEN_A, "t2": TOKEN_B})
+    assert dead == [TOKEN_B]
+    assert problems == {"DeviceNotRegistered": 1}

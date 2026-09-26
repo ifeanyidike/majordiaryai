@@ -195,3 +195,24 @@ async def test_a_caught_up_shot_says_it_is_late(db, farm):
     assert len(sent) == 1
     assert "was due" in sent[0].message
     assert "needs 2cc GnRH on" not in sent[0].message
+
+
+async def test_an_assumed_calving_is_not_moved_on_to_open(db, farm):
+    """Day 70 used to carry her to Open on the sweep's guessed date, which took
+    "Record Calving" away for good."""
+    from app.core.timeutils import local_today
+    today = local_today()
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="AC-70",
+              status=CowStatus.fresh, lactation_number=3,
+              last_calving_date=today - timedelta(days=120), calving_assumed=True)
+    confirmed = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="RC-70",
+                    status=CowStatus.fresh, lactation_number=3,
+                    last_calving_date=today - timedelta(days=120))
+    db.add_all([cow, confirmed])
+    await db.flush()
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=today)
+
+    assert cow.status is CowStatus.fresh, "moved on from a calving nobody recorded"
+    # The control: a recorded calving still moves on as it always has.
+    assert confirmed.status is CowStatus.open
