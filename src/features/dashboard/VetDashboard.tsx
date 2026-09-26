@@ -8,7 +8,6 @@ import {
   ErrorBanner,
   SkeletonList,
   HeroHeader,
-  HeroStats,
   ListRow,
   Monogram,
   Screen,
@@ -66,15 +65,6 @@ export function VetDashboard() {
           </View>
         </View>
 
-        <HeroStats
-          tone="panel"
-          style={styles.heroStats}
-          items={[
-            { value: farms.length, label: 'Assigned farms' },
-            { value: due, label: 'Due for check' },
-            { value: warning, label: 'Overdue' },
-          ]}
-        />
       </HeroHeader>
 
       <View style={styles.body}>
@@ -87,19 +77,9 @@ export function VetDashboard() {
           </View>
         ) : null}
 
-        {/* Overdue warning */}
-        {warning > 0 ? (
-          <View style={styles.warnBanner}>
-            <Ionicons name="alert-circle" size={20} color={status.heat.fg} />
-            <Text variant="body" color={colors.text} style={styles.warnText}>
-              {warning} {warning === 1 ? 'cow is' : 'cows are'} overdue for a pregnancy check (50+ days). Prioritize
-              on your next visit.
-            </Text>
-          </View>
-        ) : null}
-
-        {/* Pregnancy Report — the vet's primary worklist */}
-        <SectionHeader title="Pregnancy Report" />
+        {/* Pregnancy Report — the vet's primary worklist. First in the body so
+            it is the card that overlaps the hero; a section heading here slid
+            under the hero's curved bottom. Its own title names it. */}
         <Pressable
           onPress={() => router.push({ pathname: '/report/[type]', params: { type: 'pregnancy-check' } })}
           accessibilityRole="button"
@@ -137,6 +117,17 @@ export function VetDashboard() {
         </Text>
 
         {/* Assigned farms — per-farm due counts */}
+        {/* Overdue warning */}
+        {warning > 0 ? (
+          <View style={styles.warnBanner}>
+            <Ionicons name="alert-circle" size={20} color={status.heat.fg} />
+            <Text variant="body" color={colors.text} style={styles.warnText}>
+              {warning} {warning === 1 ? 'cow is' : 'cows are'} overdue for a pregnancy check (50+ days). Prioritize
+              on your next visit.
+            </Text>
+          </View>
+        ) : null}
+
         <SectionHeader title="Your Farms" />
         {farms.map((f) => {
           const c = pregnancyCounts(store, f.id);
@@ -170,7 +161,6 @@ const styles = StyleSheet.create({
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   heroText: { flex: 1, gap: spacing.hairline },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  heroStats: { marginTop: spacing.xxl },
   body: { paddingHorizontal: spacing.xl, marginTop: -spacing.xxxl },
   flex1: { flex: 1 },
   warnBanner: {

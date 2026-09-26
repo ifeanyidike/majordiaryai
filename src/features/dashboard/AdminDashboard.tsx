@@ -5,7 +5,6 @@ import { StyleSheet, View } from 'react-native';
 import {
   ActionCard,
   HeroHeader,
-  HeroStats,
   ListRow,
   Screen,
   SectionHeader,
@@ -13,7 +12,7 @@ import {
   FocusedStatusBar,
 } from '@/components';
 import { colors, gradients, onDark, radius, shadows, spacing, status } from '@/theme';
-import { summarize, useAppStore, worklistTotal } from '@/store/useAppStore';
+import { summarize, useAppStore } from '@/store/useAppStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -23,8 +22,6 @@ export function AdminDashboard() {
   const store = useAppStore();
   const { farms, cows, vets, kpis, fetchKpis } = store;
   const summary = summarize(cows);
-  // Outstanding cow-work across every farm, from the shared work list.
-  const activeTasks = worklistTotal(store);
   const today = new Date().toLocaleDateString('en-CA', {
     weekday: 'long',
     month: 'long',
@@ -33,16 +30,11 @@ export function AdminDashboard() {
 
   useEffect(() => { fetchKpis(); }, []);
 
-  const heroStats = [
-    { value: farms.length, label: 'Farms' },
-    { value: summary.total, label: 'Cows' },
-    { value: vets.length, label: 'Vets' },
-    { value: activeTasks, label: 'Cows to do' },
-  ];
-
   const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [
     { label: 'Farms CRM', caption: `${farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
-    { label: 'Reports', caption: 'By farm — pick one', icon: 'bar-chart', onPress: () => router.push('/(tabs)/farms') },
+    // No Reports card, as on the technician's home: reports belong to a farm
+    // (client correction), so the honest route is Farms CRM -> farm -> Reports.
+    // Cow Search stays — for the admin it is the only lookup across all farms.
     { label: 'Cow Search', caption: `${summary.total} cows`, icon: 'search', onPress: () => router.push('/cow-search') },
     { label: 'Veterinarians', caption: `${vets.length} partners`, icon: 'medkit', onPress: () => router.push('/vets') },
     // Roles and farm assignment live here — it is the only way to make a Farm
@@ -51,7 +43,7 @@ export function AdminDashboard() {
     // Office Alerts are the administrator's channel to a technician. Opening
     // the feed shows what has been sent (route changes arrive there on their
     // own); the pen in its header writes a new one.
-    { label: 'Office Alerts', caption: 'Message a technician', icon: 'briefcase', onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }) },
+    { label: 'Office Alerts', caption: 'To technicians', icon: 'briefcase', onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }) },
   ];
 
   const kpiRow = [
@@ -77,7 +69,6 @@ export function AdminDashboard() {
           </Text>
         </View>
 
-        <HeroStats tone="panel" items={heroStats} style={styles.heroStats} />
       </HeroHeader>
 
       <View style={styles.body}>
@@ -152,9 +143,6 @@ export function AdminDashboard() {
 }
 
 const styles = StyleSheet.create({
-  heroStats: {
-    marginTop: spacing.xxl,
-  },
   body: {
     paddingHorizontal: spacing.xl,
     marginTop: -spacing.xxxl,

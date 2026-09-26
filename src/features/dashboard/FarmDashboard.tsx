@@ -113,7 +113,8 @@ export function FarmDashboard() {
             accessibilityLabel="Contact technician"
           >
             <Ionicons name="construct" size={18} color={onDark.text} />
-            <Text variant="label" color={onDark.text}>
+            <Text variant="label" color={onDark.text} numberOfLines={1}
+              adjustsFontSizeToFit minimumFontScale={0.7} style={styles.chipLabel}>
               Technician
             </Text>
           </PressableScale>
@@ -125,7 +126,8 @@ export function FarmDashboard() {
               accessibilityLabel={`Call ${vet.name}`}
             >
               <Ionicons name="medkit" size={18} color={onDark.text} />
-              <Text variant="label" color={onDark.text}>
+              <Text variant="label" color={onDark.text} numberOfLines={1}
+              adjustsFontSizeToFit minimumFontScale={0.7} style={styles.chipLabel}>
                 Call Vet
               </Text>
             </PressableScale>
@@ -137,7 +139,8 @@ export function FarmDashboard() {
             accessibilityLabel="View my herd"
           >
             <Ionicons name="list" size={18} color={onDark.text} />
-            <Text variant="label" color={onDark.text}>
+            <Text variant="label" color={onDark.text} numberOfLines={1}
+              adjustsFontSizeToFit minimumFontScale={0.7} style={styles.chipLabel}>
               My Herd
             </Text>
           </PressableScale>
@@ -150,7 +153,8 @@ export function FarmDashboard() {
             accessibilityLabel="Raise an alarm to your technician"
           >
             <Ionicons name="alert-circle" size={18} color={onDark.text} />
-            <Text variant="label" color={onDark.text}>
+            <Text variant="label" color={onDark.text} numberOfLines={1}
+              adjustsFontSizeToFit minimumFontScale={0.7} style={styles.chipLabel}>
               Alarm
             </Text>
           </PressableScale>
@@ -181,7 +185,8 @@ export function FarmDashboard() {
                 <Text variant="statSmall" color={colors.primary}>
                   {k.value}
                 </Text>
-                <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>
+                <Text variant="caption" color={colors.textSecondary} numberOfLines={1}
+                  adjustsFontSizeToFit minimumFontScale={0.75}>
                   {k.label}
                 </Text>
               </View>
@@ -296,11 +301,15 @@ export function FarmDashboard() {
 const styles = StyleSheet.create({
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   heroText: { flex: 1, gap: spacing.hairline },
+  chipLabel: { textAlign: 'center', alignSelf: 'stretch' },
   chipsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xxl },
   chip: {
     flex: 1,
     alignItems: 'center',
     gap: spacing.xs,
+    // Four buttons share the row since Alarm joined it; without side padding
+    // the labels ran edge to edge and "TECHNICIAN" broke as "TECHNICIA / N".
+    paddingHorizontal: spacing.xs,
     backgroundColor: onDark.scrim,
     borderWidth: 1,
     borderColor: onDark.panelBorder,

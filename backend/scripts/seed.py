@@ -731,6 +731,11 @@ async def main() -> None:
     async with Session() as session:
         await clear(session)
         await seed(session)
+        # Seeding recreates vets and farms, which unlinks the demo sign-ins
+        # (the vet login ended up attached to no vet at all). Relink them.
+        from scripts.demo_identities import apply as apply_demo_identities
+        for line in await apply_demo_identities(session):
+            print("  demo account", line)
         await session.commit()
 
         # Report what landed.

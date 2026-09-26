@@ -22,7 +22,9 @@ export function StatCard({ value, label, accent, style }: StatCardProps) {
       <Text variant="stat">{value}</Text>
       <View style={styles.labelRow}>
         {accent ? <View style={[styles.dot, { backgroundColor: accent }]} /> : null}
-        <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>
+        {/* Shrink rather than truncate: "Tracked Co…" told nobody anything. */}
+        <Text variant="caption" color={colors.textSecondary} numberOfLines={1}
+          adjustsFontSizeToFit minimumFontScale={0.75} style={styles.labelText}>
           {label}
         </Text>
       </View>
@@ -43,6 +45,7 @@ const styles = StyleSheet.create({
     gap: spacing.hairline,
     ...shadows.card,
   },
+  labelText: { flexShrink: 1 },
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
