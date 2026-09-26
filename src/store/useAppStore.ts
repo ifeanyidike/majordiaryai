@@ -32,7 +32,7 @@ interface ApiFarm {
 
 interface ApiCow {
   id: string; ear_tag?: string | null; name?: string | null; label?: string;
-  farm_id: string; farm_name?: string;
+  farm_id: string; farm_name?: string; calving_assumed?: boolean;
   status: string; breed?: string; date_of_birth?: string;
   lactation_number: number; current_program?: string;
   notes?: string | null;
@@ -212,6 +212,7 @@ function mapCow(c: ApiCow): Cow {
 
   return {
     id: c.id, earTag: c.ear_tag ?? undefined, farmId: c.farm_id,
+    calvingAssumed: c.calving_assumed ?? false,
     name: c.name ?? undefined,
     // The API computes the label so every screen names her identically; fall
     // back to whichever identifier a payload from an older server carries.

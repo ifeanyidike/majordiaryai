@@ -13,6 +13,7 @@ from app.schemas.needling import (
     NeedlingEnrollmentOut, RecordNoteBody,
 )
 from app.services import status_engine
+from app.services.notifications import create_notification
 from app.services.access import get_cow_scoped, scope_to_farms
 from app.services.protocols import get_scheduled_records, UnknownProtocolError
 from app.services.worklists import latest_open_record_stmt, needling_due_stmt
@@ -134,6 +135,14 @@ async def leave_note(
         raise HTTPException(status_code=404, detail="Record not found")
     record.notes = body.note.strip()
     record.technician_id = current_user["id"]
+    # The note is FOR the farmer. Stored on the record alone, no screen a farm
+    # manager uses ever showed it and no email carried it -- the technician
+    # was writing into a field nobody on the farm could read.
+    cow = await db.get(Cow, owner)
+    create_notification(
+        db, cow.farm_id, cow.id, "self_inject",
+        f"Note from your technician about {cow.label}: {record.notes}",
+    )
     await db.commit()
     return {"id": str(record.id), "notes": record.notes}
 

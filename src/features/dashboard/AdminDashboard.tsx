@@ -48,6 +48,10 @@ export function AdminDashboard() {
     // Roles and farm assignment live here — it is the only way to make a Farm
     // Manager, so it belongs on the admin's front screen, not buried.
     { label: 'People', caption: 'Roles & access', icon: 'people', onPress: () => router.push('/users') },
+    // Office Alerts are the administrator's channel to a technician. Opening
+    // the feed shows what has been sent (route changes arrive there on their
+    // own); the pen in its header writes a new one.
+    { label: 'Office Alerts', caption: 'Message a technician', icon: 'briefcase', onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }) },
   ];
 
   const kpiRow = [

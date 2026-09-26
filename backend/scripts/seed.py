@@ -78,6 +78,11 @@ async def clear(session: AsyncSession) -> None:
     await session.flush()
 
 
+# Every address in this file is on the reserved `.example` TLD (RFC 2606). The
+# seed has run against production, where farm addresses are live: invented
+# ones at plausible .ca domains reached a real business's mailbox and bounced
+# off a dozen domains that do not exist. A reserved address can never belong
+# to anyone, and notifications.is_test_address refuses to send to it.
 def make_farm(name, owner, address, city, postal, phone, email, herd_size, note,
               days_per_week=6):
     """days_per_week: 5 = Mon-Fri, 6 = Mon-Sat (the default). Seeding a mix is
@@ -148,16 +153,16 @@ def _guard_destructive() -> None:
 async def seed(session: AsyncSession) -> None:
     # ── Farms ──────────────────────────────────────────────
     gv = make_farm("Green Valley Dairy", "John Smith", "2841 Concession Rd 6", "London",
-                   "N6P 1A7", "+1 (519) 555-0114", "office@greenvalleydairy.ca", 425,
+                   "N6P 1A7", "+1 (519) 555-0114", "office@greenvalleydairy.example", 425,
                    "Prefers visits before noon. New parlor installed March 2026.",
                    # 5-day farm: Mon-Fri
                    days_per_week=5)
     sf = make_farm("Sunrise Farms", "David Brown", "1150 Oxford Rd 29", "Woodstock",
-                   "N4S 7V8", "+1 (519) 555-0167", "david@sunrisefarms.ca", 310, "Gate code 4482.",
+                   "N4S 7V8", "+1 (519) 555-0167", "david@sunrisefarms.example", 310, "Gate code 4482.",
                    # 6-day farm: Mon-Sat
                    days_per_week=6)
     mr = make_farm("Maple Ridge Dairy", "Peter Jones", "7723 Wellington Rd 34", "Guelph",
-                   "N1H 6J2", "+1 (519) 555-0139", "peter@mapleridgedairy.ca", 560, None,
+                   "N1H 6J2", "+1 (519) 555-0139", "peter@mapleridgedairy.example", 560, None,
                    # 5-day farm: off the route on Saturdays
                    days_per_week=5)
     # Nine more farms. The client's note on the screenshots was that a
@@ -166,23 +171,23 @@ async def seed(session: AsyncSession) -> None:
     # says nothing about how the app behaves when it is full.
     EXTRA_FARMS = [
         ("Willowbrook Holsteins", "Margaret Ellis", "4410 Perth Line 26", "Stratford",
-         "N5A 6S3", "+1 (519) 555-0183", "office@willowbrookholsteins.ca", 240, 6),
+         "N5A 6S3", "+1 (519) 555-0183", "office@willowbrookholsteins.example", 240, 6),
         ("Cedar Lane Dairy", "Tom Vandenberg", "988 Huron Rd 8", "Clinton",
-         "N0M 1L0", "+1 (519) 555-0195", "tom@cedarlanedairy.ca", 180, 5),
+         "N0M 1L0", "+1 (519) 555-0195", "tom@cedarlanedairy.example", 180, 5),
         ("Blue Heron Farms", "Alice Fournier", "3175 Elgin Rd 14", "St Thomas",
-         "N5P 3T2", "+1 (519) 555-0208", "alice@blueheronfarms.ca", 310, 6),
+         "N5P 3T2", "+1 (519) 555-0208", "alice@blueheronfarms.example", 310, 6),
         ("Rockway Dairy", "Henry Martin", "620 Waterloo Rd 12", "Kitchener",
-         "N2P 2H9", "+1 (519) 555-0214", "henry@rockwaydairy.ca", 150, 5),
+         "N2P 2H9", "+1 (519) 555-0214", "henry@rockwaydairy.example", 150, 5),
         ("Thornhill Farms", "Grace Okafor", "7789 Middlesex Rd 9", "Strathroy",
-         "N7G 3H4", "+1 (519) 555-0227", "grace@thornhillfarms.ca", 275, 6),
+         "N7G 3H4", "+1 (519) 555-0227", "grace@thornhillfarms.example", 275, 6),
         ("Mill Creek Dairy", "Daniel Reimer", "1420 Bruce Rd 3", "Walkerton",
-         "N0G 2V0", "+1 (519) 555-0231", "daniel@millcreekdairy.ca", 200, 5),
+         "N0G 2V0", "+1 (519) 555-0231", "daniel@millcreekdairy.example", 200, 5),
         ("Silver Birch Holsteins", "Nadia Haddad", "5560 Grey Rd 17", "Owen Sound",
-         "N4K 5N7", "+1 (519) 555-0244", "nadia@silverbirchholsteins.ca", 330, 6),
+         "N4K 5N7", "+1 (519) 555-0244", "nadia@silverbirchholsteins.example", 330, 6),
         ("Fox Run Dairy", "Peter Lam", "2210 Norfolk Rd 21", "Simcoe",
-         "N3Y 4K2", "+1 (519) 555-0256", "peter@foxrundairy.ca", 165, 5),
+         "N3Y 4K2", "+1 (519) 555-0256", "peter@foxrundairy.example", 165, 5),
         ("Harvest Moon Farms", "Ruth Delaney", "8840 Lambton Line 7", "Petrolia",
-         "N0N 1R0", "+1 (519) 555-0268", "ruth@harvestmoonfarms.ca", 220, 6),
+         "N0N 1R0", "+1 (519) 555-0268", "ruth@harvestmoonfarms.example", 220, 6),
     ]
     extra = [make_farm(n, o, a, c, pc, ph, e, h, None, days_per_week=d)
              for n, o, a, c, pc, ph, e, h, d in EXTRA_FARMS]
@@ -192,13 +197,13 @@ async def seed(session: AsyncSession) -> None:
 
     # ── Vets (no user account — user_id NULL) ──────────────
     v1 = Vet(id=uuid.uuid4(), name="Dr. Sarah Mitchell", clinic="Heartland Veterinary Services",
-             phone="+1 (519) 555-0221", email="s.mitchell@heartlandvet.ca")
+             phone="+1 (519) 555-0221", email="s.mitchell@heartlandvet.example")
     v2 = Vet(id=uuid.uuid4(), name="Dr. James Carter", clinic="Oxford County Animal Health",
-             phone="+1 (519) 555-0246", email="j.carter@oxfordvets.ca")
+             phone="+1 (519) 555-0246", email="j.carter@oxfordvets.example")
     v3 = Vet(id=uuid.uuid4(), name="Dr. Priya Raman", clinic="Grand River Bovine Clinic",
-             phone="+1 (519) 555-0272", email="p.raman@grandriverbovine.ca")
+             phone="+1 (519) 555-0272", email="p.raman@grandriverbovine.example")
     v4 = Vet(id=uuid.uuid4(), name="Dr. Owen Beaulieu", clinic="Lakeshore Dairy Health",
-             phone="+1 (519) 555-0289", email="o.beaulieu@lakeshoredairyhealth.ca")
+             phone="+1 (519) 555-0289", email="o.beaulieu@lakeshoredairyhealth.example")
     session.add_all([v1, v2, v3, v4])
     await session.flush()
     # Every farm has a vet: an unassigned farm shows an empty vet card, which

@@ -221,8 +221,9 @@ async def add_protocol_records(
     through their own copy of this loop, so a self-injecting farm would have
     been honoured on one route and silently ignored on the other.
 
-    Returns the farmer-administered record when one was created, so the caller
-    can tell the farm about it.
+    Returns the farmer-administered record when one was created. Nobody is
+    told here: the sweep announces it the day before it is due
+    (_announce_self_injections).
     """
     farm = await db.get(Farm, cow.farm_id)
     self_inject = bool(farm and farm.self_inject_needling)
@@ -392,9 +393,12 @@ async def on_calving(cow: Cow, calving_date: date, db: AsyncSession) -> None:
     # protocol-completion stats with rounds that never finished.
     await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
     cow.status = CowStatus.fresh
+    # Counted here and only here. The day-283 sweep deliberately does not, so
+    # a cow it made Fresh is counted exactly once when her calving is recorded.
     cow.lactation_number = (cow.lactation_number or 0) + 1
     cow.last_calving_date = calving_date
     cow.current_program = None
+    cow.calving_assumed = False
     _clear_reproductive_fields(cow)
     # Dry-off has always notified the farm; calving -- the other end of the
     # same pen change, and the moment she goes back into the milking string --
@@ -502,6 +506,9 @@ async def run_lifecycle_transitions(
             cow.current_program = None
             _clear_reproductive_fields(cow)
             cow.last_calving_date = assumed_calving
+            # Keeps the real calving recordable: without it she is Fresh, and
+            # the app only offers "Record Calving" to pregnant and dry cows.
+            cow.calving_assumed = True
             create_notification(
                 db, cow.farm_id, cow.id, "calving",
                 f"{cow.label} has reached her due date ({assumed_calving.isoformat()}) "
@@ -612,14 +619,22 @@ async def _announce_self_injections(
         )
         if already.scalar() is not None:
             continue
-        when = ("tomorrow" if record.scheduled_date == today + lead
-                else "today" if record.scheduled_date == today
-                else f"on {record.scheduled_date.isoformat()}")
-        create_notification(
-            db, cow.farm_id, cow.id, "self_inject",
-            f"{cow.label} needs {record.treatment} {when} — the farm gives this "
-            "one, the day before insemination. Technician: leave the note.",
-        )
+        if record.scheduled_date < today:
+            # Caught up after a missed sweep. Asking for it "on the 23rd" on
+            # the 26th reads as a future instruction; say it is late instead.
+            message = (
+                f"{cow.label} was due {record.treatment} on "
+                f"{record.scheduled_date.isoformat()} — the farm gives this one. "
+                "If it has not been given, speak to your technician before "
+                "insemination."
+            )
+        else:
+            when = "tomorrow" if record.scheduled_date == today + lead else "today"
+            message = (
+                f"{cow.label} needs {record.treatment} {when} — the farm gives "
+                "this one, the day before insemination. Technician: leave the note."
+            )
+        create_notification(db, cow.farm_id, cow.id, "self_inject", message)
         sent += 1
     return sent
 

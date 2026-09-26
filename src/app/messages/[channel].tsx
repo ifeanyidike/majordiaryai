@@ -5,7 +5,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { EmptyState, Header, Screen, SkeletonList, Text } from '@/components';
 import { colors, radius, spacing, status } from '@/theme';
 import { AppMessage, MessageChannel, useAppStore } from '@/store/useAppStore';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore, useRole } from '@/store/useAuthStore';
 
 /**
  * Alarms and Office Alerts share this screen, because they are the same
@@ -57,6 +57,12 @@ export default function MessageFeedScreen() {
 
   const { messages, messagesLoading, fetchMessages, markMessageRead } = useAppStore();
   const myId = useAuthStore((s) => s.user?.id);
+  const role = useRole();
+  // Mirrors SENDER_ROLES in routers/messages.py: owners raise alarms, only the
+  // office writes office alerts. Technicians read both and write neither.
+  const canWrite =
+    (channel === 'alarm' && (role === 'farm' || role === 'admin')) ||
+    (channel === 'office_alert' && role === 'admin');
   const feed = messages[channel];
 
   useEffect(() => { fetchMessages(channel); }, [channel]);
@@ -83,6 +89,18 @@ export default function MessageFeedScreen() {
         title={meta.title}
         subtitle={unread ? `${unread} unread · ${meta.subtitle}` : meta.subtitle}
         back
+        right={
+          canWrite ? (
+            <Pressable
+              onPress={() => router.push({ pathname: '/messages/compose', params: { channel } })}
+              accessibilityRole="button"
+              accessibilityLabel={channel === 'alarm' ? 'Raise an alarm' : 'New office alert'}
+              hitSlop={12}
+            >
+              <Ionicons name="create-outline" size={24} color={colors.primary} />
+            </Pressable>
+          ) : undefined
+        }
       />
       <FlatList
         data={feed}

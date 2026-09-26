@@ -21,9 +21,10 @@ interface Props {
  * The note a technician leaves on a farm that gives its own last injection.
  *
  * Deliberately NOT the needling-complete form. That one records the shot as
- * administered — by the technician, today — and this shot is the farmer's, on
- * a day that has usually not arrived yet. Writing the note is the whole task;
- * whether the farmer actually gave it is recorded later, by him.
+ * administered — by the technician, today — and this shot is the farmer's.
+ * Writing the note is the whole task: saving it sends it to the farm as a
+ * notification. The farmer's shot is marked given when the technician
+ * records the insemination that follows it.
  */
 export function FarmerNoteForm({
   cowLabel, recordId, treatment, context, onCancel, onComplete,

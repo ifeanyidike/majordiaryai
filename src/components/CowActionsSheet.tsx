@@ -130,6 +130,10 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
       if (days !== null && days >= 30) keys.push('pregnancy_check');
       break;
     case 'fresh':
+      // The day-283 sweep makes a dry cow Fresh on her due date without a
+      // recorded calving. Until someone records the real one her lactation is
+      // one short and her calf does not exist — so the calving stays on offer.
+      if (cow.calvingAssumed) keys.push('calving');
       // Vaccination window: 30–50 days post calving
       if (dim !== null && dim >= 30) keys.push('vaccinate');
       break;
@@ -254,6 +258,8 @@ function FormActions({
  */
 export interface RecordTarget {
   id: string;
+  /** Fresh by the day-283 sweep, calving not yet recorded. */
+  calvingAssumed?: boolean;
   /** How to name her to a person — her name, her tag, or both. Always set. */
   label: string;
   earTag?: string;

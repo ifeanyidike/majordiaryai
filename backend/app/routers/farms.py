@@ -133,6 +133,13 @@ async def create_farm(
 
     farm = Farm(**data)
     db.add(farm)
+    # A farm created with a technician is a farm added to his route, and that
+    # is a route change like any reassignment.
+    if farm.assigned_technician_id is not None:
+        await db.flush()
+        await messaging.announce_route_change(
+            db, current_user["id"], farm, None, farm.assigned_technician_id,
+        )
     await db.commit()
     await db.refresh(farm)
 

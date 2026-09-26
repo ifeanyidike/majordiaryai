@@ -277,6 +277,7 @@ CREATE TABLE public.cows (
     recheck_due_date date,
     dry_off_confirmed_date date,
     name character varying,
+    calving_assumed boolean DEFAULT false NOT NULL,
     CONSTRAINT ck_cows_has_an_identifier CHECK (((ear_tag IS NOT NULL) OR (name IS NOT NULL))),
     CONSTRAINT ck_cows_lactation_number_non_negative CHECK ((lactation_number >= 0))
 );

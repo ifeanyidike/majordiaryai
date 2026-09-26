@@ -272,6 +272,12 @@ class Cow(Base):
     last_insemination_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("inseminations.id"))
     due_date: Mapped[Optional[date_type]] = mapped_column(Date)
     dry_date: Mapped[Optional[date_type]] = mapped_column(Date)
+    # True from the day-283 sweep, which assumes she calved on her due date,
+    # until the real calving is recorded. It is what keeps "Record Calving"
+    # available on a cow the sweep has already made Fresh (migration 0018).
+    calving_assumed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False,
+    )
     # Set when the technician confirms she was physically moved to the dry pen.
     # The Dry Report is work until this is recorded, then she drops off it.
     dry_off_confirmed_date: Mapped[Optional[date_type]] = mapped_column(Date)

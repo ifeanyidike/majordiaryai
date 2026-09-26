@@ -74,6 +74,9 @@ class CowOut(BaseModel):
     recheck_due_date: Optional[date] = None
     current_program: Optional[str] = None
     last_calving_date: Optional[date] = None
+    # The day-283 sweep made her Fresh without a recorded calving; the real one
+    # is still to be recorded (migration 0018).
+    calving_assumed: bool = False
     last_insemination_date: Optional[date] = None
     last_insemination_id: Optional[UUID] = None
     due_date: Optional[date] = None

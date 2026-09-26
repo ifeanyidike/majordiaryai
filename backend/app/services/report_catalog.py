@@ -493,12 +493,25 @@ def _calving_due(ctx: WorklistContext) -> List[ReportRow]:
 
 
 def _fresh(ctx: WorklistContext) -> List[ReportRow]:
-    """Cows that have just calved. The calving is already on record by the time
-    she is Fresh, so the action is the post-calving check, not "record it".
+    """Cows that have just calved -- and cows the day-283 sweep ASSUMES have.
+
+    For a recorded calving the action is the post-calving check. For an
+    assumed one it is recording the calving itself: until then her lactation
+    is one short, her calving date is a guess, and her calf does not exist.
     """
     rows = []
     for cow in ctx.cows:
         if cow.status != CowStatus.fresh:
+            continue
+        if cow.calving_assumed:
+            # No window: this stays on the list until somebody records it,
+            # because the error it represents does not age out.
+            rows.append(ReportRow(
+                cow=cow,
+                action="Due date has passed — record the calving",
+                detail=f"Due {_fmt(cow.last_calving_date)} · calving not recorded yet",
+                record_kind="calving",
+            ))
             continue
         d = _days_since(cow.last_calving_date, ctx.today)
         if d is None or d > FRESH_WINDOW_DAYS:
@@ -602,7 +615,11 @@ REPORTS: List[ReportDef] = [
     ReportDef("post-calving", "Vaccine Report", "bandage", "fresh", True, _post_calving,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} due the 2cc shot"),
+    # record_roles because assumed calvings now carry a calving form, and only
+    # admins and technicians may record one (routers/calving.py) — offering
+    # it to a farm manager would end in a 403.
     ReportDef("fresh", "Fresh / Calving Report", "heart", "fresh", True, _fresh,
+              record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} freshly calved {'cow' if n == 1 else 'cows'}"),
     ReportDef("open-report", "Open Cow Report", "ellipse-outline", "open", True, _open,
               record_roles=WORK_ROLES,

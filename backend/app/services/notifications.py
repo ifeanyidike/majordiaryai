@@ -15,6 +15,26 @@ from app.services.email import is_configured, send_email
 
 logger = logging.getLogger("app.notifications")
 
+# Domains that can never belong to a real person (RFC 2606 / RFC 6761). Demo
+# and seed data must live here, and anything addressed here is never handed to
+# SendGrid: the seeded production farms once carried invented addresses at
+# plausible .ca domains, one of which turned out to be a real business's
+# Microsoft 365 tenant, and the rest hard-bounced against our sender reputation.
+_RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
+_RESERVED_TLDS = (".example", ".test", ".invalid", ".localhost")
+
+
+def is_test_address(email: str) -> bool:
+    """True for an address that must never be sent to."""
+    domain = email.rsplit("@", 1)[-1].strip().lower().rstrip(".")
+    return (
+        domain in _RESERVED_DOMAINS
+        or any(domain.endswith("." + d) for d in _RESERVED_DOMAINS)
+        or domain.endswith(_RESERVED_TLDS)
+        or domain in {t.lstrip(".") for t in _RESERVED_TLDS}
+    )
+
+
 # What each notification type is called on the farmer's email. Anything not
 # listed falls back to a title-cased type name, which is fine for a word like
 # "calving" and wrong for an abbreviation.
@@ -74,6 +94,11 @@ async def _email_notification(
             # record it so it can be found, rather than silently doing nothing.
             await _record_outcome(notification_id, "no_email")
             logger.warning("Farm %s has no email; notification not delivered", farm_id)
+            return
+        if is_test_address(farm.email):
+            # Demo data. Recorded, so the /undelivered view does not mistake it
+            # for a farmer who was never told.
+            await _record_outcome(notification_id, "test_address")
             return
         # Subjects are read by farmers. `type.title()` produced "Preg Check"
         # and "Self Inject" the moment those types existed.

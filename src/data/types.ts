@@ -13,6 +13,8 @@ export interface HistoryEvent {
 
 export interface Cow {
   id: string;
+  /** Fresh by the day-283 sweep; the real calving is still to be recorded. */
+  calvingAssumed?: boolean;
   /** Either identifier may be absent — but never both. Use `label` to show her. */
   earTag?: string;
   name?: string;

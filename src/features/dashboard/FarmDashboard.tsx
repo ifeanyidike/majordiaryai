@@ -141,6 +141,21 @@ export function FarmDashboard() {
               My Herd
             </Text>
           </PressableScale>
+          {/* The client's definition of an Alarm: "when a farmer wants to send
+              a note to a technician". Without this the feed had no way in. */}
+          <PressableScale
+            style={styles.chip}
+            onPress={() => router.push({ pathname: '/messages/compose', params: { channel: 'alarm' } })}
+            onLongPress={() => router.push({ pathname: '/messages/[channel]', params: { channel: 'alarm' } })}
+            accessibilityRole="button"
+            accessibilityLabel="Raise an alarm to your technician"
+            accessibilityHint="Long press to see alarms you have sent"
+          >
+            <Ionicons name="alert-circle" size={18} color={onDark.text} />
+            <Text variant="label" color={onDark.text}>
+              Alarm
+            </Text>
+          </PressableScale>
         </Animated.View>
       </HeroHeader>
 
