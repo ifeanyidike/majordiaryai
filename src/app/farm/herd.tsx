@@ -76,7 +76,7 @@ export default function HerdScreen() {
               icon="analytics-outline"
               title={cow.label}
               subtitle={`${cow.breed} · Lact ${cow.lactationNumber} · ${cow.daysInMilk} DIM`}
-              right={<StatusPill kind={cow.status} />}
+              badge={<StatusPill kind={cow.status} />}
               onPress={() => router.push({ pathname: '/cow/[id]', params: { id: cow.id } })}
             />
           </Animated.View>

@@ -56,7 +56,7 @@ export default function CowSearchScreen() {
               icon="analytics-outline"
               title={cow.label}
               subtitle={`${farmById(state, cow.farmId)?.name ?? 'Unknown farm'} · ${cow.breed} · Lact ${cow.lactationNumber}`}
-              right={<StatusPill kind={cow.status} />}
+              badge={<StatusPill kind={cow.status} />}
               onPress={() => router.push({ pathname: '/cow/[id]', params: { id: cow.id } })}
             />
           ))

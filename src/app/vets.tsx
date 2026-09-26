@@ -54,7 +54,7 @@ export default function VetsScreen() {
               iconColor={colors.primary}
               iconBg={colors.primarySoft}
               title={v.name}
-              subtitle={`${v.clinic} · ${v.farmIds.length} ${v.farmIds.length === 1 ? 'farm' : 'farms'}`}
+              subtitle={`${v.farmIds.length} ${v.farmIds.length === 1 ? 'farm' : 'farms'} · ${v.clinic}`}
               onPress={() => router.push({ pathname: '/vet/[id]', params: { id: v.id } })}
             />
           </Animated.View>

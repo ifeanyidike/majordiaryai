@@ -13,6 +13,9 @@ interface ListRowProps {
   iconColor?: string;
   iconBg?: string;
   right?: React.ReactNode;
+  /** Shown under the text, e.g. a status pill. Unlike `right`, it takes no
+   *  width from the title, so a long ear tag is never cut short. */
+  badge?: React.ReactNode;
   onPress?: () => void;
   chevron?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -26,6 +29,7 @@ export function ListRow({
   iconColor,
   iconBg,
   right,
+  badge,
   onPress,
   chevron = true,
   style,
@@ -42,6 +46,7 @@ export function ListRow({
             {subtitle}
           </Text>
         ) : null}
+        {badge ? <View style={styles.badge}>{badge}</View> : null}
       </View>
       {right}
       {onPress && chevron ? (
@@ -76,4 +81,5 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   textCol: { flex: 1, gap: spacing.hairline },
+  badge: { marginTop: spacing.xs },
 });

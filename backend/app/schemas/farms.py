@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import List, Optional
 from uuid import UUID
 from datetime import date, datetime
@@ -83,7 +83,9 @@ class FarmOut(BaseModel):
     assigned_technician_name: Optional[str] = None
     assigned_technician_phone: Optional[str] = None
     visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
-    # Human label for the schedule, e.g. "Mon–Sat"
+    # Human label for the schedule, e.g. "Mon–Fri". Derived from
+    # visit_weekdays below; nothing used to set it, so the app fell back to
+    # "Mon–Sat" for every farm, including Mon–Fri ones.
     visit_schedule_label: Optional[str] = None
     self_inject_needling: bool = False
     self_vaccinate: bool = False
@@ -93,6 +95,12 @@ class FarmOut(BaseModel):
     cow_count: Optional[int] = None
     pregnant_count: Optional[int] = None
     open_count: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _label_schedule(self):
+        from app.services.visits import describe_weekdays
+        self.visit_schedule_label = describe_weekdays(self.visit_weekdays)
+        return self
 
 
 class VisitAssignmentBody(BaseModel):

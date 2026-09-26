@@ -41,7 +41,7 @@ function Row({
       <View style={styles.rowText}>
         <Text variant="subheading">{label}</Text>
         {hint ? (
-          <Text variant="caption" color={colors.textSecondary} numberOfLines={2}>
+          <Text variant="caption" color={colors.textSecondary}>
             {hint}
           </Text>
         ) : null}

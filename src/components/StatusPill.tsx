@@ -10,7 +10,9 @@ const LABELS: Record<StatusKey, string> = {
   dry:         'Dry',
   fresh:       'Fresh',
   cull:        'Cull',
-  heat:        'In Heat',
+  // A prediction (day 20–25 after insemination), not an observation: the
+  // app never knows she IS in heat, only that it is time to look.
+  heat:        'Check Heat',
   needling:    'Needling',
   calf:        'Calf',
   heifer:      'Heifer',

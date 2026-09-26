@@ -146,16 +146,11 @@ export default function FarmProfileScreen() {
             >
               <Ionicons name={c.icon} size={18} color={onDark.text} />
               {/* Four chips share the width, and "Directions" is wider than its
-                  quarter — it was breaking mid-word as "DIRECTIO / NS". Shrink
-                  to fit rather than wrap, so any label stays on one line. */}
-              <Text
-                variant="label"
-                color={onDark.text}
-                style={styles.chipLabel}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
+                  quarter at the label size — it broke mid-word as
+                  "DIRECTIO / NS". A fixed smaller size that fits every label,
+                  not adjustsFontSizeToFit: on iOS that shrank even "Call" to
+                  an unreadable few pixels here. */}
+              <Text variant="label" color={onDark.text} style={styles.chipLabel} numberOfLines={1}>
                 {c.label}
               </Text>
             </PressableScale>
@@ -369,7 +364,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xxl,
   },
-  chipLabel: { textAlign: 'center', letterSpacing: 0.2 },
+  chipLabel: { textAlign: 'center', alignSelf: 'stretch', fontSize: 11, letterSpacing: 0.2 },
   chip: {
     flex: 1,
     alignItems: 'center',

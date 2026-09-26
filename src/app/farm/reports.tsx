@@ -141,7 +141,7 @@ export default function FarmReportsScreen() {
           </View>
           <View style={styles.heatBadge}>
             <Text variant="stat" color={onDark.text}>{summary.heat}</Text>
-            <Text variant="label" color={onDark.textSecondary}>In Heat</Text>
+            <Text variant="label" color={onDark.textSecondary}>Check Heat</Text>
           </View>
         </View>
 
@@ -170,7 +170,14 @@ export default function FarmReportsScreen() {
           {kpiItems.map((k) => (
             <View key={k.label} style={styles.kpiItem}>
               <Text variant="statSmall" color={onDark.text}>{k.value}</Text>
-              <Text variant="caption" color={onDark.textSecondary} numberOfLines={1}>
+              <Text
+                variant="caption"
+                color={onDark.textSecondary}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+                style={styles.kpiLabel}
+              >
                 {k.label}
               </Text>
             </View>
@@ -237,4 +244,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
   },
   kpiItem: { flex: 1, alignItems: 'center', gap: spacing.hairline },
+  // Stretch so the label shrinks to the tile instead of "Calvings 3…".
+  kpiLabel: { alignSelf: 'stretch', textAlign: 'center' },
 });

@@ -32,9 +32,8 @@ import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/
  * On these two screens the pill names the JOB, not the animal: a cow on the
  * Heat Report needs checking for heat, one on the Pregnancy Report needs a
  * pregnancy check. Everywhere else — her profile, the herd list — she is
- * still "In Heat" and "Inseminated", because that is what she IS. Renaming
- * the global vocabulary instead would leave the herd list telling you to
- * check a pregnancy where it used to tell you her status.
+ * still "Inseminated", because that is what she IS. ("Check Heat" is the
+ * global label too: heat is only ever a predicted window, never a fact.)
  */
 const ROW_PILL_LABEL: Record<string, string> = {
   heat: 'Check Heat',
@@ -151,14 +150,9 @@ export default function ReportDetailScreen() {
               accessibilityLabel={`${cow.label}. ${cow.action}`}
             >
               <View style={styles.rowTop}>
-                <Text variant="subheading" style={styles.flex1} numberOfLines={1}>
+                <Text variant="subheading" style={styles.flex1} numberOfLines={2}>
                   {cow.label}
                 </Text>
-                {cow.overdue ? (
-                  <View style={styles.overdue}>
-                    <Text variant="caption" color={colors.danger}>Overdue</Text>
-                  </View>
-                ) : null}
                 <StatusPill
                   kind={report.type === 'heat' ? 'heat' : cow.status}
                   label={ROW_PILL_LABEL[report.type]}
@@ -174,6 +168,13 @@ export default function ReportDetailScreen() {
               </View>
 
               <View style={styles.metaRow}>
+                {/* Down here rather than beside the tag, where it squeezed the
+                    tag to "CA 12…" on every overdue cow. */}
+                {cow.overdue ? (
+                  <View style={styles.overdue}>
+                    <Text variant="caption" color={colors.danger}>Overdue</Text>
+                  </View>
+                ) : null}
                 <Text variant="caption" color={colors.textMuted} numberOfLines={1} style={styles.flex1}>
                   {cow.detail}
                 </Text>

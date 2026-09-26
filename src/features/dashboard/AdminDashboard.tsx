@@ -94,7 +94,7 @@ export function AdminDashboard() {
               { label: 'Dry', value: summary.dry, c: status.dry.fg },
               { label: 'Fresh', value: summary.fresh, c: status.fresh.fg },
               { label: 'Cull', value: summary.cull, c: status.cull.fg },
-              { label: 'In Heat', value: summary.heat, c: status.heat.fg },
+              { label: 'Check Heat', value: summary.heat, c: status.heat.fg },
             ] as const
           ).map((s) => (
             <View key={s.label} style={styles.summaryItem}>

@@ -138,8 +138,10 @@ export default function MessageFeedScreen() {
                 </Text>
               </View>
               <Text variant="body">{m.body}</Text>
+              {/* With no farm, the sender already leads the row; don't say it twice. */}
+              {(m.senderName && m.farmName) || m.cowLabel ? (
               <View style={styles.footLine}>
-                {m.senderName ? (
+                {m.senderName && m.farmName ? (
                   <Text variant="caption" color={colors.textMuted} numberOfLines={1}>
                     {m.senderName}
                   </Text>
@@ -153,6 +155,7 @@ export default function MessageFeedScreen() {
                   </View>
                 ) : null}
               </View>
+              ) : null}
             </View>
             {!m.readAt && m.recipientId === myId ? (
               <View style={[styles.dot, { backgroundColor: meta.color }]} />
