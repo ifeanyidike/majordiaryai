@@ -324,3 +324,52 @@ async def test_reassigning_a_single_day_names_the_day(api, db, farm, make_user):
     ]
     assert any(when.isoformat() in b and "added to your route" in b for b in bodies)
     assert any(when.isoformat() in b and "no longer on your route" in b for b in bodies)
+
+
+async def test_a_flood_of_alarms_is_stopped(api, db, farm, make_user, sent_pushes):
+    """Each alarm buzzes a phone. Twenty in a minute teaches a technician to
+    silence the one channel that matters."""
+    tech = await make_user(UserRole.technician)
+    farm.assigned_technician_id = tech.id
+    await db.flush()
+
+    async with api("farm", farm_id=farm.id) as client:
+        codes = [
+            (await _alarm(client, body=f"alarm {i}")).status_code for i in range(7)
+        ]
+
+    assert codes[:5] == [201] * 5
+    assert codes[5:] == [429, 429]
+    assert len(sent_pushes) == 5, "a refused alarm must not buzz the phone"
+
+
+async def test_route_changes_are_never_throttled(api, db, farm, make_user):
+    """System-raised office alerts do not pass through the hand-written limit —
+    a big reshuffle of routes must reach every technician it touches.
+
+    Each reassignment raises two alerts (outgoing and incoming), so twelve of
+    them raise 24 — past the 20 an admin may write by hand in the window.
+    """
+    from sqlalchemy import select
+
+    from app.routers.messages import RATE_LIMIT
+
+    admin = await make_user(UserRole.admin)
+    a = await make_user(UserRole.technician, "A")
+    b = await make_user(UserRole.technician, "B")
+    farm.assigned_technician_id = a.id
+    await db.flush()
+
+    async with api("admin", user_id=admin.id) as client:
+        for i in range(12):
+            nxt = b if i % 2 == 0 else a
+            r = await client.patch(f"/farms/{farm.id}",
+                                   json={"assigned_technician_id": str(nxt.id)})
+            assert r.status_code == 200, r.text
+
+    sent = (await db.execute(
+        select(Message).where(Message.farm_id == farm.id,
+                              Message.channel == MessageChannel.office_alert)
+    )).scalars().all()
+    assert len(sent) == 24
+    assert len(sent) > RATE_LIMIT[MessageChannel.office_alert]

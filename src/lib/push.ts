@@ -58,15 +58,20 @@ export async function registerForPush(): Promise<void> {
   if (!isApiConfigured) return;
   try {
     await ensureChannels();
-    // Simulators and emulators cannot receive remote pushes.
-    if (!Device.isDevice) return;
 
+    // Permission first, on every device. Whether the user allows alerts has
+    // nothing to do with being a physical phone — and asking on a simulator
+    // is what lets a simulated alarm (`xcrun simctl push`) actually appear.
     const current = await Notifications.getPermissionsAsync();
     let granted = current.granted;
     if (!granted && current.canAskAgain) {
       granted = (await Notifications.requestPermissionsAsync()).granted;
     }
     if (!granted) return;
+
+    // Only the push ADDRESS needs real hardware: Expo cannot issue a token to
+    // a simulator or emulator.
+    if (!Device.isDevice) return;
 
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;

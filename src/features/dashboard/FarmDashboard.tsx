@@ -146,10 +146,8 @@ export function FarmDashboard() {
           <PressableScale
             style={styles.chip}
             onPress={() => router.push({ pathname: '/messages/compose', params: { channel: 'alarm' } })}
-            onLongPress={() => router.push({ pathname: '/messages/[channel]', params: { channel: 'alarm' } })}
             accessibilityRole="button"
             accessibilityLabel="Raise an alarm to your technician"
-            accessibilityHint="Long press to see alarms you have sent"
           >
             <Ionicons name="alert-circle" size={18} color={onDark.text} />
             <Text variant="label" color={onDark.text}>
@@ -261,6 +259,24 @@ export function FarmDashboard() {
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
               </PressableScale>
             ) : null}
+            {/* The owner's alarms, with the ones already sent. The Alarm chip
+                above only writes a new one; seeing that an earlier alarm went,
+                and when, used to need a long-press nobody would find. */}
+            <PressableScale
+              style={[styles.teamRow, styles.teamDivider]}
+              onPress={() => router.push({ pathname: '/messages/[channel]', params: { channel: 'alarm' } })}
+              accessibilityRole="button"
+              accessibilityLabel="Alarms you have sent to your technician"
+            >
+              <IconCircle name="alert-circle" size={40} color={colors.primary} bg={colors.primarySoft} />
+              <View style={styles.teamText}>
+                <Text variant="bodyBold">Alarms</Text>
+                <Text variant="caption" color={colors.textSecondary}>
+                  The ones you have sent, and a new one
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </PressableScale>
           </Card>
         </Animated.View>
 

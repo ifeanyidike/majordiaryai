@@ -7,7 +7,7 @@ database has to hold the same line the API does.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -34,6 +34,18 @@ router = APIRouter()
 SENDER_ROLES = {
     MessageChannel.alarm: ("farm", "admin"),
     MessageChannel.office_alert: ("admin",),
+}
+
+
+# Every alarm buzzes a phone. Nothing stopped an owner (or a stuck button)
+# sending them back to back, and a technician whose phone rings twenty times
+# in a minute learns to silence the channel -- which is the one that matters.
+# Hand-written messages only: route-change alerts are raised by the system
+# through messaging.send and never pass through here.
+RATE_WINDOW = timedelta(minutes=10)
+RATE_LIMIT = {
+    MessageChannel.alarm: 5,
+    MessageChannel.office_alert: 20,  # the office legitimately writes in bursts
 }
 
 
@@ -131,6 +143,24 @@ async def send_message(
             detail=(
                 f"Only {' or '.join(allowed)} can post to the "
                 f"{body.channel.value.replace('_', ' ')} feed"
+            ),
+        )
+
+    recent = await db.scalar(
+        select(func.count()).select_from(Message).where(
+            Message.sender_id == current_user["id"],
+            Message.channel == body.channel,
+            Message.created_at >= datetime.now(timezone.utc) - RATE_WINDOW,
+        )
+    )
+    limit = RATE_LIMIT[body.channel]
+    if recent >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've sent {recent} in the last {int(RATE_WINDOW.total_seconds() // 60)} "
+                "minutes — they have all been delivered. Please wait a few minutes "
+                "before sending another."
             ),
         )
 
