@@ -482,6 +482,19 @@ CREATE TABLE public.pregnancy_checks (
 
 
 --
+-- Name: push_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.push_tokens (
+    token character varying NOT NULL,
+    user_id uuid NOT NULL,
+    platform character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -670,6 +683,14 @@ ALTER TABLE ONLY public.notifications
 
 ALTER TABLE ONLY public.pregnancy_checks
     ADD CONSTRAINT pregnancy_checks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: push_tokens push_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_tokens
+    ADD CONSTRAINT push_tokens_pkey PRIMARY KEY (token);
 
 
 --
@@ -953,6 +974,13 @@ CREATE INDEX ix_notifications_email_status ON public.notifications USING btree (
 
 
 --
+-- Name: ix_push_tokens_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_push_tokens_user_id ON public.push_tokens USING btree (user_id);
+
+
+--
 -- Name: ix_users_pending; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1229,6 +1257,14 @@ ALTER TABLE ONLY public.pregnancy_checks
 
 ALTER TABLE ONLY public.pregnancy_checks
     ADD CONSTRAINT pregnancy_checks_vet_id_fkey FOREIGN KEY (vet_id) REFERENCES public.users(id);
+
+
+--
+-- Name: push_tokens push_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_tokens
+    ADD CONSTRAINT push_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -1569,6 +1605,19 @@ CREATE POLICY pregnancy_checks_read ON public.pregnancy_checks FOR SELECT USING 
 --
 
 CREATE POLICY pregnancy_checks_write ON public.pregnancy_checks USING ((public.get_my_role() = ANY (ARRAY['admin'::public.user_role, 'technician'::public.user_role, 'vet'::public.user_role])));
+
+
+--
+-- Name: push_tokens; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: push_tokens push_tokens_own; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY push_tokens_own ON public.push_tokens USING ((user_id = auth.uid())) WITH CHECK ((user_id = auth.uid()));
 
 
 --

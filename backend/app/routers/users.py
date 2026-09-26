@@ -2,13 +2,16 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_token_claims, require_roles
-from app.models.models import Farm, User, UserRole
-from app.schemas.users import UserAdminUpdate, UserCreate, UserUpdate, UserOut
+from app.models.models import Farm, PushToken, User, UserRole
+from app.schemas.users import (
+    PushTokenBody, UserAdminUpdate, UserCreate, UserUpdate, UserOut,
+)
 
 router = APIRouter()
 
@@ -187,3 +190,40 @@ async def update_profile(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.post("/me/push-token", status_code=status.HTTP_204_NO_CONTENT)
+async def register_push_token(
+    body: PushTokenBody,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Let this device be woken for this user's Alarms and Office Alerts.
+
+    Called on every app start, so it is an upsert: a token already on file
+    for someone else MOVES to whoever is signed in now — a phone handed from
+    one technician to another must stop waking the first.
+    """
+    stmt = pg_insert(PushToken).values(
+        token=body.token, user_id=current_user["id"], platform=body.platform,
+    )
+    await db.execute(stmt.on_conflict_do_update(
+        index_elements=[PushToken.token],
+        set_={"user_id": current_user["id"], "platform": body.platform,
+              "last_seen_at": func.now()},
+    ))
+    await db.commit()
+
+
+@router.delete("/me/push-token", status_code=status.HTTP_204_NO_CONTENT)
+async def forget_push_token(
+    body: PushTokenBody,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign-out: this device stops waking for this user. Scoped to the caller,
+    so nobody can unregister someone else's phone by knowing its token."""
+    await db.execute(delete(PushToken).where(
+        PushToken.token == body.token, PushToken.user_id == current_user["id"],
+    ))
+    await db.commit()

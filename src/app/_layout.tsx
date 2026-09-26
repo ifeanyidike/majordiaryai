@@ -1,11 +1,15 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Notifications from 'expo-notifications';
 import React, { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastHost } from '@/components';
 import { colors } from '@/theme';
 import { supabase } from '@/lib/supabase';
+import { registerForPush } from '@/lib/push';
+import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -25,6 +29,49 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     );
     return () => subscription.unsubscribe();
   }, []);
+
+  // Once someone is signed in (and approved — `user` stays null until an
+  // admin activates the account), let this phone be woken for their Alarms
+  // and Office Alerts. Re-running on every sign-in is deliberate: the server
+  // moves the token to whoever is signed in now.
+  useEffect(() => {
+    if (user) registerForPush();
+  }, [user?.id]);
+
+  // Tapping an alarm opens the feed it belongs to — including when the tap
+  // is what launched the app, which is the case that matters on a lock screen.
+  const lastTap = Notifications.useLastNotificationResponse();
+  useEffect(() => {
+    if (!user || !lastTap) return;
+    const channel = lastTap.notification.request.content.data?.channel;
+    if (channel === 'alarm' || channel === 'office_alert') {
+      router.push({ pathname: '/messages/[channel]', params: { channel } });
+    }
+  }, [lastTap, user?.id]);
+
+  // The badges used to be fetched once, when the home screen mounted, so an
+  // alarm that arrived while the app was open never showed until he navigated
+  // away and back. Refresh when a push lands in the foreground, and whenever
+  // the app returns to the front.
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => useAppStore.getState().fetchUnreadMessageCounts();
+    const received = Notifications.addNotificationReceivedListener((n) => {
+      refresh();
+      // And the feed itself, in case he is looking at it when it lands.
+      const channel = n.request.content.data?.channel;
+      if (channel === 'alarm' || channel === 'office_alert') {
+        useAppStore.getState().fetchMessages(channel);
+      }
+    });
+    const appState = AppState.addEventListener('change', (next) => {
+      if (next === 'active') refresh();
+    });
+    return () => {
+      received.remove();
+      appState.remove();
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const seg = segments as string[];

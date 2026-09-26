@@ -561,3 +561,29 @@ class Message(Base):
 
     sender: Mapped["User"] = relationship("User", foreign_keys=[sender_id])
     recipient: Mapped["User"] = relationship("User", foreign_keys=[recipient_id])
+
+
+class PushToken(Base):
+    """One phone that can be woken for this user.
+
+    Alarms and Office Alerts used to reach a technician only when he next
+    opened the app -- for something called an Alarm, that was the part that
+    mattered most. A token is an Expo push address for one installation; a
+    user may have several (phone and tablet), and a token belongs to whoever
+    signed in on that device LAST, so a handed-over phone stops waking the
+    previous owner.
+    """
+
+    __tablename__ = "push_tokens"
+
+    token: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
+    platform: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False,
+    )

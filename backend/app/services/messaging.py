@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Farm, Message, MessageChannel, User, UserRole
+from app.services import push
 
 
 async def send(
@@ -33,7 +34,8 @@ async def send(
     farm_id: Optional[uuid.UUID] = None,
     cow_id: Optional[uuid.UUID] = None,
 ) -> Message:
-    """Queue one message. The caller commits."""
+    """Queue one message, and a push to the recipient's phones. The caller
+    commits; the push goes out only if that commit happens."""
     message = Message(
         id=uuid.uuid4(),
         channel=channel,
@@ -44,6 +46,18 @@ async def send(
         body=body.strip(),
     )
     db.add(message)
+
+    farm = await db.get(Farm, farm_id) if farm_id else None
+    if channel is MessageChannel.alarm:
+        title = f"Alarm · {farm.name}" if farm else "Alarm"
+    else:
+        title = f"Office Alert · {farm.name}" if farm else "Office Alert"
+    push.queue_push(
+        db, recipient_id, title, message.body,
+        # What the app needs to open the right feed when the alert is tapped.
+        {"channel": channel.value, "message_id": str(message.id)},
+        channel.value,
+    )
     return message
 
 

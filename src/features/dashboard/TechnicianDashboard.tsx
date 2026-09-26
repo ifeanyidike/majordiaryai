@@ -63,7 +63,8 @@ export function TechnicianDashboard() {
     { label: 'Farms CRM', caption: `All ${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
     {
       label: 'Alarms',
-      caption: alarms ? `${alarms} from the barn` : 'From the farm owners',
+      // Short enough to stay on one line, or this card grows taller than its neighbour.
+      caption: alarms ? `${alarms} from the barn` : 'From the farms',
       icon: 'alert-circle',
       badge: alarms,
       onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'alarm' } }),

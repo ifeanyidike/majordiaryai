@@ -126,6 +126,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
+    // Before the session goes: the request that forgets this phone needs it.
+    // Otherwise the next person to use the device keeps receiving the
+    // previous account's alarms until they sign in themselves.
+    const { unregisterPush } = await import('@/lib/push');
+    await unregisterPush();
     await supabase.auth.signOut();
     set({ user: null, error: null, needsConfirmation: false });
     // Clear the previous account's herd data so the next login starts clean.

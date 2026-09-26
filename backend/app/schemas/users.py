@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -57,3 +57,18 @@ class UserOut(BaseModel):
     # False while a signed-up account waits for an admin to approve it.
     is_active: bool = True
     created_at: datetime
+
+
+class PushTokenBody(BaseModel):
+    # An Expo push address, e.g. "ExponentPushToken[xxxxxxxx]".
+    token: str = Field(min_length=10, max_length=300)
+    platform: Optional[str] = Field(default=None, max_length=20)
+
+    @field_validator("token")
+    @classmethod
+    def _is_expo_token(cls, v: str) -> str:
+        # Anything else stored here would make Expo reject the whole batch it
+        # is sent in, taking every other device's alarm down with it.
+        if not (v.startswith(("ExponentPushToken[", "ExpoPushToken[")) and v.endswith("]")):
+            raise ValueError("not an Expo push token")
+        return v

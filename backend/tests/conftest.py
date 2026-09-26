@@ -137,6 +137,22 @@ def never_email_from_a_test(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def sent_pushes(monkeypatch):
+    """Every push a test's commits would have sent, instead of sending it.
+
+    Same trap as the email above: a committed message schedules a background
+    task that opens a session on the APPLICATION engine (production) and
+    calls Expo. Recorded here instead, so tests can assert on what WOULD have
+    gone out.
+    """
+    sent = []
+    from app.services import push
+
+    monkeypatch.setattr(push, "_schedule", lambda *args: sent.append(args))
+    return sent
+
+
 @pytest_asyncio.fixture
 async def db(engine):
     """A session whose work is always rolled back."""
