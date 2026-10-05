@@ -53,6 +53,15 @@ async def enroll_cow(
     db: AsyncSession = Depends(get_db),
 ):
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)
+    # Every protocol ends in a timed insemination, which a listed cow may not
+    # have (Josh, Oct 2/4) -- starting one is ten days of shots for nothing.
+    listed = status_engine.breeding_list(cow)
+    if listed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{cow.label} is on the {listed} list, so she is not to be bred. "
+                   "Take her off it first if she is to start a protocol.",
+        )
     status_engine.ensure_transition(cow, CowStatus.needling)
 
     # The start date schedules every injection in the protocol, so a typo'd

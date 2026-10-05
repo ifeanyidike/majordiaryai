@@ -295,6 +295,24 @@ HEAT_RECORDABLE_STATUSES = {
 _CARRYING_STATUSES = {CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry}
 
 
+def breeding_list(cow: Cow) -> Optional[str]:
+    """The breeding list she is on, by name, or None (Josh, Oct 2/4)."""
+    if cow.do_not_breed:
+        return "Do Not Breed"
+    if cow.do_not_inseminate:
+        return "Do Not Inseminate"
+    return None
+
+
+def open_message(cow: Cow, how: str) -> str:
+    """"<cow> is Open -- select a needling protocol", unless she is on a
+    breeding list, where that instruction is the one thing not to do."""
+    listed = breeding_list(cow)
+    if listed:
+        return f"{cow.label} {how}. She is on the {listed} list, so no protocol is needed."
+    return f"{cow.label} {how} — select a needling protocol."
+
+
 def breeding_exclusion(cow: Cow, today: date) -> Optional[str]:
     """Why a cow seen in heat must NOT be bred, or None if she must be.
 
@@ -306,10 +324,9 @@ def breeding_exclusion(cow: Cow, today: date) -> Optional[str]:
     """
     if cow.status in (CowStatus.cull, CowStatus.sold, CowStatus.dead):
         return "she is a cull" if cow.status == CowStatus.cull else f"she is {cow.status.value}"
-    if cow.do_not_breed:
-        return "she is on the Do Not Breed list"
-    if cow.do_not_inseminate:
-        return "she is on the Do Not Inseminate list"
+    listed = breeding_list(cow)
+    if listed:
+        return f"she is on the {listed} list"
     if cow.status == CowStatus.calf:
         return "she is a calf"
     if cow.date_of_birth and (today - cow.date_of_birth).days < MIN_AGE_DAYS_TO_BREED:
@@ -358,10 +375,13 @@ async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Opt
             "pregnant. She is back on the Open Cow Report.",
         )
     elif was_inseminated:
+        # A listed cow is kept off the Open Cow Report too, so only say she is
+        # back on it when she is.
         create_notification(
             db, cow.farm_id, cow.id, "open",
             f"{cow.label} was seen in heat, so she is not pregnant. She is not to "
-            f"be bred ({reason}) and is back on the Open Cow Report.",
+            f"be bred ({reason})"
+            + ("." if breeding_list(cow) else " and is back on the Open Cow Report."),
         )
     return reason
 
@@ -380,7 +400,7 @@ async def on_pregnancy_negative(cow: Cow, db: AsyncSession) -> None:
     _clear_reproductive_fields(cow)
     create_notification(
         db, cow.farm_id, cow.id, "open",
-        f"{cow.label} is Open — select a needling protocol.",
+        open_message(cow, "is Open"),
     )
 
 
@@ -609,7 +629,7 @@ async def run_lifecycle_transitions(
                 cow.current_program = None
                 create_notification(
                     db, cow.farm_id, cow.id, "open",
-                    f"{cow.label} entered the Open Program — select a needling protocol.",
+                    open_message(cow, "entered the Open Program"),
                 )
                 changed += 1
             continue
@@ -682,6 +702,8 @@ async def _announce_self_injections(
 
     sent = 0
     for record, cow, enrollment in (await db.execute(stmt)).all():
+        if breeding_list(cow):
+            continue  # listed after her protocol began: no shot to ask for
         already = await db.execute(
             select(Notification.id).where(
                 Notification.cow_id == cow.id,

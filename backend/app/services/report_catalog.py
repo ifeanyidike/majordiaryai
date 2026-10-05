@@ -24,6 +24,7 @@ from app.services.protocols import protocol_label
 # Single source with checks.py and the sweep's pregnancy-check reminder.
 from app.services.status_engine import (
     HEAT_RECORDABLE_STATUSES, HEAT_WINDOW, PREGNANCY_REPORT_DAY, breeding_exclusion,
+    breeding_list,
 )
 
 # ── thresholds (spec) ────────────────────────────────────────────────
@@ -186,12 +187,15 @@ def _not_to_be_bred(cow: Cow) -> bool:
 
     Josh named the lists for heats, but a list that says "do not breed" cannot
     then be handed a breeding job by another report: the Open Cow Report's
-    "choose a needling protocol" ends in a timed insemination, the Timed
-    Breeding Report and the Insemination Program ask for one outright. So she
-    gets no breeding work anywhere (and POST /inseminations refuses her); she
-    is still on the Open Cow List for reference.
+    "choose a needling protocol" and a protocol's injections both end in a
+    timed insemination, and the Timed Breeding Report and the Insemination
+    Program ask for one outright. So she gets no breeding work anywhere, and
+    the API refuses to enroll or inseminate her. A protocol already running
+    when she was listed is left alone rather than cancelled: if she comes off
+    the list that week it simply carries on. She stays on her lists, and on
+    the Open Cow List, for reference.
     """
-    return bool(cow.do_not_breed or cow.do_not_inseminate)
+    return breeding_list(cow) is not None
 
 
 def _breeding_today(ctx: WorklistContext, cow: Cow) -> bool:
@@ -276,6 +280,8 @@ def _needling(ctx: WorklistContext) -> List[ReportRow]:
         row = ctx.needling.get(str(cow.id))
         if not row:
             continue
+        if _not_to_be_bred(cow):
+            continue  # listed mid-protocol: the shots only lead to an AI she may not have
         label = protocol_label(row.get("protocol"))
         context = f"{label}, Day {row['protocol_day']}"
         treatment = row["treatment"] or ""
@@ -345,6 +351,8 @@ def _farmer_injection(ctx: WorklistContext) -> List[ReportRow]:
     for cow in ctx.cows:
         row = ctx.farmer_injections.get(str(cow.id))
         if not row:
+            continue
+        if _not_to_be_bred(cow):
             continue
         due = row["scheduled_date"]
         days = row["days_until"]
@@ -609,6 +617,26 @@ def _open_list(ctx: WorklistContext) -> List[ReportRow]:
     ]
 
 
+def _breeding_list(flag: str):
+    """The Do Not Breed / Do Not Inseminate lists themselves -- Josh speaks of
+    cows being "on the Do Not Breed list", so the list has to be somewhere a
+    person can read it, not only a flag on each cow."""
+    def build(ctx: WorklistContext) -> List[ReportRow]:
+        return [
+            ReportRow(
+                cow=cow, action="",
+                detail=f"{cow.status.value.capitalize()}"
+                       + (f" · {d} days in milk"
+                          if (d := _days_since(cow.last_calving_date, ctx.today)) is not None
+                          and cow.status not in (CowStatus.dry, CowStatus.heifer, CowStatus.calf)
+                          else ""),
+            )
+            for cow in ctx.cows
+            if getattr(cow, flag) and cow.status not in (CowStatus.sold, CowStatus.dead)
+        ]
+    return build
+
+
 def _cull_list(ctx: WorklistContext) -> List[ReportRow]:
     return [
         ReportRow(cow=cow, action="", detail=f"Exited {_fmt(cow.exit_date)}"
@@ -676,6 +704,10 @@ REPORTS: List[ReportDef] = [
     ReportDef("pregnant", "Pregnant Cow List", "heart-circle", "pregnant", False, _pregnant_list),
     ReportDef("open", "Open Cow List", "list-circle", "open", False, _open_list),
     ReportDef("cull", "Cull Cow List", "alert-circle", "cull", False, _cull_list),
+    ReportDef("do-not-breed", "Do Not Breed List", "ban", "cull", False,
+              _breeding_list("do_not_breed")),
+    ReportDef("do-not-inseminate", "Do Not Inseminate List", "remove-circle", "cull", False,
+              _breeding_list("do_not_inseminate")),
 ]
 
 REPORTS_BY_TYPE = {r.type: r for r in REPORTS}

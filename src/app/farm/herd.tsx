@@ -74,7 +74,11 @@ export default function HerdScreen() {
   // so a zero warns before the tap rather than after it.
   const statusChips = useMemo(() => {
     const base = herd.filter((c) => matchesSearch(c, query) && inDimBand(c, dimBand));
-    const present = STATUS_ORDER.filter((st) => herd.some((c) => c.status === st));
+    // The selected status stays even if a refresh empties it — otherwise its
+    // chip vanished while still filtering the list down to nothing.
+    const present = STATUS_ORDER.filter(
+      (st) => st === statusFilter || herd.some((c) => c.status === st),
+    );
     return [
       { value: 'all' as const, label: 'All', count: base.length },
       ...present.map((st) => ({
@@ -83,7 +87,7 @@ export default function HerdScreen() {
         count: base.filter((c) => c.status === st).length,
       })),
     ];
-  }, [herd, query, dimBand]);
+  }, [herd, query, dimBand, statusFilter]);
 
   const dimChips = useMemo(() => {
     const base = herd.filter(
@@ -108,6 +112,8 @@ export default function HerdScreen() {
       <FlatList
         data={shown}
         keyExtractor={(cow) => cow.id}
+        // A chip tap with the keyboard up should filter, not just close it.
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.huge }}
         refreshControl={
           <RefreshControl

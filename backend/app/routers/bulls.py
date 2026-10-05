@@ -9,7 +9,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,12 +54,24 @@ async def create_bull(
     # would discard anything else the caller's transaction had pending. The
     # constraint stays as the backstop for a genuine race.
     clash = await db.scalar(
-        select(Bull).where(Bull.farm_id == farm_id, Bull.name == body.name)
+        select(Bull).where(Bull.farm_id == farm_id,
+                           func.lower(Bull.name) == body.name.strip().lower())
     )
+    if clash is not None and not clash.active:
+        # A retired bull is hidden from the insemination form, and since Oct 4
+        # the bull MUST be picked from that list -- so refusing this left the
+        # technician no way to record a straw the farm still had. Adding it
+        # again brings it back.
+        clash.active = True
+        if body.semen_type and not clash.semen_type:
+            clash.semen_type = body.semen_type
+        await db.commit()
+        await db.refresh(clash)
+        return clash
     if clash is not None:
         raise HTTPException(
             status_code=409,
-            detail=f"'{body.name}' is already on this farm's bull list",
+            detail=f"'{clash.name}' is already on this farm's bull list",
         )
 
     bull = Bull(farm_id=farm_id, **body.model_dump())

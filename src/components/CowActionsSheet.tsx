@@ -160,7 +160,13 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
 
   // Health can be recorded on any live animal, by any clinical role.
   if (!['cull', 'sold', 'dead'].includes(cow.status)) keys.push('health', 'cull');
-  return keys.filter((k) => ROLE_RESTRICTED[k].includes(role));
+  // A cow on the Do Not Breed / Do Not Inseminate list is not offered a
+  // protocol or an AI — the API refuses both. A heat can still be recorded:
+  // it tells you she isn't pregnant, and the app says she isn't to be bred.
+  const listed = cow.doNotBreed || cow.doNotInseminate;
+  return keys
+    .filter((k) => !(listed && (k === 'enroll' || k === 'inseminate')))
+    .filter((k) => ROLE_RESTRICTED[k].includes(role));
 }
 
 // Form primitives are shared with the full-screen forms (FormField.tsx).
@@ -275,6 +281,9 @@ export interface RecordTarget {
   lastInseminationDate?: string;
   lastCalvingDate?: string;
   healthStatus?: Cow['healthStatus'];
+  /** On a breeding list: offered no route to a breeding (Josh, Oct 2/4). */
+  doNotBreed?: boolean;
+  doNotInseminate?: boolean;
 }
 
 interface FormProps {

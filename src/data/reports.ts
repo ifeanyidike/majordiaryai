@@ -33,7 +33,9 @@ export const PROGRAM_REPORT_TYPES = [
 export const VET_REPORT_TYPES = ['pregnancy-check', 'pregnant', 'calving-due'];
 
 /** Reference lists: never work, never counted in a workload. */
-export const LIST_REPORT_TYPES = ['calving-due', 'pregnant', 'open', 'cull'];
+export const LIST_REPORT_TYPES = [
+  'calving-due', 'pregnant', 'open', 'cull', 'do-not-breed', 'do-not-inseminate',
+];
 
 /**
  * Titles and icons for reports with no rows today. When the server returns a
@@ -56,6 +58,8 @@ const REPORT_TITLES: Record<string, string> = {
   pregnant: 'Pregnant Cow List',
   open: 'Open Cow List',
   cull: 'Cull Cow List',
+  'do-not-breed': 'Do Not Breed List',
+  'do-not-inseminate': 'Do Not Inseminate List',
 };
 
 const REPORT_ICONS: Record<string, string> = {
@@ -75,6 +79,8 @@ const REPORT_ICONS: Record<string, string> = {
   pregnant: 'heart-circle',
   open: 'list-circle',
   cull: 'alert-circle',
+  'do-not-breed': 'ban',
+  'do-not-inseminate': 'remove-circle',
 };
 
 export const knownReportType = (type: string) => type in REPORT_TITLES;

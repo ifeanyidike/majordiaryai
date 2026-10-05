@@ -216,8 +216,11 @@ class Bull(Base):
     inventory tracking is listed as a future enhancement, so this is only the
     pick list — no straw counts.
 
-    Recording an insemination still accepts a free-text bull name, so a straw
-    that is not on the list never blocks the technician mid-visit.
+    Josh, Oct 4: the insemination form's bull is "pick from farm bull list --
+    required". The app adds an unlisted straw to the list from the form (and
+    re-adding a retired bull brings it back), so the list never blocks a
+    visit. The API still accepts a typed bull_name, for app builds already in
+    testers' hands.
     """
 
     __tablename__ = "bulls"

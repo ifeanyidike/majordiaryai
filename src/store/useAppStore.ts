@@ -1007,7 +1007,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
     } catch {
-      // Non-fatal: the AI form falls back to typing the bull name.
+      // Non-fatal, but the AI form needs the list: its only other route is
+      // adding the bull from the form, which needs the network too.
     }
   },
 

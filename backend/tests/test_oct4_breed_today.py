@@ -373,3 +373,111 @@ async def test_parentage_and_the_breeding_lists_are_saved_on_the_cow(db, farm, a
     assert got["maternal_sire"] == "Mogul"
     assert got["do_not_breed"] is True
     assert got["do_not_inseminate"] is False
+
+
+# ── the lists cover every route to a breeding ────────────────────────
+
+async def test_a_listed_cow_cannot_start_a_protocol(db, farm, api, tech):
+    cow = await _add(db, _farm_cow(farm, do_not_breed=True))
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post("/needling/enroll", json={
+            "cow_id": str(cow.id), "protocol": "ovsynch",
+            "start_date": TODAY.isoformat(),
+        })
+
+    assert r.status_code == 409
+    assert "Do Not Breed" in r.json()["detail"]
+    assert cow.status == CowStatus.open
+
+
+async def test_a_cow_listed_mid_protocol_gets_no_more_shots_asked_for(
+    db, farm, api, tech, make_cow,
+):
+    """Her protocol is left in place (reversible), but nobody is sent to
+    inject a cow whose protocol can only end in an AI she may not have."""
+    cow = await make_cow(steps=[(7, 0, "2cc PGF", False, False),
+                                (10, 3, "2cc GnRH + Insemination", True, False)],
+                         do_not_breed=True)
+
+    async with api("technician", user_id=tech.id) as client:
+        f = await _worklist(client, farm)
+
+    assert str(cow.id) not in _ids(f, "needling")
+    assert cow.status == CowStatus.needling
+
+
+async def test_the_breeding_lists_can_be_read_as_lists(db, farm, api, tech):
+    dnb = await _add(db, _farm_cow(farm, do_not_breed=True))
+    dni = await _add(db, _farm_cow(farm, do_not_inseminate=True))
+    await _add(db, _farm_cow(farm))
+
+    async with api("technician", user_id=tech.id) as client:
+        f = await _worklist(client, farm)
+
+    assert _ids(f, "do-not-breed") == {str(dnb.id)}
+    assert _ids(f, "do-not-inseminate") == {str(dni.id)}
+    titles = {r["type"]: r["title"] for r in f["reports"]}
+    assert titles["do-not-breed"] == "Do Not Breed List"
+    # Reference lists, never counted as the day's work.
+    assert all(not r["is_work_report"] for r in f["reports"]
+               if r["type"] in ("do-not-breed", "do-not-inseminate"))
+
+
+async def test_an_open_listed_cow_is_not_sent_for_a_protocol(db, farm):
+    from app.services import status_engine
+
+    cow = await _add(db, _farm_cow(farm, status=CowStatus.inseminated, do_not_breed=True))
+    await status_engine.on_pregnancy_negative(cow, db)
+    await db.flush()
+
+    (note,) = (await db.execute(
+        select(Notification).where(Notification.cow_id == cow.id)
+    )).scalars().all()
+    assert "select a needling protocol" not in note.message
+    assert "Do Not Breed" in note.message
+
+
+# ── the bull list the form now depends on ────────────────────────────
+
+async def test_re_adding_a_retired_bull_brings_it_back(db, farm, api, tech):
+    """Retired bulls are hidden from the form, and the bull must be picked
+    from the list -- refusing the re-add left the straw unrecordable."""
+    from app.models.models import Bull
+
+    old = Bull(id=uuid.uuid4(), farm_id=farm.id, name="Mogul", active=False)
+    db.add(old)
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post(f"/bulls/farm/{farm.id}", json={"name": "mogul"})
+        listed = (await client.get(f"/bulls/farm/{farm.id}")).json()
+
+    assert r.status_code == 201, r.text
+    assert r.json()["id"] == str(old.id)
+    assert [b["name"] for b in listed] == ["Mogul"]
+
+
+async def test_a_bull_already_listed_is_not_added_twice_in_another_case(db, farm, api, tech):
+    from app.models.models import Bull
+
+    db.add(Bull(id=uuid.uuid4(), farm_id=farm.id, name="Mogul", active=True))
+    await db.flush()
+
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post(f"/bulls/farm/{farm.id}", json={"name": "MOGUL"})
+
+    assert r.status_code == 409
+
+
+async def test_a_listed_cow_is_not_promised_a_report_she_is_kept_off(db, farm, api, tech):
+    cow = await _add(db, _farm_cow(farm, status=CowStatus.pregnant, do_not_breed=True))
+
+    async with api("technician", user_id=tech.id) as client:
+        assert (await _heat(client, cow)).status_code == 201
+
+    (note,) = (await db.execute(
+        select(Notification).where(Notification.cow_id == cow.id)
+    )).scalars().all()
+    assert "Do Not Breed" in note.message
+    assert "Open Cow Report" not in note.message
