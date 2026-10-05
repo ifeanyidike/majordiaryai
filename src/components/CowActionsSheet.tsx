@@ -1389,6 +1389,11 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
   const complete = () => {
     setActiveAction(null);
     onRefresh();
+    // Every event recorded here can move her between reports -- a heat puts
+    // her on Today's Breed Report "immediately" (Josh, Oct 4). Only the cow
+    // was refetched, so the To-Do and report screens kept showing the day's
+    // first copy of the work list until a pull-to-refresh.
+    useAppStore.getState().fetchWorklist();
   };
 
   const formProps = { cow, onCancel: dismiss, onComplete: complete };

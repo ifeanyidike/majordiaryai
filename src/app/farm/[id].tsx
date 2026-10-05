@@ -130,7 +130,7 @@ export default function FarmProfileScreen() {
               {farm.name}
             </Text>
             <Text variant="caption" color={onDark.textSecondary}>
-              {farm.owner} · {farm.city}, {farm.province} · {summary.total} tracked cows
+              {farm.owner} · {farm.city}, {farm.province} · {summary.total} cows
             </Text>
           </View>
         </Animated.View>

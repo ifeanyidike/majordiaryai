@@ -42,6 +42,11 @@ export function SegmentedControl<T extends string>({
               variant="bodyBold"
               color={selected ? colors.textOnPrimary : colors.textSecondary}
               numberOfLines={1}
+              // A third of a phone's width is too narrow for "Conventional"
+              // at body size; it read "Conventio…". Shrink a little instead.
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={styles.label}
             >
               {opt.label}
             </Text>
@@ -70,6 +75,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.sm,
   },
+  // Stretch so shrink-to-fit measures the segment, not the text's own width.
+  label: { alignSelf: 'stretch', textAlign: 'center' },
   segmentSelected: {
     backgroundColor: colors.primary,
   },
