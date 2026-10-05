@@ -163,13 +163,17 @@ export default function ReportDetailScreen() {
                 />
               </View>
 
-              {/* Action Required — the imperative instruction for today */}
-              <View style={styles.actionRow}>
-                <Ionicons name="arrow-forward-circle" size={15} color={colors.primary} />
-                <Text variant="body" color={colors.text} style={styles.flex1}>
-                  {cow.action}
-                </Text>
-              </View>
+              {/* Action Required — the imperative instruction for today. The
+                  reference lists (Pregnant, Cull, Do Not Breed...) have none,
+                  and printed a bare arrow on every row. */}
+              {cow.action ? (
+                <View style={styles.actionRow}>
+                  <Ionicons name="arrow-forward-circle" size={15} color={colors.primary} />
+                  <Text variant="body" color={colors.text} style={styles.flex1}>
+                    {cow.action}
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={styles.metaRow}>
                 {/* Down here rather than beside the tag, where it squeezed the

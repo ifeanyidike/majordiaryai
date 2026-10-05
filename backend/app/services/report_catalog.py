@@ -24,7 +24,7 @@ from app.services.protocols import protocol_label
 # Single source with checks.py and the sweep's pregnancy-check reminder.
 from app.services.status_engine import (
     HEAT_RECORDABLE_STATUSES, HEAT_WINDOW, PREGNANCY_REPORT_DAY, breeding_exclusion,
-    breeding_list,
+    breeding_list, is_milking,
 )
 
 # ── thresholds (spec) ────────────────────────────────────────────────
@@ -626,10 +626,8 @@ def _breeding_list(flag: str):
             ReportRow(
                 cow=cow, action="",
                 detail=f"{cow.status.value.capitalize()}"
-                       + (f" · {d} days in milk"
-                          if (d := _days_since(cow.last_calving_date, ctx.today)) is not None
-                          and cow.status not in (CowStatus.dry, CowStatus.heifer, CowStatus.calf)
-                          else ""),
+                       + (f" · {_days_since(cow.last_calving_date, ctx.today)} days in milk"
+                          if is_milking(cow) and cow.last_calving_date else ""),
             )
             for cow in ctx.cows
             if getattr(cow, flag) and cow.status not in (CowStatus.sold, CowStatus.dead)
