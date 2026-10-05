@@ -45,11 +45,7 @@ async def record_heat_check(
     if cow.status not in status_engine.HEAT_RECORDABLE_STATUSES:
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"A heat can't be recorded on a cow that is '{cow.status.value}'"
-                + (" — a confirmed-pregnant cow showing heat needs the vet to re-check her"
-                   if cow.status in (CowStatus.pregnant, CowStatus.dry) else "")
-            ),
+            detail=f"A heat can't be recorded on a cow that is '{cow.status.value}'",
         )
 
     if cow.status == CowStatus.inseminated:

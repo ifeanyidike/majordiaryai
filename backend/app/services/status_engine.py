@@ -281,13 +281,18 @@ async def on_insemination(cow: Cow, insemination: Insemination, db: AsyncSession
     await cancel_active_enrollments(cow, db, EnrollmentStatus.completed)
 
 
-# A heat can be recorded on these. Pregnant and dry cows are left out on
-# purpose: a confirmed-pregnant cow showing heat needs a vet, not a straw --
-# inseminating her can end the pregnancy. Calves are not breedable at all.
+# A heat can be recorded on these. Josh, Oct 2: "Anytime a cow is in heat,
+# no matter conditions, must be inseminated", with four exceptions -- and
+# being pregnant is not one of them. The specs read a heat as proof she is
+# not carrying ("Fail Heat Report ... sent to Insemination"), so a pregnant or
+# dry cow in heat is treated as one whose pregnancy failed. Calves are not
+# breedable at all; cull/sold/dead have left the breeding herd.
 HEAT_RECORDABLE_STATUSES = {
-    CowStatus.heifer, CowStatus.fresh, CowStatus.open,
-    CowStatus.needling, CowStatus.inseminated,
+    CowStatus.heifer, CowStatus.fresh, CowStatus.open, CowStatus.needling,
+    CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry,
 }
+# A heat on one of these means the breeding she was carrying failed.
+_CARRYING_STATUSES = {CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry}
 
 
 def breeding_exclusion(cow: Cow, today: date) -> Optional[str]:
@@ -323,11 +328,12 @@ async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Opt
     inseminated by the next day she drops off "with no consequence ... assume
     nothing happened". So the report is derived from the heat record and
     nothing about her is parked here -- no status, no program -- for a sweep to
-    undo. The one exception is a cow that was inseminated: a returned heat
-    means that insemination failed, so she is open again whatever happens
-    next, and the pregnancy-cycle dates belong to the cycle that just ended.
+    undo. The one exception is a cow that was carrying a breeding
+    (inseminated, pregnant, dry): a heat means it failed, so she is open again
+    whatever happens next, and the pregnancy-cycle dates belong to the cycle
+    that just ended.
     """
-    was_inseminated = cow.status == CowStatus.inseminated
+    was_inseminated = cow.status in _CARRYING_STATUSES
     if was_inseminated:
         cow.status = CowStatus.open
         cow.current_program = None

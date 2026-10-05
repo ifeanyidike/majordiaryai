@@ -306,18 +306,45 @@ async def test_the_farm_is_told_to_breed_her_today(db, farm, api, tech):
 
 
 @pytest.mark.parametrize("status", [CowStatus.pregnant, CowStatus.dry])
-async def test_a_pregnant_cow_showing_heat_goes_to_the_vet_not_the_straw(
+async def test_a_pregnant_cow_seen_in_heat_is_bred_like_any_other(
     db, farm, api, tech, status,
 ):
-    """Inseminating a pregnant cow can end the pregnancy. She is left off
-    the breed report and the heat is refused with the reason."""
-    cow = await _add(db, _farm_cow(farm, status=status))
+    """Josh, Oct 2: "Anytime a cow is in heat, no matter conditions, must be
+    inseminated" -- pregnant is not one of his four exceptions. A heat means
+    the pregnancy failed: she is open, her due and dry dates go, and she is
+    on today's report."""
+    cow = await _add(db, _farm_cow(farm, status=status,
+                                   due_date=TODAY + timedelta(days=100),
+                                   dry_date=TODAY + timedelta(days=40)))
 
     async with api("technician", user_id=tech.id) as client:
         r = await _heat(client, cow)
+        assert r.status_code == 201, r.text
+        assert r.json()["on_breed_report"] is True
+        f = await _worklist(client, farm)
 
+    assert cow.status == CowStatus.open
+    assert cow.due_date is None and cow.dry_date is None
+    assert str(cow.id) in _ids(f, "breed-today")
+
+
+async def test_a_listed_cow_cannot_be_inseminated_from_any_form(db, farm, api, tech, make_cow):
+    """Not on the breed report, not on the Timed Breeding Report, and the
+    insemination itself is refused -- the list means it."""
+    cow = await make_cow(steps=[(10, 0, "2cc GnRH + Insemination", True, False)],
+                         do_not_inseminate=True)
+
+    async with api("technician", user_id=tech.id) as client:
+        f = await _worklist(client, farm)
+        r = await client.post("/inseminations/", json={
+            "cow_id": str(cow.id),
+            "date": datetime.combine(TODAY, time(9, 30)).isoformat(),
+            "bull_name": "Mogul", "semen_type": "conventional",
+        })
+
+    assert str(cow.id) not in _ids(f, "timed-breeding")
     assert r.status_code == 409
-    assert "vet" in r.json()["detail"]
+    assert "Do Not Inseminate" in r.json()["detail"]
 
 
 async def test_a_no_on_a_cow_that_was_never_due_a_check_is_refused(db, farm, api, tech):

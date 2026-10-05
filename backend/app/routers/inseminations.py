@@ -45,6 +45,17 @@ async def record_insemination(
             detail=f"Cannot inseminate a cow with status '{cow.status.value}'",
         )
 
+    # The lists exist to stop exactly this (Josh, Oct 2/4). Taking her off the
+    # list is a deliberate edit on her record, not something to do by accident
+    # from a breeding form.
+    if cow.do_not_breed or cow.do_not_inseminate:
+        listed = "Do Not Breed" if cow.do_not_breed else "Do Not Inseminate"
+        raise HTTPException(
+            status_code=409,
+            detail=f"{cow.label} is on the {listed} list. Take her off it first "
+                   "if she is to be bred.",
+        )
+
     # A bull from another farm's list would silently corrupt per-bull analytics.
     if body.bull_id is not None:
         bull = await db.get(Bull, body.bull_id)

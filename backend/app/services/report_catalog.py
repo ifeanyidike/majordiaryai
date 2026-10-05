@@ -186,9 +186,10 @@ def _not_to_be_bred(cow: Cow) -> bool:
 
     Josh named the lists for heats, but a list that says "do not breed" cannot
     then be handed a breeding job by another report: the Open Cow Report's
-    "choose a needling protocol" ends in a timed insemination, and the
-    Insemination Program's whole job is to breed her. So she gets no breeding
-    work anywhere; she is still on the Open Cow List for reference.
+    "choose a needling protocol" ends in a timed insemination, the Timed
+    Breeding Report and the Insemination Program ask for one outright. So she
+    gets no breeding work anywhere (and POST /inseminations refuses her); she
+    is still on the Open Cow List for reference.
     """
     return bool(cow.do_not_breed or cow.do_not_inseminate)
 
@@ -230,6 +231,10 @@ def _timed_breeding(ctx: WorklistContext) -> List[ReportRow]:
     for cow in ctx.cows:
         row = ctx.breeding.get(str(cow.id))
         if not row:
+            continue
+        # Put on a list after her protocol started: the insemination it was
+        # building to must not be asked for.
+        if _not_to_be_bred(cow):
             continue
         label = protocol_label(row["protocol"])
         context = f"{label}, Day {row['protocol_day']} — final day"

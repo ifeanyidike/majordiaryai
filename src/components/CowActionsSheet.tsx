@@ -149,7 +149,9 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
       break;
     case 'pregnant':
     case 'dry':
-      keys.push('calving');
+      // Josh, Oct 2: a cow in heat is bred "no matter conditions" -- a heat
+      // means the pregnancy failed, and the server opens her again.
+      keys.push('calving', 'seen_heat');
       break;
     case 'cull':
       keys.push('mark_sold', 'mark_dead');
@@ -661,6 +663,9 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
         Seen today, she goes onto Today's Breed Report and is bred today — unless she is under
         60 days post calving, under 13 months, a cull, or on the Do Not Breed or Do Not
         Inseminate list.
+        {cow.status === 'pregnant' || cow.status === 'dry'
+          ? ' A heat means she is not pregnant: her due and dry dates are cleared.'
+          : ''}
       </Text>
       <FormLabel>Date Seen in Heat</FormLabel>
       <FormInput
