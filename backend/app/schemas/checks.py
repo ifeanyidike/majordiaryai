@@ -9,7 +9,10 @@ class HeatCheckCreate(BaseModel):
     # days_since_insemination is computed server-side from the cow's last
     # insemination — any client-supplied value is ignored.
     cow_id: UUID
-    insemination_id: UUID
+    # Required for a check on an inseminated cow (it is timed from that
+    # insemination). Omitted for a heat seen on any other cow -- open, on a
+    # protocol, fresh -- which has no insemination to be checked against.
+    insemination_id: Optional[UUID] = None
     check_date: date
     # The spec's form is "heat detected Y/N", so the answer is required. It was
     # optional, and a null wrote a check row that recorded neither a yes nor a
@@ -22,14 +25,19 @@ class HeatCheckCreate(BaseModel):
 class HeatCheckOut(BaseModel):
     id: UUID
     cow_id: UUID
-    insemination_id: UUID
+    insemination_id: Optional[UUID] = None
     check_date: date
-    days_since_insemination: int
+    days_since_insemination: Optional[int] = None
     heat_detected: Optional[bool] = None
     bleeding_event: bool
     technician_id: Optional[UUID] = None
     notes: Optional[str] = None
     created_at: datetime
+    # Set on the response to a POST only: whether this heat put her on Today's
+    # Breed Report, and if not, why (Do Not Breed list, under 60 days post
+    # calving...). The app says so instead of leaving the technician to guess.
+    on_breed_report: Optional[bool] = None
+    not_bred_because: Optional[str] = None
 
 
 class PregnancyCheckCreate(BaseModel):

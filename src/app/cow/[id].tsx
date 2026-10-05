@@ -22,6 +22,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { colors, gradients, onDark, radius, spacing, touch, useMotion } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { HistoryEvent } from '@/data/types';
+import { HEAT_WINDOW } from '@/data/reports';
 import { cowById, farmById, useAppStore } from '@/store/useAppStore';
 
 const fmt = (iso?: string) =>
@@ -78,7 +79,7 @@ export default function CowProfileScreen() {
   const events: HistoryEvent[] = cow.history[tab];
 
   const dsi = cow.lastInseminationDate ? daysSince(cow.lastInseminationDate) : null;
-  const inHeatWindow = cow.status === 'inseminated' && dsi !== null && dsi >= 20 && dsi <= 25;
+  const inHeatWindow = cow.status === 'inseminated' && dsi !== null && dsi >= HEAT_WINDOW[0] && dsi <= HEAT_WINDOW[1];
 
   return (
     <Screen padded={false} topInset={false}>
@@ -142,6 +143,9 @@ export default function CowProfileScreen() {
           <Card style={styles.infoCard}>
             <InfoRow label="Breed" value={cow.breed} />
             <InfoRow label="Date of Birth" value={fmt(cow.dateOfBirth)} />
+            {/* Parentage (Josh, Oct 2) */}
+            <InfoRow label="Sire" value={cow.sire} />
+            <InfoRow label="Maternal Sire" value={cow.maternalSire} />
             <InfoRow label="Lactation Number" value={cow.lactationNumber} />
             <InfoRow label="Current Program" value={cow.currentProgram} />
             <InfoRow label="Current Location" value={cow.currentLocation} />
@@ -153,6 +157,14 @@ export default function CowProfileScreen() {
         <SectionHeader title="Reproductive Information" />
         <Animated.View entering={motion.upAt(220, 500)}>
           <Card style={styles.infoCard}>
+            {/* Either list keeps her off Today's Breed Report (Josh, Oct 4). */}
+            <InfoRow
+              label="Breeding Lists"
+              value={
+                [cow.doNotBreed && 'Do Not Breed', cow.doNotInseminate && 'Do Not Inseminate']
+                  .filter(Boolean).join(' · ') || 'Neither'
+              }
+            />
             <InfoRow label="Last Calving Date" value={fmt(cow.lastCalvingDate)} />
             <InfoRow label="Last Insemination" value={fmt(cow.lastInseminationDate)} />
             <InfoRow label="Bull Used" value={cow.bullUsed} />

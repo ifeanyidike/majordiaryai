@@ -130,7 +130,7 @@ export default function FarmProfileScreen() {
               {farm.name}
             </Text>
             <Text variant="caption" color={onDark.textSecondary}>
-              {farm.owner} · {farm.city}, {farm.province}
+              {farm.owner} · {farm.city}, {farm.province} · {summary.total} tracked cows
             </Text>
           </View>
         </Animated.View>
@@ -162,7 +162,9 @@ export default function FarmProfileScreen() {
         {/* Summary stats overlapping hero */}
         <Animated.View entering={motion.upAt(150, 500)}>
           <View style={styles.statRow}>
-            <StatCard value={summary.total} label="Tracked Cows" />
+            {/* Josh, Oct 2: Inseminated in place of Tracked Cows. The total
+                moved up into the farm's caption. */}
+            <StatCard value={summary.inseminated} label="Inseminated" accent={status.inseminated.fg} />
             <StatCard value={summary.pregnant} label="Pregnant" accent={status.pregnant.fg} />
             <StatCard value={summary.open} label="Open" accent={status.open.fg} />
           </View>

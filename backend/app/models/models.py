@@ -281,6 +281,18 @@ class Cow(Base):
     # Set when the technician confirms she was physically moved to the dry pen.
     # The Dry Report is work until this is recorded, then she drops off it.
     dry_off_confirmed_date: Mapped[Optional[date_type]] = mapped_column(Date)
+    # Parentage (Josh, Oct 2): her sire, and her dam's sire.
+    sire: Mapped[Optional[str]] = mapped_column(String)
+    maternal_sire: Mapped[Optional[str]] = mapped_column(String)
+    # The two lists that keep a cow seen in heat off Today's Breed Report
+    # (Josh, Oct 2/4). Separate on purpose: he kept "Do Not Inseminate" apart
+    # from "Do Not Breed" "for now, to be reviewed later" (migration 0021).
+    do_not_breed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False,
+    )
+    do_not_inseminate: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False,
+    )
     # Set when the cow leaves the herd (sold / dead)
     exit_date: Mapped[Optional[date_type]] = mapped_column(Date)
     exit_reason: Mapped[Optional[str]] = mapped_column(String)
@@ -389,9 +401,12 @@ class HeatCheck(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     cow_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cows.id"), nullable=False)
-    insemination_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("inseminations.id"), nullable=False)
+    # Null for a heat seen on a cow that is not inseminated (an open cow, one
+    # mid-protocol): Josh, Oct 4 -- "any time a cow is seen in heat, not only
+    # inside the Heat Report window". There is no insemination to measure from.
+    insemination_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("inseminations.id"))
     check_date: Mapped[date_type] = mapped_column(Date, nullable=False)
-    days_since_insemination: Mapped[int] = mapped_column(Integer, nullable=False)
+    days_since_insemination: Mapped[Optional[int]] = mapped_column(Integer)
     heat_detected: Mapped[Optional[bool]] = mapped_column(Boolean)
     bleeding_event: Mapped[bool] = mapped_column(Boolean, default=False)
     technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))

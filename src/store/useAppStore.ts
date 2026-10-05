@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api, isApiConfigured, isDemoMode } from '@/lib/api';
 import { daysBetween, daysSince, todayISO } from '@/lib/dates';
+import { HEAT_WINDOW } from '@/data/reports';
 import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
 import {
   Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
@@ -33,6 +34,8 @@ interface ApiFarm {
 interface ApiCow {
   id: string; ear_tag?: string | null; name?: string | null; label?: string;
   farm_id: string; farm_name?: string; calving_assumed?: boolean;
+  sire?: string | null; maternal_sire?: string | null;
+  do_not_breed?: boolean; do_not_inseminate?: boolean;
   status: string; breed?: string; date_of_birth?: string;
   lactation_number: number; current_program?: string;
   notes?: string | null;
@@ -118,6 +121,10 @@ export interface CowInput {
   sex?: 'female' | 'male';
   lactationNumber: number;
   notes?: string;
+  sire?: string;
+  maternalSire?: string;
+  doNotBreed?: boolean;
+  doNotInseminate?: boolean;
 }
 
 /** What the vet form collects. */
@@ -206,9 +213,10 @@ function mapCow(c: ApiCow): Cow {
       ? daysBetween(c.last_calving_date, c.last_insemination_date)
       : daysSince(c.last_calving_date);
 
-  // In-heat = inside the day 20–25 heat-check window after insemination
+  // Inside the day 19–25 heat-check window after insemination (Josh, Oct 4:
+  // "the Heat Report 19 days later").
   const dsi = daysSince(c.last_insemination_date);
-  const inHeat = status === 'inseminated' && dsi >= 20 && dsi <= 25;
+  const inHeat = status === 'inseminated' && dsi >= HEAT_WINDOW[0] && dsi <= HEAT_WINDOW[1];
 
   return {
     id: c.id, earTag: c.ear_tag ?? undefined, farmId: c.farm_id,
@@ -233,6 +241,10 @@ function mapCow(c: ApiCow): Cow {
     dueDate: c.due_date, dryDate: c.dry_date,
     daysInMilk, daysOpen,
     isMilking: c.is_milking ?? false,
+    sire: c.sire ?? undefined,
+    maternalSire: c.maternal_sire ?? undefined,
+    doNotBreed: c.do_not_breed ?? false,
+    doNotInseminate: c.do_not_inseminate ?? false,
     history: { inseminations: [], pregnancyChecks: [], vaccinations: [], treatments: [], calvings: [] },
   };
 }
@@ -936,6 +948,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       date_of_birth: input.dateOfBirth || null,
       lactation_number: input.lactationNumber,
       notes: input.notes || null,
+      sire: input.sire || null,
+      maternal_sire: input.maternalSire || null,
+      do_not_breed: input.doNotBreed ?? false,
+      do_not_inseminate: input.doNotInseminate ?? false,
     };
     const saved = cowId
       // A cow never changes farm or ear tag by edit — moving one is a transfer,

@@ -242,8 +242,8 @@ async def breeding_due(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cows returned to the Insemination Program (e.g. after a detected heat) —
-    actionable breeding worklist."""
+    """Cows in the Insemination Program -- breeding-age heifers. Heat-detected
+    cows are on Today's Breed Report (GET /reports/worklist) instead."""
     await _run_transitions_scoped(db, current_user)
     stmt = (
         select(Cow)

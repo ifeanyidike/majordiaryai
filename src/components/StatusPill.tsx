@@ -3,14 +3,14 @@ import { StyleSheet, View, ViewStyle } from 'react-native';
 import { radius, spacing, status, statusFallback, StatusKey } from '@/theme';
 import { Text } from './Text';
 
-const LABELS: Record<StatusKey, string> = {
+export const STATUS_LABELS: Record<StatusKey, string> = {
   pregnant:    'Pregnant',
   open:        'Open',
   inseminated: 'Inseminated',
   dry:         'Dry',
   fresh:       'Fresh',
   cull:        'Cull',
-  // A prediction (day 20–25 after insemination), not an observation: the
+  // A prediction (day 19–25 after insemination), not an observation: the
   // app never knows she IS in heat, only that it is time to look.
   heat:        'Check Heat',
   needling:    'Needling',
@@ -32,7 +32,7 @@ export function StatusPill({ kind, label, style }: StatusPillProps) {
   const known = kind in status;
   const c = known ? status[kind as StatusKey] : statusFallback;
   const fallbackLabel = known
-    ? LABELS[kind as StatusKey]
+    ? STATUS_LABELS[kind as StatusKey]
     : kind.charAt(0).toUpperCase() + kind.slice(1);
   return (
     <View style={[styles.pill, { backgroundColor: c.bg }, style]}>

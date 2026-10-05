@@ -28,7 +28,7 @@ DEFAULT_PAGE_SIZE = 200
 MAX_PAGE_SIZE = 1000
 
 # Non-nullable columns that a PATCH must never null out.
-_NON_NULLABLE_FIELDS = {"lactation_number", "status"}
+_NON_NULLABLE_FIELDS = {"lactation_number", "status", "do_not_breed", "do_not_inseminate"}
 
 
 def _cow_dict(cow: Cow, farm_name=None) -> dict:

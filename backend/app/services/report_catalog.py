@@ -22,7 +22,9 @@ from typing import Callable, Dict, List, Optional
 from app.models.models import Cow, CowStatus, HealthStatus
 from app.services.protocols import protocol_label
 # Single source with checks.py and the sweep's pregnancy-check reminder.
-from app.services.status_engine import HEAT_WINDOW, PREGNANCY_REPORT_DAY
+from app.services.status_engine import (
+    HEAT_RECORDABLE_STATUSES, HEAT_WINDOW, PREGNANCY_REPORT_DAY, breeding_exclusion,
+)
 
 # ── thresholds (spec) ────────────────────────────────────────────────
 PREGNANCY_WARNING_DAY = 50      # Pregnancy Check Warning
@@ -147,8 +149,8 @@ class WorklistContext:
     farmer_injections: Dict[str, dict] = field(default_factory=dict)
     # This farm gives the post-calving vaccine itself (farms.self_vaccinate).
     farm_self_vaccinate: bool = False
-    # cow_id -> {"detected_on": date} of the heat that put her back on the
-    # breeding list, so the same-day rule can say how late she is.
+    # cow_id -> {"detected_on": date} for a heat seen TODAY. Today's Breed
+    # Report is built from these (worklist_builder._heat_events_by_cow).
     heat_events: Dict[str, dict] = field(default_factory=dict)
 
     def may_record(self, definition: "ReportDef") -> bool:
@@ -177,6 +179,38 @@ def _heat(ctx: WorklistContext) -> List[ReportRow]:
             record_kind="heat",
         ))
     return rows
+
+
+def _breeding_today(ctx: WorklistContext, cow: Cow) -> bool:
+    """Is she on Today's Breed Report? One answer for every report that asks."""
+    heat = ctx.heat_events.get(str(cow.id))
+    if not heat or cow.status not in HEAT_RECORDABLE_STATUSES:
+        return False
+    # Bred since the heat was seen: done, she leaves the report.
+    if cow.last_insemination_date and cow.last_insemination_date >= heat["detected_on"]:
+        return False
+    return breeding_exclusion(cow, ctx.today) is None
+
+
+def _breed_today(ctx: WorklistContext) -> List[ReportRow]:
+    """Josh, Oct 4: any cow seen in heat -- on the Heat Report or anywhere
+    else -- goes straight onto this report, and is bred today.
+
+    Who is left off (breeding_exclusion): under 60 days post calving, Do Not
+    Breed, Do Not Inseminate, Cull, under 13 months. She leaves when she is
+    inseminated; if she is not, she is simply gone tomorrow, back to whatever
+    she was doing, "assume nothing happened" -- which is why the report reads
+    today's heat records rather than anything stored on the cow.
+    """
+    return [
+        ReportRow(
+            cow=cow,
+            action="Seen in heat today — inseminate her today",
+            detail="Heat detected today · drops off tomorrow if not bred",
+            record_kind="insemination",
+        )
+        for cow in ctx.cows if _breeding_today(ctx, cow)
+    ]
 
 
 def _timed_breeding(ctx: WorklistContext) -> List[ReportRow]:
@@ -253,51 +287,27 @@ def _needling(ctx: WorklistContext) -> List[ReportRow]:
 
 
 def _insemination_program(ctx: WorklistContext) -> List[ReportRow]:
-    """Cows in the Insemination Program — a detected heat, or a heifer that
-    reached breeding age (Master Structure: heifers at month 13 go straight to
-    the Insemination Program).
+    """Heifers that reached breeding age (Master Structure: heifers at month
+    13 go straight to the Insemination Program).
 
-    They are bred directly rather than re-enrolled in a protocol, so they do NOT
-    belong on the Open report. Without this report they were on no work list at
-    all: real work, invisible.
+    They are bred directly rather than enrolled in a protocol, so they do NOT
+    belong on the Open report. This report also used to carry every cow a
+    heat had returned to breeding -- those are on Today's Breed Report now,
+    for one day only (Josh, Oct 4), and migration 0021 moved the ones left
+    over from the old rule to the Open Cow Report.
     """
     rows = []
     for cow in ctx.cows:
         if cow.status != CowStatus.open or cow.current_program != "Insemination":
             continue
-        heat = ctx.heat_events.get(str(cow.id))
-        if heat:
-            # A cow standing in heat is fertile for hours, not days: the window
-            # closes long before the next Monday/Tuesday/Saturday breeding day
-            # comes round. So a heat event overrides the breeding-day rota --
-            # she is bred the day she shows, or the heat is wasted and the herd
-            # waits another cycle.
-            detected = heat["detected_on"]
-            days_late = (ctx.today - detected).days
-            if days_late <= 0:
-                action = "Breed her TODAY — heat detected"
-                detail = "In heat today · breed on the same day, whatever the rota says"
-            else:
-                action = (f"Breed her TODAY — heat was {days_late} day"
-                          f"{'' if days_late == 1 else 's'} ago")
-                detail = (f"Heat detected {_fmt(detected)} · she should have been bred "
-                          "that day")
-            rows.append(ReportRow(
-                cow=cow, action=action, detail=detail,
-                record_kind="insemination",
-                overdue=days_late > 0,
-            ))
-            continue
-        if cow.last_insemination_date:
-            action = "Returned to the Insemination Program — breed her"
-            detail = f"Heat detected · last AI {_fmt(cow.last_insemination_date)}"
-        else:
-            action = "Ready for first breeding — breed her"
-            detail = "Reached breeding age · no prior AI"
+        if _breeding_today(ctx, cow):
+            continue  # on Today's Breed Report, which says it more urgently
         rows.append(ReportRow(
             cow=cow,
-            action=action,
-            detail=detail,
+            action=("Ready for first breeding — breed her" if not cow.last_insemination_date
+                    else "In the Insemination Program — breed her"),
+            detail=("Reached breeding age · no prior AI" if not cow.last_insemination_date
+                    else f"Last AI {_fmt(cow.last_insemination_date)}"),
             record_kind="insemination",
         ))
     return rows
@@ -531,8 +541,12 @@ def _open(ctx: WorklistContext) -> List[ReportRow]:
     for cow in ctx.cows:
         if cow.status != CowStatus.open:
             continue
-        # Heat-detected cows are bred directly — they have their own report.
+        # Breeding-age heifers have their own report.
         if cow.current_program == "Insemination":
+            continue
+        # Seen in heat today: she is bred, not assessed for a protocol. If she
+        # isn't bred today she is back here tomorrow, as if nothing happened.
+        if _breeding_today(ctx, cow):
             continue
         sick = cow.health_status == HealthStatus.sick
         if sick and cow.recheck_due_date and cow.recheck_due_date > ctx.today:
@@ -589,7 +603,13 @@ REPORTS: List[ReportDef] = [
     ReportDef("heat", "Heat Report", "flame", "heat", True, _heat,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to check for heat"),
-    ReportDef("timed-breeding", "Timed Breeding", "flask", "inseminated", True, _timed_breeding,
+    # Straight after the Heat Report, whose "Yes" fills it (Josh, Oct 4).
+    ReportDef("breed-today", "Today's Breed Report", "flash", "heat", True, _breed_today,
+              record_roles=WORK_ROLES,
+              subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} in heat to breed today"),
+    # "Timed Breeding Report" in full: Josh looked for that name and did not
+    # recognise the shortened "Timed Breeding" as it (Oct 2).
+    ReportDef("timed-breeding", "Timed Breeding Report", "flask", "inseminated", True, _timed_breeding,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} insemination"),
     ReportDef("needling", "Injection Report", "fitness", "needling", True, _needling,
@@ -600,7 +620,7 @@ REPORTS: List[ReportDef] = [
               subtitle=lambda n: f"{n} {'note' if n == 1 else 'notes'} to leave for the farmer"),
     ReportDef("insemination", "Insemination Program", "git-branch", "inseminated", True,
               _insemination_program, record_roles=WORK_ROLES,
-              subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} returned for breeding"),
+              subtitle=lambda n: f"{n} ready for first breeding"),
     # Recordable by technician or vet (client decision, 2026-08-06) — hence no
     # record_roles restriction. POST /checks/pregnancy enforces the same.
     ReportDef("pregnancy-check", "Pregnancy Report", "medkit", "inseminated", True,

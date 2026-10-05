@@ -47,7 +47,7 @@ export const NOTIFICATION_TOPICS: {
   {
     key: 'readyToBreed',
     label: 'Ready to breed',
-    hint: 'A cow was seen in heat and moved to the Insemination Program',
+    hint: "A cow was seen in heat and is on Today's Breed Report",
   },
   {
     key: 'needsDecision',

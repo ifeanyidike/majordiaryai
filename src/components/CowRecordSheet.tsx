@@ -149,13 +149,17 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
         return (
           <InseminationForm
             {...common}
+            withFinalInjection={!!cow.treatment}
+            bannerIcon={reportType === 'breed-today' && !cow.treatment ? 'flame' : 'fitness'}
             // `treatment` is present only while the final injection is still
             // outstanding — the server clears it once the shot is recorded, so
             // the banner never asks for a second dose.
             banner={
               cow.treatment
                 ? `Final protocol day — give ${cow.treatment} with this insemination. Both are recorded together.`
-                : undefined
+                : reportType === 'breed-today'
+                  ? 'Seen in heat today. If she is not bred today she drops off this report tomorrow.'
+                  : undefined
             }
           />
         );

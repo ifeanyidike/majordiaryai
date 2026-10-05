@@ -165,7 +165,9 @@ export function FarmDashboard() {
         {/* Herd summary */}
         <Animated.View entering={motion.upAt(150, 500)}>
           <View style={styles.statRow}>
-            <StatCard value={summary.total} label="Tracked Cows" />
+            {/* Josh, Oct 2: Inseminated in place of Tracked Cows -- the total
+                is already in the caption above. */}
+            <StatCard value={summary.inseminated} label="Inseminated" accent={status.inseminated.fg} />
             <StatCard value={summary.pregnant} label="Pregnant" accent={status.pregnant.fg} />
             <StatCard value={summary.open} label="Open" accent={status.open.fg} />
           </View>

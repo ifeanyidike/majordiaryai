@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
@@ -19,6 +19,7 @@ from app.models.models import (
 )
 from app.services.access import scope_to_farms
 from app.services.report_catalog import WorklistContext, build_reports
+from app.services.status_engine import is_metestrous_bleeding
 from app.services.visits import (
     describe_weekdays, is_visit_due, next_visit_date, resolve_visit, visit_label,
     visit_weekdays, VisitStatus,
@@ -33,13 +34,6 @@ from app.services.worklists import (
 # not the technician's needling/heat/breeding route.
 VET_REPORT_TYPES = frozenset({"pregnancy-check", "pregnant", "calving-due"})
 
-
-# How long a heat stays actionable. She is fertile for hours; a day later the
-# window has shut and she will show again in about three weeks. Past this the
-# row goes back to the ordinary "returned to the Insemination Program" line --
-# without a bound, a heat nobody bred read "Breed her TODAY — heat was 40 days
-# ago", overdue, forever.
-HEAT_ACTIONABLE_DAYS = 2
 
 # How far ahead the technician is prompted to leave the farmer a note.
 #
@@ -87,32 +81,32 @@ async def _farmer_injections_by_cow(db: AsyncSession, current_user: dict, today:
 
 async def _heat_events_by_cow(db: AsyncSession, current_user: dict, today: date,
                               farm_id: Optional[UUID]) -> dict:
-    """The heat that put each cow back on the breeding list, and when.
+    """Heats seen TODAY, per cow -- the raw material of Today's Breed Report.
 
-    Only heats since her last insemination count: an older one belongs to a
-    cycle that has already been bred, and dating today's urgency from it would
-    report a cow as weeks late on a heat she never had.
+    Today only, by design (Josh, Oct 4): a cow not inseminated by the next day
+    "is removed from Today's Breed Report with no consequence ... assume
+    nothing happened". A heat backdated to yesterday is history, not work.
+    Blood on the tail counts as a heat, except the early spotting right after
+    a breeding (status_engine.is_metestrous_bleeding), which is not one.
+    Exclusions (Do Not Breed, under 60 days in milk, ...) are applied by the
+    report itself, so editing a cow's lists takes effect on the next load.
     """
     stmt = (
         select(HeatCheck, Cow)
         .join(Cow, Cow.id == HeatCheck.cow_id)
         .where(
-            HeatCheck.heat_detected == True,  # noqa: E712
-            HeatCheck.check_date >= today - timedelta(days=HEAT_ACTIONABLE_DAYS),
-            Cow.status == CowStatus.open,
-            Cow.current_program == "Insemination",
+            or_(HeatCheck.heat_detected == True,  # noqa: E712
+                HeatCheck.bleeding_event == True),  # noqa: E712
+            HeatCheck.check_date == today,
         )
-        .order_by(HeatCheck.check_date.desc())
     )
     stmt = scope_to_farms(stmt, current_user, farm_id, col=Cow.farm_id)
     out: dict = {}
     for check, cow in (await db.execute(stmt)).all():
-        key = str(cow.id)
-        if key in out:
-            continue  # ordered newest first, so the first is the current heat
-        if cow.last_insemination_date and check.check_date < cow.last_insemination_date:
+        if not check.heat_detected and check.days_since_insemination is not None \
+                and is_metestrous_bleeding(check.days_since_insemination):
             continue
-        out[key] = {"detected_on": check.check_date}
+        out[str(cow.id)] = {"detected_on": check.check_date}
     return out
 
 
@@ -314,16 +308,6 @@ async def build_worklist(
         status = resolve_visit(farm, override, viewer_id, is_admin=is_admin_view)
         if status is None:
             continue
-        # Off-rotation with nobody assigned: the farm stays in the payload for
-        # EVERY role, flagged not_due. Route screens (a technician's General
-        # To-Do) hide these; herd views (a vet's pregnancy list, farm profiles)
-        # keep them — a cow's data must not blink in and out with the visit
-        # schedule (Major_further: she stays on the Pregnancy Report until a
-        # result is entered). Only a plain visit can be downgraded; the other
-        # statuses all imply a deliberate override for this date.
-        if not due and override is None and status is VisitStatus.visit_today:
-            status = VisitStatus.not_due
-
         ctx = WorklistContext(
             today=today, role=role, cows=by_farm.get(farm.id, []),
             needling=needling, breeding=breeding, vaccinations=vaccinations,
@@ -331,6 +315,21 @@ async def build_worklist(
             heat_events=heat_events, farm_self_vaccinate=farm.self_vaccinate,
         )
         reports = build_reports(ctx)
+        # Off-rotation with nobody assigned: the farm stays in the payload for
+        # EVERY role, flagged not_due. Route screens (a technician's General
+        # To-Do) hide these; herd views (a vet's pregnancy list, farm profiles)
+        # keep them — a cow's data must not blink in and out with the visit
+        # schedule (Major_further: she stays on the Pregnancy Report until a
+        # result is entered). Only a plain visit can be downgraded; the other
+        # statuses all imply a deliberate override for this date.
+        #
+        # A cow in heat is bred the day she shows, whatever the rota says
+        # (Josh, Sept 17 and again Oct 4) -- so a farm with one on Today's
+        # Breed Report stays on the route even on a day it isn't due.
+        breeding_today = any(r["type"] == "breed-today" for r in reports)
+        if not due and override is None and status is VisitStatus.visit_today \
+                and not breeding_today:
+            status = VisitStatus.not_due
         if role == "vet":
             reports = [r for r in reports if r["type"] in VET_REPORT_TYPES]
         work = [r for r in reports if r["is_work_report"]]

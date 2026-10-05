@@ -62,6 +62,11 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
     "due_date": ["due_date"],
     "dry_date": ["dry_date"],
     "notes": ["notes"],
+    # Parentage (Josh, Oct 2). "mgs" is what herd software calls the
+    # maternal grandsire.
+    "sire": ["sire", "father", "sire_name"],
+    "maternal_sire": ["maternal_sire", "mgs", "maternal_grandsire", "dam_sire",
+                      "mothers_father"],
 }
 
 # Optional per-row farm override column (matched by farm id or farm name).
@@ -305,7 +310,7 @@ def _extract_cow_fields(raw: Dict[str, object]) -> Dict[str, object]:
     if ear_tag is not None:
         fields["ear_tag"] = ear_tag
 
-    for name in ("breed", "current_program", "notes"):
+    for name in ("breed", "current_program", "notes", "sire", "maternal_sire"):
         if name in raw:
             fields[name] = _cell_str(raw.get(name))
 
@@ -586,6 +591,8 @@ async def cows_template(
         "due_date": "2024-11-01",
         "dry_date": "2024-09-01",
         "notes": "Example row -- delete before importing",
+        "sire": "Delta-Lambda",
+        "maternal_sire": "Mogul",
     }
     buf = io.StringIO()
     writer = csv.writer(buf)

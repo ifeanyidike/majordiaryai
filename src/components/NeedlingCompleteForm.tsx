@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Switch, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { Button } from './Button';
 import { Skeleton } from './Skeleton';
 import { Text } from './Text';
 import { useToast } from './Toast';
+import { YesNoField } from './YesNoField';
 import { api } from '@/lib/api';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -50,10 +51,12 @@ export function NeedlingCompleteForm({
   cowId, recordId, treatment, context, onCancel, onComplete,
 }: Props) {
   const toast = useToast();
-  const [bleeding, setBleeding] = useState(false);
+  // Answered, never defaulted (Josh, Oct 4: no toggles on a report).
+  const [bleeding, setBleeding] = useState<boolean | null>(null);
   // Bleeding noticed AFTER the shot was given: both facts must be recorded in
   // one submission — completing the record with the bleeding flag does that.
-  const [injectionGiven, setInjectionGiven] = useState(false);
+  const [injectionGiven, setInjectionGiven] = useState<boolean | null>(null);
+  const answered = bleeding === false || (bleeding === true && injectionGiven !== null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -100,7 +103,7 @@ export function NeedlingCompleteForm({
         );
       } else {
         await api.patch(`/needling/records/${recordId}/complete`, {
-          bleeding_event: bleeding,
+          bleeding_event: !!bleeding,
           notes: notes.trim() || null,
         });
         toast.show(
@@ -111,7 +114,7 @@ export function NeedlingCompleteForm({
           'success',
         );
       }
-      onComplete(bleeding);
+      onComplete(!!bleeding);
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to record the needling step');
     } finally {
@@ -178,34 +181,22 @@ export function NeedlingCompleteForm({
         </View>
       ) : null}
 
-      <View style={styles.toggleRow}>
-        <Text variant="body">Bleeding event?</Text>
-        <Switch
-          value={bleeding}
-          onValueChange={setBleeding}
-          trackColor={{ false: colors.cream.line, true: colors.primary }}
-          thumbColor={colors.cream.base}
-          accessibilityLabel="Bleeding event"
-        />
-      </View>
+      <YesNoField label="Bleeding event?" value={bleeding} onChange={setBleeding} />
       {bleeding && (
         <>
-          <View style={styles.toggleRow}>
-            <Text variant="body">Was the injection given first?</Text>
-            <Switch
-              value={injectionGiven}
-              onValueChange={setInjectionGiven}
-              trackColor={{ false: colors.cream.line, true: colors.primary }}
-              thumbColor={colors.cream.base}
-              accessibilityLabel="Injection given before the bleeding was noticed"
-            />
-          </View>
+          <YesNoField
+            label="Was the injection given first?"
+            value={injectionGiven}
+            onChange={setInjectionGiven}
+          />
           <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.md }}>
             Bleeding before insemination sends the cow to Open and transfers her to the Ovsynch
             program.{' '}
-            {injectionGiven
-              ? "Today's injection is recorded as given."
-              : "Today's injection is not marked as given."}
+            {injectionGiven === null
+              ? ''
+              : injectionGiven
+                ? "Today's injection is recorded as given."
+                : "Today's injection is not marked as given."}
           </Text>
         </>
       )}
@@ -225,6 +216,7 @@ export function NeedlingCompleteForm({
           icon={bleeding ? 'water' : 'checkmark'}
           onPress={submit}
           loading={loading}
+          disabled={!answered}
           style={styles.flex1}
         />
       </View>
@@ -252,13 +244,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   historyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
-  },
   noteInput: {
     ...typography.input,
     color: colors.text,

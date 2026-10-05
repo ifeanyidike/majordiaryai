@@ -12,6 +12,7 @@ import {
   Screen,
   SectionHeader,
   SegmentedControl,
+  YesNoField,
   Text,
   useToast,
 } from '@/components';
@@ -51,6 +52,10 @@ export default function CowEditScreen() {
   const [sex, setSex] = useState<'female' | 'male'>('female');
   const [lactation, setLactation] = useState('0');
   const [notes, setNotes] = useState('');
+  const [sire, setSire] = useState('');
+  const [maternalSire, setMaternalSire] = useState('');
+  const [doNotBreed, setDoNotBreed] = useState(false);
+  const [doNotInseminate, setDoNotInseminate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -67,6 +72,10 @@ export default function CowEditScreen() {
     setDob(existing.dateOfBirth ?? '');
     setLactation(String(existing.lactationNumber ?? 0));
     setNotes(existing.notes ?? '');
+    setSire(existing.sire ?? '');
+    setMaternalSire(existing.maternalSire ?? '');
+    setDoNotBreed(!!existing.doNotBreed);
+    setDoNotInseminate(!!existing.doNotInseminate);
   }, [existing?.id]);
 
   const errors = useMemo(() => {
@@ -126,6 +135,10 @@ export default function CowEditScreen() {
         sex,
         lactationNumber: lactation.trim() ? Number(lactation.trim()) : 0,
         notes: notes.trim(),
+        sire: sire.trim(),
+        maternalSire: maternalSire.trim(),
+        doNotBreed,
+        doNotInseminate,
       };
       const savedId = await saveCow(input, id);
       toast.success(
@@ -237,6 +250,21 @@ export default function CowEditScreen() {
                  placeholder="0" keyboardType="numeric"
                  hint="0 for a heifer that has not calved yet."
                  error={err('lactation')} />
+
+        {/* Josh, Oct 2: her father, and her mother's father. */}
+        <SectionHeader title="Parentage" />
+        <FormRow label="Sire (Father)" value={sire} onChangeText={setSire}
+                 placeholder="e.g. Delta-Lambda" autoCapitalize="words" />
+        <FormRow label="Maternal Sire (Mother's Father)" value={maternalSire}
+                 onChangeText={setMaternalSire}
+                 placeholder="e.g. Mogul" autoCapitalize="words" />
+
+        {/* A cow on either list who shows heat is not put on Today's Breed
+            Report (Josh, Oct 4). */}
+        <SectionHeader title="Breeding" />
+        <YesNoField label="On the Do Not Breed list?" value={doNotBreed} onChange={setDoNotBreed} />
+        <YesNoField label="On the Do Not Inseminate list?" value={doNotInseminate}
+                    onChange={setDoNotInseminate} />
 
         <SectionHeader title="Notes" />
         <FormRow value={notes} onChangeText={setNotes}

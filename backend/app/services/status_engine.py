@@ -3,9 +3,9 @@ Cow status transition engine.
 
 Rules (from planning docs):
   insemination recorded   → status = inseminated
-  heat check positive     → cow returns to the Insemination Program (status = open,
-                            current_program = "Insemination", surfaces on /reports/breeding-due)
-  heat check at day 20-25 → if no heat, stays inseminated
+  heat seen (any time)    → on Today's Breed Report that day unless excluded
+                            (breeding_exclusion); an inseminated cow goes open
+  heat check at day 19-25 → if no heat, stays inseminated
   pregnancy check +ve     → status = pregnant, compute dry_date (day 223) & due_date (day 283)
   pregnancy check -ve     → status = open (protocol selection via Open report)
   bleeding pre-AI         → enrollment cancelled, cow open, auto-enrolled in Ovsynch
@@ -41,9 +41,14 @@ from app.services.protocols import (
 
 GESTATION_DAYS = 283
 DRY_OFF_DAY = 223            # days after insemination
-# Heat monitoring window, days post-AI (Major_further.md; the older docs say
-# 19-25 — confirm with the client whether day 19 counts).
-HEAT_WINDOW = (20, 25)
+# Heat monitoring window, days post-AI. Josh, Oct 4: "every time a cow is
+# inseminated she must appear on the Heat Report 19 days later" -- which
+# settles the old 19-vs-20 question the docs disagreed on.
+HEAT_WINDOW = (19, 25)
+# Josh, Oct 2/4: a cow seen in heat is bred that day, unless one of these
+# holds. A heat on an excluded cow is still recorded; it just isn't bred.
+MIN_DAYS_POST_CALVING_TO_BREED = 60
+MIN_AGE_DAYS_TO_BREED = 395  # 13 months -- the same day heifers become breedable
 FRESH_TO_OPEN_DAY = 70       # days after calving
 CALF_TO_HEIFER_DAY = 60      # days after birth
 HEIFER_BREEDING_DAY = 395    # ~13 months after birth
@@ -276,20 +281,83 @@ async def on_insemination(cow: Cow, insemination: Insemination, db: AsyncSession
     await cancel_active_enrollments(cow, db, EnrollmentStatus.completed)
 
 
-async def on_heat_detected(cow: Cow, db: AsyncSession) -> None:
-    """Heat detected (incl. blood on tail) — cow returns to the Insemination Program."""
-    cow.status = CowStatus.open
-    cow.current_program = "Insemination"
-    # Keep last_insemination_id/date: the failed AI is a true fact the
-    # Insemination Program report shows ("last AI <date>"); only the
-    # pregnancy-cycle projections belong to the cycle that just ended.
-    cow.due_date = None
-    cow.dry_date = None
-    cow.dry_off_confirmed_date = None
-    create_notification(
-        db, cow.farm_id, cow.id, "breeding_due",
-        f"{cow.label} was detected in heat and returned to the Insemination Program.",
-    )
+# A heat can be recorded on these. Pregnant and dry cows are left out on
+# purpose: a confirmed-pregnant cow showing heat needs a vet, not a straw --
+# inseminating her can end the pregnancy. Calves are not breedable at all.
+HEAT_RECORDABLE_STATUSES = {
+    CowStatus.heifer, CowStatus.fresh, CowStatus.open,
+    CowStatus.needling, CowStatus.inseminated,
+}
+
+
+def breeding_exclusion(cow: Cow, today: date) -> Optional[str]:
+    """Why a cow seen in heat must NOT be bred, or None if she must be.
+
+    Josh, Oct 4 -- she does not go on Today's Breed Report if she is: under 60
+    days post calving, on the Do Not Breed list, on the Do Not Inseminate
+    list, Cull, or under 13 months of age. An unknown birth date or calving
+    date does not exclude her: most milking cows are entered without one, and
+    "we don't know" is not a reason to waste a heat.
+    """
+    if cow.status in (CowStatus.cull, CowStatus.sold, CowStatus.dead):
+        return "she is a cull" if cow.status == CowStatus.cull else f"she is {cow.status.value}"
+    if cow.do_not_breed:
+        return "she is on the Do Not Breed list"
+    if cow.do_not_inseminate:
+        return "she is on the Do Not Inseminate list"
+    if cow.status == CowStatus.calf:
+        return "she is a calf"
+    if cow.date_of_birth and (today - cow.date_of_birth).days < MIN_AGE_DAYS_TO_BREED:
+        return "she is under 13 months old"
+    if cow.last_calving_date and \
+            (today - cow.last_calving_date).days < MIN_DAYS_POST_CALVING_TO_BREED:
+        return f"she is under {MIN_DAYS_POST_CALVING_TO_BREED} days post calving"
+    return None
+
+
+async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Optional[str]:
+    """A heat was seen (incl. blood on tail). Returns why she is not to be
+    bred, or None when she goes on Today's Breed Report.
+
+    Josh, Oct 4: she goes on Today's Breed Report at once; if she is not
+    inseminated by the next day she drops off "with no consequence ... assume
+    nothing happened". So the report is derived from the heat record and
+    nothing about her is parked here -- no status, no program -- for a sweep to
+    undo. The one exception is a cow that was inseminated: a returned heat
+    means that insemination failed, so she is open again whatever happens
+    next, and the pregnancy-cycle dates belong to the cycle that just ended.
+    """
+    was_inseminated = cow.status == CowStatus.inseminated
+    if was_inseminated:
+        cow.status = CowStatus.open
+        cow.current_program = None
+        # last_insemination_id/date stay: the failed AI is a true fact.
+        cow.due_date = None
+        cow.dry_date = None
+        cow.dry_off_confirmed_date = None
+
+    reason = breeding_exclusion(cow, detected_on)
+    if reason is None and detected_on == local_today():
+        create_notification(
+            db, cow.farm_id, cow.id, "breeding_due",
+            f"{cow.label} was seen in heat — she is on Today's Breed Report "
+            "and must be bred today.",
+        )
+    elif reason is None and was_inseminated:
+        # Written up after the day: the heat is already gone, so there is no
+        # breeding to ask for -- only the failed insemination to report.
+        create_notification(
+            db, cow.farm_id, cow.id, "open",
+            f"{cow.label} was seen in heat on {detected_on}, so she is not "
+            "pregnant. She is back on the Open Cow Report.",
+        )
+    elif was_inseminated:
+        create_notification(
+            db, cow.farm_id, cow.id, "open",
+            f"{cow.label} was seen in heat, so she is not pregnant. She is not to "
+            f"be bred ({reason}) and is back on the Open Cow Report.",
+        )
+    return reason
 
 
 async def on_pregnancy_confirmed(cow: Cow, insemination_date: date, db: AsyncSession) -> None:

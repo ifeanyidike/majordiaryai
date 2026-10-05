@@ -223,13 +223,15 @@ async def test_actively_worked_protocol_is_not_expired(db, make_cow):
 
 @pytest.mark.parametrize("days,has_signal,accepted", [
     (2, True, False),    # metestrous spotting right after breeding — NOT a returned heat
-    (19, True, False),   # still before the window opens
+    (18, True, False),   # still before the window opens
+    (19, True, True),    # Josh, Oct 4: the Heat Report starts at day 19
     (20, True, True),
     (27, True, True),    # late return to heat / blood on tail — recordable
     (60, True, True),    # any day until a pregnancy result
     (20, False, True),
     (25, False, True),
-    (19, False, False),  # routine checks stay window-bound
+    (19, False, True),
+    (18, False, False),  # routine checks stay window-bound
     (26, False, False),
 ])
 def test_heat_check_timing_rule(days, has_signal, accepted):

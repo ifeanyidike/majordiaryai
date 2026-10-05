@@ -42,7 +42,65 @@ async def record_heat_check(
     if body.check_date > local_today():
         raise HTTPException(status_code=422, detail="check_date cannot be in the future")
 
-    insemination = await db.get(Insemination, body.insemination_id)
+    if cow.status not in status_engine.HEAT_RECORDABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A heat can't be recorded on a cow that is '{cow.status.value}'"
+                + (" — a confirmed-pregnant cow showing heat needs the vet to re-check her"
+                   if cow.status in (CowStatus.pregnant, CowStatus.dry) else "")
+            ),
+        )
+
+    if cow.status == CowStatus.inseminated:
+        check = await _heat_check_after_insemination(body, cow, db, current_user)
+        early_bleeding = check.days_since_insemination is not None and (
+            body.bleeding_event and not body.heat_detected
+            and status_engine.is_metestrous_bleeding(check.days_since_insemination)
+        )
+    else:
+        # Josh, Oct 4: a heat counts "any time a cow is seen in heat, not only
+        # inside the Heat Report window". Nothing is timed from an
+        # insemination here, and a "no" is not an observation worth a row --
+        # there was nothing scheduled to check.
+        if not (body.heat_detected or body.bleeding_event):
+            raise HTTPException(
+                status_code=422,
+                detail="Only a heat can be recorded on a cow that isn't inseminated",
+            )
+        check = HeatCheck(
+            cow_id=cow.id,
+            insemination_id=None,
+            check_date=body.check_date,
+            days_since_insemination=None,
+            heat_detected=True,
+            bleeding_event=body.bleeding_event,
+            notes=body.notes,
+            technician_id=current_user["id"],
+        )
+        db.add(check)
+        early_bleeding = False
+
+    not_bred_because = None
+    on_breed_report = False
+    # Blood on the tail means the cow was in heat -- unless it is the early
+    # spotting after a breeding, which is only an observation.
+    if (body.heat_detected or body.bleeding_event) and not early_bleeding:
+        not_bred_because = await status_engine.on_heat_detected(cow, db, body.check_date)
+        on_breed_report = not_bred_because is None and body.check_date == local_today()
+
+    await db.commit()
+    await db.refresh(check)
+    out = HeatCheckOut.model_validate(check, from_attributes=True)
+    out.on_breed_report = on_breed_report
+    out.not_bred_because = not_bred_because
+    return out
+
+
+async def _heat_check_after_insemination(body, cow, db, current_user) -> HeatCheck:
+    """The Heat Report's check: timed from her current insemination."""
+    insemination_id = body.insemination_id or cow.last_insemination_id
+    insemination = await db.get(Insemination, insemination_id) if insemination_id else None
     if not insemination or insemination.cow_id != cow.id:
         raise HTTPException(status_code=422, detail="insemination_id does not belong to this cow")
 
@@ -52,16 +110,10 @@ async def record_heat_check(
     # The day count below is measured from her CURRENT insemination, so a check
     # filed against an older attempt would be timed by one AI and attributed to
     # another.
-    if cow.last_insemination_id and body.insemination_id != cow.last_insemination_id:
+    if cow.last_insemination_id and insemination_id != cow.last_insemination_id:
         raise HTTPException(
             status_code=409,
             detail="This check must be recorded against the cow's most recent insemination",
-        )
-
-    if cow.status != CowStatus.inseminated:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Heat checks require an inseminated cow (status is '{cow.status.value}')",
         )
 
     days_since = (body.check_date - cow.last_insemination_date).days
@@ -90,7 +142,7 @@ async def record_heat_check(
 
     check = HeatCheck(
         cow_id=cow.id,
-        insemination_id=body.insemination_id,
+        insemination_id=insemination_id,
         check_date=body.check_date,
         days_since_insemination=days_since,
         heat_detected=body.heat_detected,
@@ -99,14 +151,6 @@ async def record_heat_check(
         technician_id=current_user["id"],
     )
     db.add(check)
-
-    # Blood on the tail during a heat check means the cow was in heat — unless
-    # it is the early spotting above, which is only an observation.
-    if (body.heat_detected or body.bleeding_event) and not early_bleeding:
-        await status_engine.on_heat_detected(cow, db)
-
-    await db.commit()
-    await db.refresh(check)
     return check
 
 

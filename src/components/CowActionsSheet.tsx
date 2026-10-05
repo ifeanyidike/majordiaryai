@@ -7,13 +7,14 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   TextInput,
   View,
 } from 'react-native';
 import { Button, ModalToastHost, SegmentedControl, SectionHeader, Text, useToast } from '@/components';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormInput, FormLabel } from './FormField';
+import { YesNoField } from './YesNoField';
+import { HEAT_WINDOW } from '@/data/reports';
 import { api, isApiConfigured } from '@/lib/api';
 import {
   daysSince, isValidPastOrTodayDate, isValidStartDate, START_DATE_LOOKAHEAD_DAYS, todayISO,
@@ -59,6 +60,7 @@ type ActionKey =
   | 'enroll'
   | 'inseminate'
   | 'heat_check'
+  | 'seen_heat'
   | 'pregnancy_check'
   | 'calving'
   | 'vaccinate'
@@ -78,6 +80,7 @@ const ACTION_DEFS: Record<ActionKey, ActionDef> = {
   enroll:           { key: 'enroll',           label: 'Enroll Protocol', icon: 'list' },
   inseminate:       { key: 'inseminate',       label: 'Record AI',       icon: 'flask' },
   heat_check:       { key: 'heat_check',       label: 'Heat Check',      icon: 'flame' },
+  seen_heat:        { key: 'seen_heat',        label: 'Seen in Heat',    icon: 'flame' },
   pregnancy_check:  { key: 'pregnancy_check',  label: 'Preg Check',      icon: 'medkit' },
   calving:          { key: 'calving',          label: 'Record Calving',  icon: 'heart' },
   vaccinate:        { key: 'vaccinate',        label: 'Vaccinate',       icon: 'shield-checkmark' },
@@ -102,6 +105,7 @@ const ROLE_RESTRICTED: Record<ActionKey, UserRole[]> = {
   enroll: WORK_ROLES,
   inseminate: WORK_ROLES,
   heat_check: WORK_ROLES,
+  seen_heat: WORK_ROLES,
   pregnancy_check: ['admin', 'technician', 'vet'],
   calving: WORK_ROLES,
   vaccinate: WORK_ROLES,
@@ -118,18 +122,24 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
   switch (cow.status) {
     case 'heifer':
     case 'open':
-      keys.push('enroll', 'inseminate');
+      keys.push('enroll', 'inseminate', 'seen_heat');
       break;
     case 'needling':
       // TAI happens on the protocol's final day (Timed Breeding task);
       // recording here covers heat-observed protocols too.
-      keys.push('inseminate');
+      keys.push('inseminate', 'seen_heat');
       break;
     case 'inseminated':
-      if (days !== null && days >= 20 && days <= 25) keys.push('heat_check');
+      // Inside the Heat Report's days it is the scheduled Yes/No check; after
+      // them a heat can still be seen (Josh, Oct 4: "any time"), and that is
+      // only ever a Yes. Before day 19 any spotting is from the heat she was
+      // just bred on, so neither is offered.
+      if (days !== null && days >= HEAT_WINDOW[0] && days <= HEAT_WINDOW[1]) keys.push('heat_check');
+      if (days !== null && days > HEAT_WINDOW[1]) keys.push('seen_heat');
       if (days !== null && days >= 30) keys.push('pregnancy_check');
       break;
     case 'fresh':
+      keys.push('seen_heat');
       // The day-283 sweep makes a dry cow Fresh on her due date without a
       // recorded calving. Until someone records the real one her lactation is
       // one short and her calf does not exist — so the calving stays on offer.
@@ -206,21 +216,6 @@ function TechnicianRow() {
   );
 }
 
-function FormToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <View style={styles.toggleRow}>
-      <Text variant="body">{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: colors.cream.line, true: colors.primary }}
-        thumbColor={colors.cream.base}
-        accessibilityLabel={label}
-      />
-    </View>
-  );
-}
-
 function FormActions({
   onCancel, submitLabel, submitIcon, onSubmit, loading, disabled, danger,
 }: {
@@ -287,15 +282,21 @@ interface FormProps {
 }
 
 export function InseminationForm({
-  cow, onCancel, onComplete, banner,
-}: FormProps & { banner?: string; finalNeedlingRecordId?: string }) {
+  cow, onCancel, onComplete, banner, bannerIcon = 'fitness', withFinalInjection = false,
+}: FormProps & {
+  banner?: string;
+  bannerIcon?: keyof typeof Ionicons.glyphMap;
+  /** Final protocol day: the last shot is recorded with this AI. */
+  withFinalInjection?: boolean;
+  finalNeedlingRecordId?: string;
+}) {
   // Bleeding replaces the insemination for a cow still in a protocol. It is
   // offered whenever she is mid-protocol — NOT only when a completable record
   // happens to exist, because after the final shot there is none left and that
   // is exactly when she is closest to insemination.
   const canBleed = cow.status === 'needling';
   const toast = useToast();
-  const { bulls, fetchBulls, cows } = useAppStore();
+  const { bulls, fetchBulls, saveBull, cows } = useAppStore();
   // The row carries its own farm; fall back to the store only for callers
   // that pass a full Cow (the profile screen) rather than a work-list row.
   const farmId = cow.farmId ?? cows.find((c) => c.id === cow.id)?.farmId;
@@ -305,13 +306,18 @@ export function InseminationForm({
   }, [farmId]);
   // Bleeding can be recorded on ANY protocol day, including the final one.
   // Bleeding means no insemination: the cow goes Open and restarts on Ovsynch.
-  const [bleeding, setBleeding] = useState(false);
+  // Asked, not defaulted (Josh, Oct 4: no toggles -- every question answered).
+  const [bleeding, setBleeding] = useState<boolean | null>(canBleed ? null : false);
   const [date, setDate] = useState(todayISO());
   const [time, setTime] = useState(nowTime());
   const [bull, setBull] = useState('');
-  // Set when the technician picked from the farm's list; free text still works
-  // so a straw that is not listed never blocks the visit.
+  // Josh, Oct 4: the bull is picked from the farm's bull list, and required.
+  // Free text is gone, so the same bull is spelled the same way every time;
+  // a straw that isn't listed yet is added to the list right here, so it
+  // never blocks the visit.
   const [bullId, setBullId] = useState<string | undefined>();
+  const [newBull, setNewBull] = useState('');
+  const [addingBull, setAddingBull] = useState(false);
   const [doseId, setDoseId] = useState('');
   const [inseminationCode, setInseminationCode] = useState('');
   const [semenType, setSemenType] = useState<'sexed' | 'conventional' | 'beef' | null>(null);
@@ -319,9 +325,32 @@ export function InseminationForm({
   const [loading, setLoading] = useState(false);
 
   // When bleeding is recorded there is no AI, so the AI fields aren't required.
-  const valid = bleeding && canBleed
-    ? true
-    : isValidPastOrTodayDate(date) && isValidTime(time) && bull.trim().length > 0 && semenType !== null;
+  const valid = bleeding === null
+    ? false
+    : bleeding && canBleed
+      ? true
+      : isValidPastOrTodayDate(date) && isValidTime(time) && !!bullId && semenType !== null;
+
+  const addBull = async () => {
+    const name = newBull.trim();
+    if (!name || !farmId) return;
+    if (!guardApi(toast.error)) return;
+    setAddingBull(true);
+    try {
+      await saveBull(farmId, { name, semenType: semenType ?? undefined });
+      const added = (useAppStore.getState().bulls[farmId] ?? [])
+        .find((b) => b.name.toLowerCase() === name.toLowerCase());
+      if (added) {
+        setBullId(added.id);
+        setBull(added.name);
+      }
+      setNewBull('');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Could not add the bull');
+    } finally {
+      setAddingBull(false);
+    }
+  };
 
   const submit = async () => {
     if (!guardApi(toast.error)) return;
@@ -358,7 +387,7 @@ export function InseminationForm({
         notes: notes.trim() || null,
       });
       toast.success(
-        banner
+        withFinalInjection
           ? `Final injection + AI recorded — ${cow.label} is now Inseminated`
           : `AI recorded — ${cow.label} is now Inseminated`,
       );
@@ -374,7 +403,7 @@ export function InseminationForm({
     <>
       {banner ? (
         <View style={styles.combinedBanner}>
-          <Ionicons name="fitness" size={18} color={colors.primary} />
+          <Ionicons name={bannerIcon} size={18} color={colors.primary} />
           <Text variant="caption" color={colors.text} style={styles.flex1}>
             {banner}
           </Text>
@@ -385,7 +414,7 @@ export function InseminationForm({
           where it replaces the insemination. */}
       {canBleed ? (
         <>
-          <FormToggle label="Bleeding event?" value={bleeding} onChange={setBleeding} />
+          <YesNoField label="Bleeding event?" value={bleeding} onChange={setBleeding} />
           {bleeding && (
             <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
               No insemination will be recorded. She moves to Open and restarts on Ovsynch.
@@ -394,10 +423,15 @@ export function InseminationForm({
         </>
       ) : null}
 
-      {!bleeding && (
+      {bleeding === false && (
         <>
           <DateTimeFields date={date} time={time} onDate={setDate} onTime={setTime} dateLabel="Insemination Date" />
           <FormLabel>Bull Name</FormLabel>
+          {farmBulls.length === 0 && (
+            <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
+              This farm has no bulls listed yet. Add the one you used below.
+            </Text>
+          )}
           {farmBulls.length > 0 && (
             <View style={styles.bullRow}>
               {farmBulls.map((b) => {
@@ -424,11 +458,24 @@ export function InseminationForm({
               })}
             </View>
           )}
-          <FormInput
-            value={bull}
-            onChangeText={(t) => { setBull(t); setBullId(undefined); }}
-            placeholder={farmBulls.length ? 'Pick above, or type another' : 'Required'}
-          />
+          <View style={styles.addBullRow}>
+            <View style={styles.flex1}>
+              <FormInput
+                value={newBull}
+                onChangeText={setNewBull}
+                placeholder={farmBulls.length ? 'Not listed? Add a bull' : 'Bull name'}
+              />
+            </View>
+            <Button
+              compact
+              variant="secondary"
+              label="Add"
+              icon="add"
+              onPress={addBull}
+              loading={addingBull}
+              disabled={!newBull.trim() || !farmId}
+            />
+          </View>
           <FormLabel>Semen Type</FormLabel>
           <SegmentedControl
             options={[
@@ -465,10 +512,28 @@ export function InseminationForm({
   );
 }
 
+interface HeatResult {
+  on_breed_report?: boolean | null;
+  not_bred_because?: string | null;
+}
+
+/** What happened to her, in the words the technician needs next. */
+function heatOutcome(cow: RecordTarget, result: HeatResult, checkDate: string): string {
+  if (result.on_breed_report) return `${cow.label} is on Today's Breed Report — breed her today`;
+  if (result.not_bred_because) return `Heat recorded — ${cow.label} is not to be bred: ${result.not_bred_because}`;
+  if (checkDate !== todayISO()) return 'Heat recorded — too late for Today\'s Breed Report';
+  return 'Heat recorded';
+}
+
+/**
+ * The Heat Report's check (Josh, Oct 4): "Heat Detected — Yes / No", both
+ * answers required. Yes puts her straight onto Today's Breed Report; No
+ * leaves her on the Heat Report as before.
+ */
 export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
-  const [heatDetected, setHeatDetected] = useState(false);
-  const [bloodOnTail, setBloodOnTail] = useState(false);
+  const [heatDetected, setHeatDetected] = useState<boolean | null>(null);
+  const [bloodOnTail, setBloodOnTail] = useState<boolean | null>(null);
   // Backdatable. The date was hardcoded to today, which contradicts the whole
   // reason the backend keeps a relief technician's access open for a week:
   // work gets written up after the visit, not during it. Recording yesterday's
@@ -478,6 +543,7 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
   const [loading, setLoading] = useState(false);
   const days = daysPostInsemination(cow) ?? 0;
   const dateValid = isValidPastOrTodayDate(checkDate);
+  const answered = heatDetected !== null && bloodOnTail !== null;
 
   const submit = async () => {
     if (!cow.lastInseminationId) {
@@ -488,19 +554,19 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
     setLoading(true);
     try {
       // Blood on the tail means she WAS in heat — the spec treats it as a heat event.
-      const effectiveHeat = heatDetected || bloodOnTail;
-      await api.post('/checks/heat', {
+      const effectiveHeat = !!heatDetected || !!bloodOnTail;
+      const result = await api.post<HeatResult>('/checks/heat', {
         cow_id: cow.id,
         insemination_id: cow.lastInseminationId,
         check_date: checkDate,
         heat_detected: effectiveHeat,
-        bleeding_event: bloodOnTail,
+        bleeding_event: !!bloodOnTail,
         notes: notes.trim() || null,
       });
       toast.show(
         effectiveHeat
-          ? 'Heat detected — cow returned to the Insemination Program'
-          : 'No heat — she stays Inseminated; preg check at day 30+',
+          ? heatOutcome(cow, result, checkDate)
+          : 'No heat — she stays on the Heat Report; preg check at day 30+',
         effectiveHeat ? 'flame' : 'checkmark-circle',
         'success',
       );
@@ -515,7 +581,7 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
   return (
     <>
       <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.md }}>
-        Day {days} post insemination (heat window: days 20–25)
+        Day {days} post insemination (heat window: days {HEAT_WINDOW[0]}–{HEAT_WINDOW[1]})
       </Text>
       <FormLabel>Check Date</FormLabel>
       <FormInput
@@ -530,11 +596,12 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
           Use YYYY-MM-DD, today or earlier
         </Text>
       )}
-      <FormToggle label="Heat Detected?" value={heatDetected} onChange={setHeatDetected} />
-      <FormToggle label="Blood on Tail?" value={bloodOnTail} onChange={setBloodOnTail} />
-      {bloodOnTail && (
+      <YesNoField label="Heat Detected?" value={heatDetected} onChange={setHeatDetected} />
+      <YesNoField label="Blood on Tail?" value={bloodOnTail} onChange={setBloodOnTail} />
+      {(heatDetected || bloodOnTail) && (
         <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
-          Blood on the tail means she was in heat — she'll return to the Insemination Program.
+          {bloodOnTail && !heatDetected ? 'Blood on the tail means she was in heat. ' : ''}
+          She goes straight onto Today's Breed Report — breed her today.
         </Text>
       )}
       <FormLabel>Notes</FormLabel>
@@ -546,6 +613,77 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="flame"
         onSubmit={submit}
         loading={loading}
+        disabled={!dateValid || !answered}
+      />
+    </>
+  );
+}
+
+/**
+ * A heat seen outside a scheduled check — an open cow, one mid-protocol, a
+ * fresh cow, a heifer, or an inseminated cow past her Heat Report days.
+ * Josh, Oct 4: Today's Breed Report takes "any cow marked Heat Detected:
+ * Yes ... any time a cow is seen in heat, not only inside the Heat Report
+ * window". There is nothing to answer "No" to here, so it records the heat.
+ */
+export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
+  const toast = useToast();
+  const [seenOn, setSeenOn] = useState(todayISO());
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const dateValid = isValidPastOrTodayDate(seenOn);
+
+  const submit = async () => {
+    if (!guardApi(toast.error)) return;
+    setLoading(true);
+    try {
+      const result = await api.post<HeatResult>('/checks/heat', {
+        cow_id: cow.id,
+        // Only an inseminated cow's heat is timed from her insemination.
+        insemination_id: cow.status === 'inseminated' ? cow.lastInseminationId ?? null : null,
+        check_date: seenOn,
+        heat_detected: true,
+        bleeding_event: false,
+        notes: notes.trim() || null,
+      });
+      toast.show(heatOutcome(cow, result, seenOn), 'flame', 'success');
+      onComplete();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Failed to record the heat');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.md }}>
+        Seen today, she goes onto Today's Breed Report and is bred today — unless she is under
+        60 days post calving, under 13 months, a cull, or on the Do Not Breed or Do Not
+        Inseminate list.
+      </Text>
+      <FormLabel>Date Seen in Heat</FormLabel>
+      <FormInput
+        value={seenOn}
+        onChangeText={setSeenOn}
+        placeholder="YYYY-MM-DD"
+        keyboardType="numbers-and-punctuation"
+        error={seenOn.length > 0 && !dateValid}
+      />
+      {seenOn.length > 0 && !dateValid && (
+        <Text variant="caption" color={colors.danger} style={styles.fieldError}>
+          Use YYYY-MM-DD, today or earlier
+        </Text>
+      )}
+      <FormLabel>Notes</FormLabel>
+      <FormInput value={notes} onChangeText={setNotes} placeholder="Standing heat, mucus, etc. (optional)" multiline />
+      <TechnicianRow />
+      <FormActions
+        onCancel={onCancel}
+        submitLabel="Record Heat"
+        submitIcon="flame"
+        onSubmit={submit}
+        loading={loading}
         disabled={!dateValid}
       />
     </>
@@ -554,9 +692,11 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
 
 export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
-  const [result, setResult] = useState<'pregnant' | 'not_pregnant'>('pregnant');
-  const [infection, setInfection] = useState(false);
-  const [cysts, setCysts] = useState(false);
+  // Nothing pre-picked: a result that defaults to "Pregnant" is a pregnancy
+  // nobody diagnosed if the vet saves without looking (Josh, Oct 4).
+  const [result, setResult] = useState<'pregnant' | 'not_pregnant' | null>(null);
+  const [infection, setInfection] = useState<boolean | null>(null);
+  const [cysts, setCysts] = useState<boolean | null>(null);
   // Backdatable — a vet writes up a round of checks after the visit, and the
   // date decides the +283 due date and the +223 dry-off.
   const [checkDate, setCheckDate] = useState(todayISO());
@@ -577,8 +717,8 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
         insemination_id: cow.lastInseminationId,
         check_date: checkDate,
         result,
-        has_infection: infection,
-        has_cysts: cysts,
+        has_infection: !!infection,
+        has_cysts: !!cysts,
         notes: notes.trim() || null,
       });
       // Outcome messaging mirrors the program rules, including cyst/infection branches.
@@ -626,8 +766,8 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
         onChange={setResult}
         style={styles.fieldGap}
       />
-      <FormToggle label="Infection?" value={infection} onChange={setInfection} />
-      <FormToggle label="Cysts?" value={cysts} onChange={setCysts} />
+      <YesNoField label="Infection?" value={infection} onChange={setInfection} />
+      <YesNoField label="Cysts?" value={cysts} onChange={setCysts} />
       {cysts && (
         <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
           Cysts send the cow back to needling regardless of the pregnancy result.
@@ -642,7 +782,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="medkit"
         onSubmit={submit}
         loading={loading}
-        disabled={!dateValid}
+        disabled={!dateValid || result === null || infection === null || cysts === null}
       />
     </>
   );
@@ -652,7 +792,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
   const [calvDate, setCalvDate] = useState(todayISO());
   const [calvTime, setCalvTime] = useState(nowTime());
-  const [outcome, setOutcome] = useState<'live' | 'still'>('live');
+  const [outcome, setOutcome] = useState<'live' | 'still' | null>(null);
   const [calfSex, setCalfSex] = useState<'female' | 'male' | null>(null);
   const [calfTag, setCalfTag] = useState('');
   const [saleInfo, setSaleInfo] = useState('');
@@ -664,6 +804,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   const valid =
     isValidPastOrTodayDate(calvDate) &&
     isValidTime(calvTime) &&
+    outcome !== null &&
     (outcome === 'still' || calfSex !== null);
 
   const submit = async () => {
@@ -907,16 +1048,16 @@ export function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
 
 export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
-  const [health, setHealth] = useState<'healthy' | 'sick' | null>(
-    cow.healthStatus ?? null,
-  );
+  // Asked fresh every time, never carried over from her last answer or
+  // pre-picked (Josh, Oct 4: the technician decides every question).
+  const [health, setHealth] = useState<'healthy' | 'sick' | null>(null);
   const [healthConfirmed, setHealthConfirmed] = useState(false);
-  const [protocol, setProtocol] = useState('ovsynch');
+  const [protocol, setProtocol] = useState<string | null>(null);
   const [startDate, setStartDate] = useState(todayISO());
   const [loading, setLoading] = useState(false);
   const [savingHealth, setSavingHealth] = useState(false);
 
-  const steps = useMemo(() => protocolByValue(protocol)?.steps ?? [], [protocol]);
+  const steps = useMemo(() => (protocol ? protocolByValue(protocol)?.steps ?? [] : []), [protocol]);
   // Shape alone let 2026-13-45 and a typo'd year through, and a protocol
   // schedules ten days of injections off this date.
   const dateValid = isValidStartDate(startDate);
@@ -955,7 +1096,7 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         protocol,
         start_date: startDate,
       });
-      toast.success(`${cow.label} enrolled in ${protocolByValue(protocol)?.label}`);
+      toast.success(`${cow.label} enrolled in ${protocolByValue(protocol!)?.label}`);
       onComplete();
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to enroll in protocol');
@@ -1030,18 +1171,20 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
       </ScrollView>
 
       {/* schedule preview straight from the protocol table */}
-      <View style={styles.scheduleBox}>
-        {steps.map((s) => (
-          <View key={s.day} style={styles.scheduleRow}>
-            <Text variant="caption" color={colors.textSecondary} style={styles.scheduleDay}>
-              Day {s.day}
-            </Text>
-            <Text variant="caption" color={s.final ? colors.primary : colors.text}>
-              {s.treatment}
-            </Text>
-          </View>
-        ))}
-      </View>
+      {protocol ? (
+        <View style={styles.scheduleBox}>
+          {steps.map((s) => (
+            <View key={s.day} style={styles.scheduleRow}>
+              <Text variant="caption" color={colors.textSecondary} style={styles.scheduleDay}>
+                Day {s.day}
+              </Text>
+              <Text variant="caption" color={s.final ? colors.primary : colors.text}>
+                {s.treatment}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       <FormLabel>Start Date</FormLabel>
       <FormInput
@@ -1066,7 +1209,7 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="list"
         onSubmit={submit}
         loading={loading}
-        disabled={!dateValid}
+        disabled={!dateValid || !protocol}
       />
     </>
   );
@@ -1228,6 +1371,7 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
     enroll:          'Enroll in Protocol',
     inseminate:      'Record Artificial Insemination',
     heat_check:      'Record Heat Check',
+    seen_heat:       'Seen in Heat',
     pregnancy_check: 'Record Pregnancy Check',
     calving:         'Record Calving',
     vaccinate:       'Record Vaccination',
@@ -1248,6 +1392,7 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
     switch (activeAction) {
       case 'inseminate':      return <InseminationForm {...formProps} />;
       case 'heat_check':      return <HeatCheckForm {...formProps} />;
+      case 'seen_heat':       return <SeenInHeatForm {...formProps} />;
       case 'pregnancy_check': return <PregnancyCheckForm {...formProps} />;
       case 'calving':         return <CalvingForm {...formProps} />;
       case 'vaccinate':       return <VaccinationForm {...formProps} />;
@@ -1409,13 +1554,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs + 2,
     marginTop: spacing.xs,
   },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
-  },
   chip: {
     minHeight: 44,
     justifyContent: 'center',
@@ -1482,6 +1620,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   bullRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm },
+  addBullRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   bullChip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,

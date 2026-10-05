@@ -24,6 +24,10 @@ class CowCreate(BaseModel):
     sex: CalfSex = CalfSex.female
     lactation_number: int = Field(default=0, ge=0)
     notes: Optional[str] = None
+    sire: Optional[str] = None
+    maternal_sire: Optional[str] = None
+    do_not_breed: bool = False
+    do_not_inseminate: bool = False
 
     @field_validator("date_of_birth")
     @classmethod
@@ -46,6 +50,10 @@ class CowUpdate(BaseModel):
     lactation_number: Optional[int] = Field(default=None, ge=0)
     status: Optional[CowStatus] = None
     notes: Optional[str] = None
+    sire: Optional[str] = None
+    maternal_sire: Optional[str] = None
+    do_not_breed: Optional[bool] = None
+    do_not_inseminate: Optional[bool] = None
 
     @field_validator("date_of_birth")
     @classmethod
@@ -84,6 +92,10 @@ class CowOut(BaseModel):
     exit_date: Optional[date] = None
     exit_reason: Optional[str] = None
     notes: Optional[str] = None
+    sire: Optional[str] = None
+    maternal_sire: Optional[str] = None
+    do_not_breed: bool = False
+    do_not_inseminate: bool = False
     created_at: datetime
     farm_name: Optional[str] = None
 

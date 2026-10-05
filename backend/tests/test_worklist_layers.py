@@ -167,7 +167,8 @@ def _cow(**kw) -> Cow:
 
 
 @pytest.mark.parametrize("days,on_report", [
-    (19, False),   # before the window
+    (18, False),   # before the window
+    (19, True),    # Josh, Oct 4: "the Heat Report 19 days later"
     (20, True),
     (25, True),
     (26, False),   # after day 25 there is no more heat check for that cow

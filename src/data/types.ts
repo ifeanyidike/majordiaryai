@@ -43,6 +43,12 @@ export interface Cow {
   daysOpen: number;
   /** Derived server-side: in milk from calving until dry-off. */
   isMilking?: boolean;
+  /** Parentage (Josh, Oct 2): her sire, and her dam's sire. */
+  sire?: string;
+  maternalSire?: string;
+  /** Either list keeps her off Today's Breed Report when she shows heat. */
+  doNotBreed?: boolean;
+  doNotInseminate?: boolean;
   history: {
     inseminations: HistoryEvent[];
     pregnancyChecks: HistoryEvent[];

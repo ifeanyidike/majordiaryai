@@ -23,8 +23,10 @@ export { Screen } from './Screen';
 export { SearchBar } from './SearchBar';
 export { SectionHeader } from './SectionHeader';
 export { StatCard } from './StatCard';
-export { StatusPill } from './StatusPill';
+export { StatusPill, STATUS_LABELS } from './StatusPill';
+export { FilterChips } from './FilterChips';
 export { Text } from './Text';
+export { YesNoField } from './YesNoField';
 export { ModalToastHost, ToastHost, useToast } from './Toast';
 
 export { Skeleton, SkeletonCard, SkeletonList, SkeletonRow, SkeletonStats } from './Skeleton';

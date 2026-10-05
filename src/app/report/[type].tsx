@@ -37,6 +37,7 @@ import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/
  */
 const ROW_PILL_LABEL: Record<string, string> = {
   heat: 'Check Heat',
+  'breed-today': 'Breed Today',
   'pregnancy-check': 'Check Pregnancy',
   // The Needling Report became the Injection Report; its rows said
   // "NEEDLING" under the new title.
@@ -157,7 +158,7 @@ export default function ReportDetailScreen() {
                   {cow.label}
                 </Text>
                 <StatusPill
-                  kind={report.type === 'heat' ? 'heat' : cow.status}
+                  kind={report.type === 'heat' || report.type === 'breed-today' ? 'heat' : cow.status}
                   label={ROW_PILL_LABEL[report.type]}
                 />
               </View>

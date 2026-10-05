@@ -11,8 +11,18 @@ import { WorklistReport } from './types';
  * the server's rows and owns nothing but their appearance.
  */
 
+/**
+ * Heat-check window, days after insemination. Mirrors status_engine.HEAT_WINDOW
+ * on the server, which decides the Heat Report; the app only uses it to offer
+ * the check and to label the cow. Josh, Oct 4: "every time a cow is
+ * inseminated she must appear on the Heat Report 19 days later".
+ */
+export const HEAT_WINDOW = [19, 25] as const;
+
 /** Reports that read as a daily route, shown first on the Reports hub. */
-export const DAILY_REPORT_TYPES = ['heat', 'timed-breeding', 'needling', 'insemination'];
+export const DAILY_REPORT_TYPES = [
+  'heat', 'breed-today', 'timed-breeding', 'needling', 'insemination',
+];
 
 /** Program reports — event- or day-triggered rather than daily. */
 export const PROGRAM_REPORT_TYPES = [
@@ -28,7 +38,8 @@ export const LIST_REPORT_TYPES = ['calving-due', 'pregnant', 'open', 'cull'];
  */
 const REPORT_TITLES: Record<string, string> = {
   heat: 'Heat Report',
-  'timed-breeding': 'Timed Breeding',
+  'breed-today': "Today's Breed Report",
+  'timed-breeding': 'Timed Breeding Report',
   needling: 'Injection Report',
   'farmer-injection': 'Farmer Injection',
   insemination: 'Insemination Program',
@@ -46,6 +57,7 @@ const REPORT_TITLES: Record<string, string> = {
 
 const REPORT_ICONS: Record<string, string> = {
   heat: 'flame',
+  'breed-today': 'flash',
   'timed-breeding': 'flask',
   needling: 'fitness',
   'farmer-injection': 'create',

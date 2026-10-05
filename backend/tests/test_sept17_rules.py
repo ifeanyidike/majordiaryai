@@ -424,31 +424,37 @@ async def test_a_cow_short_of_the_day_is_not_reminded_yet(db, farm):
 def test_a_cow_in_heat_is_bred_today_whatever_the_rota_says():
     """She is fertile for hours, not days. The Mon/Tue/Sat breeding rota moves
     routine work; it cannot move a heat, because the window shuts long before
-    the next breeding day comes round.
+    the next breeding day comes round. Since Josh's Oct 4 change she is on
+    Today's Breed Report rather than the Insemination Program.
     """
     cow = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag="H-1",
-              status=CowStatus.open, current_program="Insemination",
-              lactation_number=2, last_insemination_date=TODAY - timedelta(days=21))
+              status=CowStatus.open, lactation_number=2,
+              last_calving_date=TODAY - timedelta(days=120),
+              last_insemination_date=TODAY - timedelta(days=21))
     reports = _reports(cows=[cow], heat_events={str(cow.id): {"detected_on": TODAY}})
 
-    row = reports["insemination"]["cows"][0]
-    assert "TODAY" in row["action"]
-    assert row["overdue"] is False
+    row = reports["breed-today"]["cows"][0]
+    assert "today" in row["action"].lower()
+    assert row["record_kind"] == "insemination"
+    assert "insemination" not in reports
+    # Bred, not assessed for a protocol: she is not on the Open report too.
+    assert "open-report" not in reports
 
 
-def test_a_heat_from_yesterday_reads_as_late():
-    """A heat that was not bred on the day is a missed cycle — three weeks of
-    lost days — so it must not look like ordinary pending work."""
+def test_a_heat_not_bred_by_the_next_day_is_forgotten():
+    """Josh, Oct 4: not inseminated by the next day, she leaves Today's Breed
+    Report "with no consequence" and goes back to the Open Cow Report --
+    "assume nothing happened". It used to stay as "Breed her TODAY -- heat was
+    1 day ago", overdue. Only today's heats reach the report, so tomorrow there
+    is simply no heat event for her."""
     cow = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag="H-2",
-              status=CowStatus.open, current_program="Insemination",
-              lactation_number=2, last_insemination_date=TODAY - timedelta(days=22))
-    reports = _reports(
-        cows=[cow], heat_events={str(cow.id): {"detected_on": TODAY - timedelta(days=1)}},
-    )
+              status=CowStatus.open, lactation_number=2,
+              last_calving_date=TODAY - timedelta(days=120),
+              last_insemination_date=TODAY - timedelta(days=22))
+    reports = _reports(cows=[cow], heat_events={})
 
-    row = reports["insemination"]["cows"][0]
-    assert row["overdue"] is True
-    assert "1 day ago" in row["action"]
+    assert "breed-today" not in reports
+    assert reports["open-report"]["cows"][0]["cow_id"] == str(cow.id)
 
 
 def test_a_heifer_of_age_is_not_reported_as_a_missed_heat():
