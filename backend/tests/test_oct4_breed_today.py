@@ -85,6 +85,20 @@ def test_a_cow_on_the_breed_report_is_not_also_asked_for_a_protocol():
     assert _reports([cow])["open-report"]["cows"][0]["cow_id"] == str(cow.id)
 
 
+@pytest.mark.parametrize("flag", ["do_not_breed", "do_not_inseminate"])
+def test_a_cow_on_either_list_is_given_no_breeding_work(flag):
+    """"Do not breed" cannot be followed by a report telling the technician to
+    pick her a protocol (which ends in a timed AI) or to breed her."""
+    open_cow = _cow(**{flag: True})
+    heifer = _cow(**{flag: True}, current_program="Insemination", lactation_number=0,
+                  last_calving_date=None)
+    reports = _reports([open_cow, heifer])
+    assert "open-report" not in reports
+    assert "insemination" not in reports
+    # Still on the reference list -- she has not vanished from the herd.
+    assert {r["cow_id"] for r in reports["open"]["cows"]} == {str(open_cow.id), str(heifer.id)}
+
+
 def test_the_reports_are_named_as_josh_names_them():
     titles = {r.type: r.title for r in REPORTS}
     assert titles["timed-breeding"] == "Timed Breeding Report"

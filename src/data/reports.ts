@@ -29,6 +29,9 @@ export const PROGRAM_REPORT_TYPES = [
   'pregnancy-check', 'vaccination', 'post-calving', 'dry-report', 'fresh', 'open-report',
 ];
 
+/** What a vet's worklist carries — mirrors the server's VET_REPORT_TYPES. */
+export const VET_REPORT_TYPES = ['pregnancy-check', 'pregnant', 'calving-due'];
+
 /** Reference lists: never work, never counted in a workload. */
 export const LIST_REPORT_TYPES = ['calving-due', 'pregnant', 'open', 'cull'];
 

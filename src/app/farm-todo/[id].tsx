@@ -154,6 +154,17 @@ export default function FarmTodoScreen() {
           })}
         </>
       )}
+
+      {/* Only reports with cows are listed above. Josh went looking for the
+          Timed Breeding Report on a day it had none (Oct 2) -- the full
+          catalog, empty reports included, is one tap from here. */}
+      <Button
+        variant="secondary"
+        label="All Reports for This Farm"
+        icon="bar-chart"
+        onPress={() => router.push({ pathname: '/farm/reports', params: { id: farm.farmId } })}
+        style={styles.allReports}
+      />
     </Screen>
   );
 }
@@ -162,6 +173,7 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
   flex1: { flex: 1 },
   sectionLabel: { marginBottom: spacing.sm },
+  allReports: { marginTop: spacing.lg },
   skipBanner: {
     flexDirection: 'row',
     alignItems: 'center',

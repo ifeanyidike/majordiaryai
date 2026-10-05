@@ -17,8 +17,9 @@ import {
   alpha, colors, gradients, onDark, radius, red, shadows, spacing, status, StatusKey,
 } from '@/theme';
 import { WorklistReport } from '@/data/types';
+import { useRole } from '@/store/useAuthStore';
 import {
-  DAILY_REPORT_TYPES, emptyReport, LIST_REPORT_TYPES, PROGRAM_REPORT_TYPES,
+  DAILY_REPORT_TYPES, emptyReport, LIST_REPORT_TYPES, PROGRAM_REPORT_TYPES, VET_REPORT_TYPES,
 } from '@/data/reports';
 import {
   cowsByFarm, farmById, farmWorklist, summarize, useAppStore,
@@ -45,6 +46,7 @@ export default function FarmReportsScreen() {
     worklist, worklistLoading, worklistError,
     fetchWorklist, ensureWorklist, fetchCows, fetchKpis, kpisByFarm,
   } = state;
+  const role = useRole();
   const farm = id ? farmById(state, id) : undefined;
   const slice = id ? farmWorklist(state, id) : undefined;
 
@@ -97,8 +99,13 @@ export default function FarmReportsScreen() {
 
   // A report the server omitted has no cows on this farm today; still list it
   // so the hub is a stable catalog rather than a list that shifts under the user.
+  // A vet's worklist carries only the pregnancy reports (server
+  // VET_REPORT_TYPES). Filling the rest in as "0 cows" told a vet there was
+  // no heat or breeding work on a farm that had plenty.
   const byType = (types: string[]) =>
-    types.map((t) => reports.find((r) => r.type === t) ?? emptyReport(t));
+    types
+      .filter((t) => role !== 'vet' || VET_REPORT_TYPES.includes(t))
+      .map((t) => reports.find((r) => r.type === t) ?? emptyReport(t));
 
   const renderRows = (defs: WorklistReport[]) =>
     defs.map((r) => {
@@ -189,14 +196,19 @@ export default function FarmReportsScreen() {
         <View style={{ marginTop: spacing.xl }}><SkeletonList count={5} /></View>
       ) : (
         <>
-          <SectionHeader title="Daily Reports" />
-          {renderRows(byType(DAILY_REPORT_TYPES))}
-
-          <SectionHeader title="Program Reports" />
-          {renderRows(byType(PROGRAM_REPORT_TYPES))}
-
-          <SectionHeader title="Lists" />
-          {renderRows(byType(LIST_REPORT_TYPES))}
+          {[
+            { title: 'Daily Reports', types: DAILY_REPORT_TYPES },
+            { title: 'Program Reports', types: PROGRAM_REPORT_TYPES },
+            { title: 'Lists', types: LIST_REPORT_TYPES },
+          ].map(({ title, types }) => {
+            const defs = byType(types);
+            return defs.length === 0 ? null : (
+              <React.Fragment key={title}>
+                <SectionHeader title={title} />
+                {renderRows(defs)}
+              </React.Fragment>
+            );
+          })}
         </>
       )}
     </Screen>

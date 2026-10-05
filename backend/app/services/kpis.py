@@ -153,7 +153,7 @@ BANDS = {
     "cull_rate":             Band(30, 38, False, "≤ 30% of the herd per year"),
     "protocol_on_time_rate": Band(95, 85, True,  "≥ 95% of shots on the scheduled day"),
     "protocol_completion_rate": Band(90, 75, True, "≥ 90% of protocols run to completion"),
-    "heat_check_coverage":   Band(95, 80, True,  "every breeding checked on days 20–25"),
+    "heat_check_coverage":   Band(95, 80, True,  "every breeding checked on days 19–25"),
 }
 
 
@@ -244,7 +244,10 @@ class _Herd:
         self.enrollments = r.enrollments
         self.heat_by_ai: Dict[uuid.UUID, int] = defaultdict(int)
         for h in r.heat_checks:
-            self.heat_by_ai[h.insemination_id] += 1
+            # A heat seen on a cow that wasn't inseminated (Oct 4) checks no
+            # breeding, so it covers none.
+            if h.insemination_id is not None:
+                self.heat_by_ai[h.insemination_id] += 1
 
     # ── state reconstruction ──
 

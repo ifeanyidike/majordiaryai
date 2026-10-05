@@ -306,7 +306,7 @@ async def heat_check_due(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cows inseminated 20-25 days ago — due for heat check."""
+    """Cows inside the heat-check window (status_engine.HEAT_WINDOW, days 19-25)."""
     await _run_transitions_scoped(db, current_user)
     today = local_today()
     # From status_engine.HEAT_WINDOW — re-typing the literals here is exactly

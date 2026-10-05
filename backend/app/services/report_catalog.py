@@ -181,6 +181,18 @@ def _heat(ctx: WorklistContext) -> List[ReportRow]:
     return rows
 
 
+def _not_to_be_bred(cow: Cow) -> bool:
+    """On the Do Not Breed or Do Not Inseminate list (Josh, Oct 2/4).
+
+    Josh named the lists for heats, but a list that says "do not breed" cannot
+    then be handed a breeding job by another report: the Open Cow Report's
+    "choose a needling protocol" ends in a timed insemination, and the
+    Insemination Program's whole job is to breed her. So she gets no breeding
+    work anywhere; she is still on the Open Cow List for reference.
+    """
+    return bool(cow.do_not_breed or cow.do_not_inseminate)
+
+
 def _breeding_today(ctx: WorklistContext, cow: Cow) -> bool:
     """Is she on Today's Breed Report? One answer for every report that asks."""
     heat = ctx.heat_events.get(str(cow.id))
@@ -302,6 +314,8 @@ def _insemination_program(ctx: WorklistContext) -> List[ReportRow]:
             continue
         if _breeding_today(ctx, cow):
             continue  # on Today's Breed Report, which says it more urgently
+        if _not_to_be_bred(cow):
+            continue
         rows.append(ReportRow(
             cow=cow,
             action=("Ready for first breeding — breed her" if not cow.last_insemination_date
@@ -547,6 +561,8 @@ def _open(ctx: WorklistContext) -> List[ReportRow]:
         # Seen in heat today: she is bred, not assessed for a protocol. If she
         # isn't bred today she is back here tomorrow, as if nothing happened.
         if _breeding_today(ctx, cow):
+            continue
+        if _not_to_be_bred(cow):
             continue
         sick = cow.health_status == HealthStatus.sick
         if sick and cow.recheck_due_date and cow.recheck_due_date > ctx.today:

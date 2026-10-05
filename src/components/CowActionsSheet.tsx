@@ -793,7 +793,9 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   const [calvDate, setCalvDate] = useState(todayISO());
   const [calvTime, setCalvTime] = useState(nowTime());
   const [outcome, setOutcome] = useState<'live' | 'still' | null>(null);
-  const [calfSex, setCalfSex] = useState<'female' | 'male' | null>(null);
+  // 'unknown' is an answer (a stillborn calf is not always sexed); null is
+  // "not answered yet", which never saves (Josh, Oct 4).
+  const [calfSex, setCalfSex] = useState<'female' | 'male' | 'unknown' | null>(null);
   const [calfTag, setCalfTag] = useState('');
   const [saleInfo, setSaleInfo] = useState('');
   const [notes, setNotes] = useState('');
@@ -805,7 +807,8 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
     isValidPastOrTodayDate(calvDate) &&
     isValidTime(calvTime) &&
     outcome !== null &&
-    (outcome === 'still' || calfSex !== null);
+    calfSex !== null &&
+    (outcome === 'still' || calfSex !== 'unknown');
 
   const submit = async () => {
     if (!guardApi(toast.error)) return;
@@ -825,7 +828,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
         still_birth: outcome === 'still',
         // A stillborn calf still has a sex worth recording; it is simply not
         // required, since it is not always determined.
-        calf_sex: calfSex,
+        calf_sex: calfSex === 'unknown' ? null : calfSex,
         calf_ear_tag: tagApplies ? calfTag.trim() || null : null,
         calf_sale_info:
           outcome === 'live' && calfSex === 'male' && saleInfo.trim()
@@ -855,25 +858,27 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
         onChange={setOutcome}
         style={styles.fieldGap}
       />
-      <FormLabel>
-        {outcome === 'live' ? 'Calf Sex' : 'Calf Sex (if known)'}
-      </FormLabel>
-      <SegmentedControl
-        options={[
-          { value: 'female', label: 'Female' },
-          { value: 'male', label: 'Male' },
-          // A stillbirth is not always sexed. Without this the control forced
-          // one of two answers, so an undetermined calf was recorded as
-          // whichever option happened to be selected. Live births still
-          // require a real answer (`valid` below).
-          ...(outcome === 'still'
-            ? [{ value: 'unknown' as const, label: 'Not known' }]
-            : []),
-        ]}
-        value={outcome === 'still' && calfSex === null ? 'unknown' : calfSex}
-        onChange={(v) => setCalfSex(v === 'unknown' ? null : (v as 'female' | 'male'))}
-        style={styles.fieldGap}
-      />
+      {outcome !== null && (
+        <>
+          <FormLabel>Calf Sex</FormLabel>
+          <SegmentedControl
+            options={[
+              { value: 'female', label: 'Female' },
+              { value: 'male', label: 'Male' },
+              // A stillbirth is not always sexed. Without this the control forced
+              // one of two answers, so an undetermined calf was recorded as
+              // whichever option happened to be selected. Live births still
+              // require a real answer (`valid` below).
+              ...(outcome === 'still'
+                ? [{ value: 'unknown' as const, label: 'Not known' }]
+                : []),
+            ]}
+            value={calfSex}
+            onChange={(v) => setCalfSex(v)}
+            style={styles.fieldGap}
+          />
+        </>
+      )}
       {outcome === 'live' && (
         <>
           {calfSex === 'female' && (

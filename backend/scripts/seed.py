@@ -546,7 +546,7 @@ async def seed(session: AsyncSession) -> None:
                 # the pre-check window, a working group is due for the vet, and
                 # a few have run past day 50 — which is exactly the overdue
                 # warning the Pregnancy report exists to raise. The heat window
-                # (20–25 days) falls out of the first band on its own.
+                # (19–25 days) falls out of the first band on its own.
                 since_ai = rng.choices(
                     [rng.randint(1, 31), rng.randint(32, 45), rng.randint(46, 60)],
                     weights=[6, 3, 1],
