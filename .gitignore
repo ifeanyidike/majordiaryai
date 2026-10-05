@@ -69,3 +69,6 @@ issues.txt
 
 # Firebase config: supplied to EAS as a secret file variable (GOOGLE_SERVICES_JSON)
 google-services.json
+
+# The client's change notes (lowercase twin of Major*.md above)
+major_diary_*.md
