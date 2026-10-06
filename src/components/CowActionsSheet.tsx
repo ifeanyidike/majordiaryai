@@ -941,10 +941,13 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
  */
 export function HealthForm({ cow, onCancel, onComplete }: FormProps) {
   const toast = useToast();
-  const [value, setValue] = useState<'healthy' | 'sick'>(cow.healthStatus ?? 'healthy');
+  // Decided each time, not carried over from her last check (Josh, Oct 4:
+  // nothing saves until the question is answered).
+  const [value, setValue] = useState<'healthy' | 'sick' | null>(null);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
+    if (value === null) return;
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
@@ -988,6 +991,7 @@ export function HealthForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="pulse"
         onSubmit={submit}
         loading={loading}
+        disabled={value === null}
       />
     </>
   );

@@ -54,8 +54,10 @@ export default function CowEditScreen() {
   const [notes, setNotes] = useState('');
   const [sire, setSire] = useState('');
   const [maternalSire, setMaternalSire] = useState('');
-  const [doNotBreed, setDoNotBreed] = useState(false);
-  const [doNotInseminate, setDoNotInseminate] = useState(false);
+  // Null until answered for a NEW cow: a pre-picked "No" is the default
+  // answer Josh asked to be rid of. Editing shows her record's value.
+  const [doNotBreed, setDoNotBreed] = useState<boolean | null>(null);
+  const [doNotInseminate, setDoNotInseminate] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -90,8 +92,11 @@ export default function CowEditScreen() {
       e.dob = 'Use YYYY-MM-DD, today or earlier';
     }
     if (lactation.trim() && !/^\d+$/.test(lactation.trim())) e.lactation = 'Numbers only';
+    if (doNotBreed === null || doNotInseminate === null) {
+      e.breeding = 'Answer both breeding-list questions';
+    }
     return e;
-  }, [earTag, name, farmId, dob, lactation, isEdit]);
+  }, [earTag, name, farmId, dob, lactation, isEdit, doNotBreed, doNotInseminate]);
 
   const valid = Object.keys(errors).length === 0;
 
@@ -137,8 +142,8 @@ export default function CowEditScreen() {
         notes: notes.trim(),
         sire: sire.trim(),
         maternalSire: maternalSire.trim(),
-        doNotBreed,
-        doNotInseminate,
+        doNotBreed: !!doNotBreed,
+        doNotInseminate: !!doNotInseminate,
       };
       const savedId = await saveCow(input, id);
       toast.success(
@@ -265,6 +270,11 @@ export default function CowEditScreen() {
         <YesNoField label="On the Do Not Breed list?" value={doNotBreed} onChange={setDoNotBreed} />
         <YesNoField label="On the Do Not Inseminate list?" value={doNotInseminate}
                     onChange={setDoNotInseminate} />
+        {err('breeding') ? (
+          <Text variant="caption" color={colors.danger} style={styles.breedingError}>
+            {err('breeding')}
+          </Text>
+        ) : null}
 
         <SectionHeader title="Notes" />
         <FormRow value={notes} onChangeText={setNotes}
@@ -294,6 +304,7 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   hint: { marginBottom: spacing.md },
   segment: { marginBottom: spacing.md },
+  breedingError: { marginTop: -spacing.xs, marginBottom: spacing.md },
   locked: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.sm,

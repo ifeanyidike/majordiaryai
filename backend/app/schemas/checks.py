@@ -18,7 +18,9 @@ class HeatCheckCreate(BaseModel):
     # optional, and a null wrote a check row that recorded neither a yes nor a
     # no — indistinguishable afterwards from "we never looked".
     heat_detected: bool
-    bleeding_event: bool = False
+    # Required, no default (Josh, Oct 4): every report question is answered,
+    # never assumed. Every app build already sends it.
+    bleeding_event: bool
     notes: Optional[str] = None
 
 
@@ -48,8 +50,10 @@ class PregnancyCheckCreate(BaseModel):
     # cow nowhere: she stayed `inseminated`, stayed on the Pregnancy Check
     # report forever, and the record made it look like the vet had been.
     result: PregnancyResult
-    has_infection: bool = False
-    has_cysts: bool = False
+    # Required, no default (Josh, Oct 4): every report question is answered,
+    # never assumed. Every app build already sends it.
+    has_infection: bool
+    has_cysts: bool
     notes: Optional[str] = None
 
 

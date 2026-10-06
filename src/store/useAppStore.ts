@@ -642,7 +642,17 @@ export const useAppStore = create<AppState>((set, get) => ({
           return r.still_birth ? `${sex} — stillborn` : sex;
         }),
       };
-      set((s) => ({ cows: s.cows.map((c) => (c.id === id ? { ...c, history } : c)) }));
+      // "Bull Used" is her CURRENT breeding's bull. The cow record carries no
+      // bull, so the field always read "—" beside an AI history naming one;
+      // the history (newest first) has it.
+      const ais: any[] = h.inseminations ?? [];
+      set((s) => ({
+        cows: s.cows.map((c) => {
+          if (c.id !== id) return c;
+          const current = ais.find((a) => a.id === c.lastInseminationId) ?? ais[0];
+          return { ...c, history, bullUsed: current?.bull_name ?? c.bullUsed };
+        }),
+      }));
     } catch {
       // history stays empty; the profile shows its empty states
     }

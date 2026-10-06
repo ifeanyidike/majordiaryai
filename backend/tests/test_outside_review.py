@@ -81,7 +81,7 @@ async def test_the_real_calving_can_be_recorded_after_the_sweep(db, farm, api, m
     async with api("technician", user_id=tech.id) as client:
         r = await client.post("/calving/", json={
             "cow_id": str(cow.id), "calving_date": real.isoformat(),
-            "live_birth": True, "calf_sex": "female",
+            "live_birth": True, "still_birth": False, "calf_sex": "female",
         })
     assert r.status_code == 201, r.text
 

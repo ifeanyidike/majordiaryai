@@ -481,3 +481,24 @@ async def test_a_listed_cow_is_not_promised_a_report_she_is_kept_off(db, farm, a
     )).scalars().all()
     assert "Do Not Breed" in note.message
     assert "Open Cow Report" not in note.message
+
+
+# ── no report question has a default, at the API either ──────────────
+
+@pytest.mark.parametrize("path,body", [
+    ("/checks/heat", {"heat_detected": True}),                      # blood on tail unanswered
+    ("/checks/pregnancy", {"result": "pregnant", "has_cysts": False}),  # infection unanswered
+    ("/calving/", {"live_birth": True}),                            # still birth unanswered
+])
+async def test_an_unanswered_question_is_refused_not_assumed(db, farm, api, tech, path, body):
+    """The app will not save an unanswered question; the API used to fill in
+    "no" for one that arrived missing, which is the toggle's silent default
+    by another route (Josh, Oct 4)."""
+    cow = await _add(db, _farm_cow(farm))
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post(path, json={
+            "cow_id": str(cow.id), "check_date": TODAY.isoformat(),
+            "calving_date": TODAY.isoformat(),
+            "insemination_id": str(uuid.uuid4()), **body,
+        })
+    assert r.status_code == 422, r.text

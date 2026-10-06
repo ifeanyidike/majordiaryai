@@ -39,7 +39,9 @@ class NeedlingEnrollmentOut(BaseModel):
 
 
 class CompleteRecordBody(BaseModel):
-    bleeding_event: bool = False
+    # Required, no default (Josh, Oct 4): every report question is answered,
+    # never assumed. Every app build already sends it.
+    bleeding_event: bool
     notes: Optional[str] = None
 
 

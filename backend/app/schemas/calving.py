@@ -8,8 +8,10 @@ from app.models.models import CalfSex
 class CalvingCreate(BaseModel):
     cow_id: UUID
     calving_date: date
-    live_birth: bool = True
-    still_birth: bool = False
+    # Required, no default (Josh, Oct 4): every report question is answered,
+    # never assumed. Every app build already sends it.
+    live_birth: bool
+    still_birth: bool
     calf_sex: Optional[CalfSex] = None
     calf_ear_tag: Optional[str] = None
     # For male calves (no herd record) — sale/outcome details

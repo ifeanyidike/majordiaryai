@@ -83,6 +83,7 @@ async def test_who_may_record_a_pregnancy_result(db, api, make_user, role, allow
         resp = await client.post("/checks/pregnancy", json={
             "cow_id": str(cow.id), "insemination_id": str(ai.id),
             "check_date": TODAY.isoformat(), "result": "pregnant",
+            "has_infection": False, "has_cysts": False,
         })
     if allowed:
         assert resp.status_code == 201, resp.text
