@@ -72,3 +72,6 @@ google-services.json
 
 # The client's change notes (lowercase twin of Major*.md above)
 major_diary_*.md
+google-credential.json
+# Herd exports are a farm's real data; the repository is public.
+*.xls

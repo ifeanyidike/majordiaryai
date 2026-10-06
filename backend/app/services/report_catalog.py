@@ -16,9 +16,10 @@ sees at layer 2 can never disagree with the rows he finds at layer 3.
 """
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable, Dict, List, Optional
 
+from app.core.timeutils import to_local_date
 from app.models.models import Cow, CowStatus, HealthStatus
 from app.services.protocols import protocol_label
 # Single source with checks.py and the sweep's pregnancy-check reminder.
@@ -448,6 +449,15 @@ def _post_calving(ctx: WorklistContext) -> List[ReportRow]:
         # 2cc shot was never given silently dropped off every work list on day
         # 51 — the miss disappeared instead of escalating.
         if d is None or d < lo:
+            continue
+        # Only a calving the app could have seen through. A cow added (by hand
+        # or from a DairyComp import) already past day 50 had her window
+        # before the app knew her, and no record of the shot came with her:
+        # listing her as overdue is noise no one can act on -- 161 such cows
+        # on the first real herd import alone. One added inside the window is still
+        # chased, because her shot is genuinely due now.
+        if cow.created_at and cow.last_calving_date and \
+                to_local_date(cow.created_at) > cow.last_calving_date + timedelta(days=hi):
             continue
         done = ctx.post_calving.get(str(cow.id))
         if done and cow.last_calving_date and \
