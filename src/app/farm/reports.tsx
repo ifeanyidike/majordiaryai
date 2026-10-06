@@ -166,7 +166,7 @@ export default function FarmReportsScreen() {
                   ]}
                 />
               </View>
-              <Text variant="bodyBold" color={onDark.text} style={styles.chartCount}>
+              <Text variant="bodyBold" color={onDark.text} style={styles.chartCount} numberOfLines={1}>
                 {b.count}
               </Text>
             </View>
@@ -248,7 +248,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   chartBar: { height: '100%', borderRadius: 5 },
-  chartCount: { width: 24, textAlign: 'right' },
+  // Room for four digits: sized for two, a real herd's "315" wrapped as "31 / 5".
+  chartCount: { minWidth: 44, textAlign: 'right' },
   kpiRow: {
     flexDirection: 'row',
     borderTopWidth: 1,
