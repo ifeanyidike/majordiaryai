@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select
 from sqlalchemy.orm import aliased
 
-from app.core.timeutils import local_today
+from app.core.timeutils import farm_tz, local_today
 from app.models.models import (
     Cow, CowStatus, Farm, HeatCheck, Insemination, NeedlingEnrollment, NeedlingRecord,
     EnrollmentStatus, ProtocolType,
@@ -674,17 +674,18 @@ async def _open_after_unbred_heat(
 
     Josh (Oct 2026): "any cow, it doesn't matter the situation, that's in heat
     that is not inseminated that day, the next day is automatically enrolled
-    to open". So a protocol she was on stops, a heifer leaves the Insemination
-    Program, a fresh cow does not wait for day 70 -- all of them go to the
-    Open Cow Report, where the technician picks her next step.
+    to open". Any cow: a protocol she was on stops, a heifer leaves the
+    Insemination Program, a fresh cow does not wait for day 70 -- including
+    one that was not allowed on Today's Breed Report (under 60 days, under 13
+    months, on a breeding list). A listed cow is Open but still kept off the
+    breeding reports by her list.
 
-    Left alone, because the heat changed nothing for them:
-      * a cow bred that day or since -- the heat was used;
-      * a cow that was never put on Today's Breed Report (under 60 days post
-        calving, under 13 months, on a breeding list): a heat does not make
-        her breedable, so it does not move her either;
-      * a protocol started AFTER the heat -- someone already took the next
-        step, and undoing it would throw their decision away.
+    Only two things leave her as she is:
+      * she was bred that day or since -- the heat was used;
+      * a protocol was started on a LATER day than the heat. The move
+        happens once, the next day; a protocol chosen after it is the next
+        step taken from Open, and cancelling it would repeat every day of
+        this sweep's look-back window.
     """
     stmt = (
         select(HeatCheck, Cow)
@@ -694,7 +695,8 @@ async def _open_after_unbred_heat(
                 HeatCheck.bleeding_event == True),  # noqa: E712
             HeatCheck.check_date < today,
             HeatCheck.check_date >= today - timedelta(days=UNBRED_HEAT_LOOKBACK_DAYS),
-            Cow.status.in_((CowStatus.needling, CowStatus.fresh, CowStatus.open)),
+            Cow.status.in_((CowStatus.needling, CowStatus.fresh, CowStatus.open,
+                            CowStatus.heifer)),
         )
         .order_by(HeatCheck.check_date.desc(), HeatCheck.created_at.desc())
     )
@@ -717,18 +719,18 @@ async def _open_after_unbred_heat(
             continue
         if cow.status == CowStatus.open and cow.current_program is None:
             continue  # already Open
-        if breeding_exclusion(cow, check.check_date) is not None:
-            continue
         if cow.status == CowStatus.needling:
-            started_after = await db.scalar(
+            day_after = datetime.combine(check.check_date + timedelta(days=1), time.min,
+                                         tzinfo=farm_tz())
+            started_later = await db.scalar(
                 select(NeedlingEnrollment.id).where(
                     NeedlingEnrollment.cow_id == cow.id,
                     NeedlingEnrollment.status.in_(
                         [EnrollmentStatus.active, EnrollmentStatus.completed_pending_ai]),
-                    NeedlingEnrollment.created_at > check.created_at,
+                    NeedlingEnrollment.created_at >= day_after,
                 ).limit(1)
             )
-            if started_after:
+            if started_later:
                 continue
         await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
         cow.status = CowStatus.open

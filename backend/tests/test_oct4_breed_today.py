@@ -338,28 +338,52 @@ async def test_a_cow_bred_on_her_heat_stays_bred(db, farm):
     assert cow.status == CowStatus.inseminated
 
 
-async def test_a_heat_on_a_cow_too_soon_after_calving_moves_nothing(db, farm):
-    """Under 60 days post calving she was never put on Today's Breed Report;
-    the heat does not make her breedable, so it does not move her either."""
-    cow = await _add(db, _farm_cow(farm, status=CowStatus.fresh,
-                                   last_calving_date=TODAY - timedelta(days=30)))
+@pytest.mark.parametrize("fields", [
+    # Not allowed on Today's Breed Report -- but Josh: "any cow, it doesn't
+    # matter the situation". Open the next day all the same.
+    {"status": CowStatus.fresh, "last_calving_date": TODAY - timedelta(days=30)},
+    {"status": CowStatus.heifer, "lactation_number": 0, "last_calving_date": None,
+     "date_of_birth": TODAY - timedelta(days=300)},
+    {"status": CowStatus.fresh, "last_calving_date": TODAY - timedelta(days=90),
+     "do_not_breed": True},
+])
+async def test_even_a_cow_not_allowed_to_be_bred_is_open_next_day(db, farm, fields):
+    cow = await _add(db, _farm_cow(farm, **fields))
     db.add(_heat_on(cow, YESTERDAY))
     await db.flush()
 
     await _next_day_sweep(db, farm)
 
-    assert cow.status == CowStatus.fresh
+    assert cow.status == CowStatus.open
+    assert cow.current_program is None
 
 
-async def test_a_protocol_chosen_after_the_heat_is_not_undone(db, farm, make_cow):
-    """Someone already took her next step after the heat. Cancelling it would
-    throw their decision away."""
+async def test_a_protocol_chosen_the_same_day_after_the_heat_is_reset(db, farm, make_cow):
+    """Not inseminated that day is the whole test -- choosing a protocol
+    instead does not change it."""
     from datetime import timezone
 
     cow = await make_cow(steps=[(1, 0, "2cc GnRH", False, False)],
                          last_calving_date=TODAY - timedelta(days=100))
     cow.enrollment.created_at = datetime.combine(YESTERDAY, time(15), tzinfo=timezone.utc)
     db.add(_heat_on(cow, YESTERDAY, at=datetime.combine(YESTERDAY, time(8), tzinfo=timezone.utc)))
+    await db.flush()
+
+    await _next_day_sweep(db, farm)
+
+    assert cow.status == CowStatus.open
+
+
+async def test_a_protocol_chosen_after_she_went_open_is_not_undone(db, farm, make_cow):
+    """The move happens once. A protocol picked from the Open Cow Report the
+    day after is her next step -- cancelling it would repeat every day."""
+    from datetime import timezone
+
+    two_days_ago = TODAY - timedelta(days=2)
+    cow = await make_cow(steps=[(1, 0, "2cc GnRH", False, False)],
+                         last_calving_date=TODAY - timedelta(days=100))
+    cow.enrollment.created_at = datetime.combine(YESTERDAY, time(15), tzinfo=timezone.utc)
+    db.add(_heat_on(cow, two_days_ago))
     await db.flush()
 
     await _next_day_sweep(db, farm)

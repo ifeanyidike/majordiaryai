@@ -531,7 +531,9 @@ interface HeatResult {
 /** What happened to her, in the words the technician needs next. */
 function heatOutcome(cow: RecordTarget, result: HeatResult, checkDate: string): string {
   if (result.on_breed_report) return `${cow.label} is on Today's Breed Report — breed her today`;
-  if (result.not_bred_because) return `Heat recorded — ${cow.label} is not to be bred: ${result.not_bred_because}`;
+  if (result.not_bred_because) {
+    return `Heat recorded — ${cow.label} is not to be bred (${result.not_bred_because}). She goes to Open tomorrow.`;
+  }
   if (checkDate !== todayISO()) return 'Heat recorded — too late for Today\'s Breed Report';
   return 'Heat recorded';
 }
