@@ -84,8 +84,7 @@ async def run(args) -> None:
     if export_date is None:
         sys.exit("Could not work out the export date from the file; pass --export-date YYYY-MM-DD")
     today = local_today()
-    oldest = args.oldest_uncalved_months * 30 if args.oldest_uncalved_months else None
-    plan = dairycomp.plan_rows(rows, export_date, today, oldest_uncalved_days=oldest)
+    plan = dairycomp.plan_rows(rows, export_date, today)
 
     port = 5432 if settings.db_port == 6543 else settings.db_port
     engine = create_async_engine(
@@ -141,9 +140,9 @@ async def _import(db: AsyncSession, args, plan, export_date: date, today: date) 
     if args.held_out_csv:
         with open(args.held_out_csv, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["row", "ID", "age_months", "reason"])
+            w.writerow(["row", "ID", "reason"])
             for h in plan.skipped:
-                w.writerow([h.row, h.ear_tag, h.age_months or "", h.reason])
+                w.writerow([h.row, h.ear_tag, h.reason])
         print(f"Held-out animals listed in {args.held_out_csv}")
 
     if args.apply:
@@ -195,9 +194,7 @@ def _print_plan(plan: dairycomp.Plan, added, already) -> None:
         print(f"  already on farm:   {len(already)} (left as they are)")
     print(f"  held out:          {len(plan.skipped)}")
     for reason, n in Counter(h.reason for h in plan.skipped).most_common():
-        ages = [h.age_months for h in plan.skipped if h.reason == reason and h.age_months]
-        span = f" (aged {min(ages)}–{max(ages)} months)" if ages else ""
-        print(f"      {n:>4} × {reason}{span}")
+        print(f"      {n:>4} × {reason}")
     print(f"  could not read:    {len(plan.problems)}")
     for row, tag, why in plan.problems:
         print(f"      row {row} (ID {tag}): {why}")
@@ -221,8 +218,6 @@ def main() -> None:
                     help="with --apply: create the farm if no farm has that name")
     ap.add_argument("--owner-name")
     ap.add_argument("--export-date", help="YYYY-MM-DD (default: read from the file)")
-    ap.add_argument("--oldest-uncalved-months", type=int, default=30,
-                    help="hold out never-calved animals older than this (0 = keep all)")
     ap.add_argument("--held-out-csv", help="write the held-out animals' IDs to this file")
     ap.add_argument("--apply", action="store_true", help="write (default is a dry run)")
     args = ap.parse_args()

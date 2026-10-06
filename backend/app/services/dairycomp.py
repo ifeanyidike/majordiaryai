@@ -44,12 +44,6 @@ from app.services.status_engine import (
 DC_GESTATION_DAYS = 280
 DC_DRY50_LEAD_DAYS = 50
 
-# A dairy heifer calves at about two years old. One listed as never calved at
-# well past that is almost always an animal that left the herd and was never
-# removed in DairyComp (the first real export: 176 "heifers" aged 3-8). They
-# are held out for the farm to confirm rather than put on the breeding list.
-OLDEST_UNCALVED_DAYS = 30 * 30  # ~30 months
-
 # Statuses whose cow is carrying a breeding: she gets an insemination record.
 _BRED = ("BRED", "PREG", "DRY")
 # Calved, not carrying: fresh until day 70 (on a breeding day), then open.
@@ -103,7 +97,6 @@ class Held:
     row: int
     ear_tag: str
     reason: str
-    age_months: Optional[int] = None
 
 
 @dataclass
@@ -193,8 +186,7 @@ def derive_export_date(rows: List[Dict]) -> Optional[date]:
 
 # ── the mapping ──────────────────────────────────────────────────────
 
-def plan_rows(rows: List[Dict], export_date: date, today: date,
-              oldest_uncalved_days: Optional[int] = OLDEST_UNCALVED_DAYS) -> Plan:
+def plan_rows(rows: List[Dict], export_date: date, today: date) -> Plan:
     """Every row of the export, mapped to how the app will hold her.
 
     `export_date` dates the counts; `today` decides the status, because the
@@ -217,18 +209,7 @@ def plan_rows(rows: List[Dict], export_date: date, today: date,
                 plan.skipped.append(Held(row_no, tag, "bull calf — the app keeps records "
                                                       "for heifers and cows only"))
                 continue
-            cow = _plan_cow(row_no, tag, dc, r, sire_of, export_date, today)
-            if (oldest_uncalved_days is not None and cow.lactation_number == 0
-                    and cow.status in (CowStatus.heifer, CowStatus.open)
-                    and cow.date_of_birth
-                    and (today - cow.date_of_birth).days > oldest_uncalved_days):
-                plan.skipped.append(Held(
-                    row_no, tag, "never calved, yet well past calving age — "
-                                 "confirm she is still on the farm",
-                    age_months=(today - cow.date_of_birth).days // 30,
-                ))
-                continue
-            plan.cows.append(cow)
+            plan.cows.append(_plan_cow(row_no, tag, dc, r, sire_of, export_date, today))
         except RowProblem as e:
             plan.problems.append((row_no, tag or None, str(e)))
     return plan
@@ -277,7 +258,9 @@ def _plan_cow(row_no: int, tag: str, dc: str, r: Dict, sire_of: Dict[str, Option
     elif dc == "HEIFER" or (lact == 0 and dc in _CALVED_OPEN + ("DNB",)):
         # A heifer is "NO BRED" or "OK/OPEN" to DairyComp when she has never
         # been bred, or was bred and did not take -- an unbred heifer either
-        # way, so her age decides what she is here.
+        # way, so her age decides what she is here. Josh: "heifer means they
+        # haven't given birth", irrespective of age -- so one that is years
+        # old is still a heifer, and on the breeding list like the rest.
         if not dob:
             raise RowProblem("heifer with no birth date — cannot tell calf from heifer")
         age = (today - dob).days

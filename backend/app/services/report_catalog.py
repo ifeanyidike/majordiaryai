@@ -216,15 +216,15 @@ def _breed_today(ctx: WorklistContext) -> List[ReportRow]:
 
     Who is left off (breeding_exclusion): under 60 days post calving, Do Not
     Breed, Do Not Inseminate, Cull, under 13 months. She leaves when she is
-    inseminated; if she is not, she is simply gone tomorrow, back to whatever
-    she was doing, "assume nothing happened" -- which is why the report reads
-    today's heat records rather than anything stored on the cow.
+    inseminated. If she is not, she is gone tomorrow, and the sweep makes her
+    Open whatever she was doing (status_engine._open_after_unbred_heat) --
+    the report itself reads only today's heat records.
     """
     return [
         ReportRow(
             cow=cow,
             action="Seen in heat today — inseminate her today",
-            detail="Heat detected today · drops off tomorrow if not bred",
+            detail="Heat detected today · Open tomorrow if not bred",
             record_kind="insemination",
         )
         for cow in ctx.cows if _breeding_today(ctx, cow)
@@ -582,7 +582,7 @@ def _open(ctx: WorklistContext) -> List[ReportRow]:
         if cow.current_program == "Insemination":
             continue
         # Seen in heat today: she is bred, not assessed for a protocol. If she
-        # isn't bred today she is back here tomorrow, as if nothing happened.
+        # isn't bred today she is Open tomorrow, and here.
         if _breeding_today(ctx, cow):
             continue
         if _not_to_be_bred(cow):

@@ -190,7 +190,12 @@ export default function HerdScreen() {
             <ListRow
               icon="analytics-outline"
               title={cow.label}
-              subtitle={`${cow.breed} · Lact ${cow.lactationNumber} · ${cow.daysInMilk} DIM`}
+              // Blank parts are left out: a herd from DairyComp often has no
+              // breed, and days in milk means nothing on a heifer.
+              subtitle={[
+                cow.breed, `Lact ${cow.lactationNumber}`,
+                cow.isMilking ? `${cow.daysInMilk} DIM` : null,
+              ].filter(Boolean).join(' · ')}
               badge={<StatusPill kind={cow.status} />}
               onPress={() => router.push({ pathname: '/cow/[id]', params: { id: cow.id } })}
             />

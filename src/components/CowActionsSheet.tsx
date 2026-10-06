@@ -612,7 +612,8 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
       {(heatDetected || bloodOnTail) && (
         <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
           {bloodOnTail && !heatDetected ? 'Blood on the tail means she was in heat. ' : ''}
-          She goes straight onto Today's Breed Report — breed her today.
+          She goes straight onto Today's Breed Report — breed her today, or she goes to the
+          Open Cow Report tomorrow.
         </Text>
       )}
       <FormLabel>Notes</FormLabel>
@@ -671,7 +672,7 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
       <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.md }}>
         Seen today, she goes onto Today's Breed Report and is bred today — unless she is under
         60 days post calving, under 13 months, a cull, or on the Do Not Breed or Do Not
-        Inseminate list.
+        Inseminate list. Not bred today, she goes to the Open Cow Report tomorrow.
         {cow.status === 'pregnant' || cow.status === 'dry'
           ? ' A heat means she is not pregnant: her due and dry dates are cleared.'
           : ''}

@@ -83,9 +83,10 @@ async def _heat_events_by_cow(db: AsyncSession, current_user: dict, today: date,
                               farm_id: Optional[UUID]) -> dict:
     """Heats seen TODAY, per cow -- the raw material of Today's Breed Report.
 
-    Today only, by design (Josh, Oct 4): a cow not inseminated by the next day
-    "is removed from Today's Breed Report with no consequence ... assume
-    nothing happened". A heat backdated to yesterday is history, not work.
+    Today only, by design (Josh, Oct 4): a cow is bred the day she shows, and
+    one not inseminated that day leaves the report -- the next day's sweep
+    makes her Open (status_engine._open_after_unbred_heat). A heat backdated
+    to yesterday is history, not work.
     Blood on the tail counts as a heat, except the early spotting right after
     a breeding (status_engine.is_metestrous_bleeding), which is not one.
     Exclusions (Do Not Breed, under 60 days in milk, ...) are applied by the

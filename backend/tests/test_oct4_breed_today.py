@@ -241,11 +241,11 @@ async def test_a_heat_on_a_do_not_breed_cow_is_recorded_but_she_is_not_bred(
     assert str(cow.id) not in _ids(f, "breed-today")
 
 
-async def test_a_heat_nobody_acted_on_does_not_wreck_her_protocol(db, farm, api, tech, make_cow):
-    """"Assume nothing happened": a cow mid-protocol who shows heat and isn't
-    bred carries on with the protocol she was on. Parking her anywhere --
-    open, a program -- would have to be undone by something, and nothing
-    would."""
+async def test_a_cow_in_heat_on_a_protocol_keeps_it_only_for_the_day(
+    db, farm, api, tech, make_cow,
+):
+    """The day of the heat she is on Today's Breed Report and her protocol is
+    untouched -- whether she is bred is only known at the end of the day."""
     cow = await make_cow(steps=[(7, 0, "2cc PGF", False, False),
                                 (10, 3, "2cc GnRH + Insemination", True, False)],
                          last_calving_date=TODAY - timedelta(days=100))
@@ -257,8 +257,114 @@ async def test_a_heat_nobody_acted_on_does_not_wreck_her_protocol(db, farm, api,
 
     assert cow.status == CowStatus.needling
     assert str(cow.id) in _ids(f, "breed-today")
-    # Her protocol work is still there for whoever doesn't breed her.
-    assert str(cow.id) in _ids(f, "needling")
+
+
+# ── not bred that day: Open the next day, whatever she was doing ──────
+
+YESTERDAY = TODAY - timedelta(days=1)
+
+
+def _heat_on(cow, day, at=None):
+    from datetime import timezone
+    return HeatCheck(id=uuid.uuid4(), cow_id=cow.id, check_date=day,
+                     heat_detected=True, bleeding_event=False,
+                     created_at=at or datetime.combine(day, time(8), tzinfo=timezone.utc))
+
+
+async def _next_day_sweep(db, farm):
+    from app.services import status_engine
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+
+
+async def test_a_cow_on_a_protocol_not_bred_on_her_heat_is_open_next_day(
+    db, farm, api, tech, make_cow,
+):
+    """Josh: "any cow, it doesn't matter the situation, that's in heat that
+    is not inseminated that day, the next day is automatically enrolled to
+    open". Her protocol stops; the Open Cow Report picks her next step."""
+    from app.models.models import NeedlingEnrollment
+
+    from datetime import timezone
+
+    cow = await make_cow(steps=[(7, 0, "2cc PGF", False, False),
+                                (10, 3, "2cc GnRH + Insemination", True, False)],
+                         last_calving_date=TODAY - timedelta(days=100))
+    # Enrolled on day 1, nine days ago -- well before the heat.
+    cow.enrollment.created_at = datetime.combine(TODAY - timedelta(days=9), time(9),
+                                                 tzinfo=timezone.utc)
+    db.add(_heat_on(cow, YESTERDAY))
+    await db.flush()
+
+    await _next_day_sweep(db, farm)
+
+    assert cow.status == CowStatus.open and cow.current_program is None
+    enr = await db.get(NeedlingEnrollment, cow.enrollment.id)
+    assert enr.status.value == "cancelled"
+    async with api("technician", user_id=tech.id) as client:
+        f = await _worklist(client, farm)
+    assert str(cow.id) in _ids(f, "open-report")
+    assert str(cow.id) not in _ids(f, "needling")
+    notes = (await db.execute(select(Notification).where(
+        Notification.cow_id == cow.id, Notification.type == "open"))).scalars().all()
+    assert len(notes) == 1 and "Open again" in notes[0].message
+
+
+@pytest.mark.parametrize("fields", [
+    # Fresh past 60 days: she does not wait for day 70.
+    {"status": CowStatus.fresh, "last_calving_date": TODAY - timedelta(days=65)},
+    # A heifer in the Insemination Program moves to the Open Cow Report.
+    {"status": CowStatus.open, "current_program": "Insemination", "lactation_number": 0,
+     "last_calving_date": None, "date_of_birth": TODAY - timedelta(days=460)},
+])
+async def test_any_cow_not_bred_on_her_heat_is_open_next_day(db, farm, fields):
+    cow = await _add(db, _farm_cow(farm, **fields))
+    db.add(_heat_on(cow, YESTERDAY))
+    await db.flush()
+
+    await _next_day_sweep(db, farm)
+
+    assert cow.status == CowStatus.open
+    assert cow.current_program is None
+
+
+async def test_a_cow_bred_on_her_heat_stays_bred(db, farm):
+    cow = await _add(db, _farm_cow(farm, status=CowStatus.inseminated,
+                                   last_insemination_date=YESTERDAY))
+    db.add(_heat_on(cow, YESTERDAY))
+    await db.flush()
+
+    await _next_day_sweep(db, farm)
+
+    assert cow.status == CowStatus.inseminated
+
+
+async def test_a_heat_on_a_cow_too_soon_after_calving_moves_nothing(db, farm):
+    """Under 60 days post calving she was never put on Today's Breed Report;
+    the heat does not make her breedable, so it does not move her either."""
+    cow = await _add(db, _farm_cow(farm, status=CowStatus.fresh,
+                                   last_calving_date=TODAY - timedelta(days=30)))
+    db.add(_heat_on(cow, YESTERDAY))
+    await db.flush()
+
+    await _next_day_sweep(db, farm)
+
+    assert cow.status == CowStatus.fresh
+
+
+async def test_a_protocol_chosen_after_the_heat_is_not_undone(db, farm, make_cow):
+    """Someone already took her next step after the heat. Cancelling it would
+    throw their decision away."""
+    from datetime import timezone
+
+    cow = await make_cow(steps=[(1, 0, "2cc GnRH", False, False)],
+                         last_calving_date=TODAY - timedelta(days=100))
+    cow.enrollment.created_at = datetime.combine(YESTERDAY, time(15), tzinfo=timezone.utc)
+    db.add(_heat_on(cow, YESTERDAY, at=datetime.combine(YESTERDAY, time(8), tzinfo=timezone.utc)))
+    await db.flush()
+
+    await _next_day_sweep(db, farm)
+
+    assert cow.status == CowStatus.needling
 
 
 async def test_only_todays_heats_reach_the_report(db, farm, api, tech):

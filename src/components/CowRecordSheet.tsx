@@ -158,7 +158,7 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
               cow.treatment
                 ? `Final protocol day — give ${cow.treatment} with this insemination. Both are recorded together.`
                 : reportType === 'breed-today'
-                  ? 'Seen in heat today. If she is not bred today she drops off this report tomorrow.'
+                  ? "Seen in heat today. If she isn't bred today, she goes to the Open Cow Report tomorrow."
                   : undefined
             }
           />

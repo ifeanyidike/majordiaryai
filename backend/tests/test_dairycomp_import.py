@@ -153,20 +153,14 @@ def test_bull_calves_are_held_out():
     assert "bull calf" in plan.skipped[0].reason
 
 
-def test_an_animal_that_never_calved_and_is_years_old_is_held_out_for_the_farm():
-    """A dairy heifer calves at about two. One listed at six years old and
-    never calved is almost always an animal that left and was never removed;
-    putting her on the breeding list would send the technician after a cow
-    that is not there."""
-    plan = plan_rows([row(ID=3118.0, RPRO="HEIFER", BDAT=dmy(date(2020, 6, 18)))],
-                     EXPORT, TODAY)
-    assert not plan.cows
-    assert plan.skipped[0].age_months >= 70
-    assert "confirm she is still on the farm" in plan.skipped[0].reason
-    # ...unless whoever runs the import says keep them all.
-    kept = plan_rows([row(ID=3118.0, RPRO="HEIFER", BDAT=dmy(date(2020, 6, 18)))],
-                     EXPORT, TODAY, oldest_uncalved_days=None)
-    assert len(kept.cows) == 1
+def test_a_heifer_is_a_heifer_at_any_age():
+    """Josh: "heifer means they haven't given birth", irrespective of age. A
+    six-year-old that never calved is on the breeding list like any heifer
+    past 13 months."""
+    cow = one(row(ID=3118.0, RPRO="HEIFER", BDAT=dmy(date(2020, 6, 18))))
+    assert cow.status == CowStatus.open
+    assert cow.current_program == "Insemination"
+    assert cow.lactation_number == 0
 
 
 def test_a_repeated_id_is_reported_not_imported_twice():

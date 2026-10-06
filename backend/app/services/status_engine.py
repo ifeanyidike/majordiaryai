@@ -5,6 +5,7 @@ Rules (from planning docs):
   insemination recorded   → status = inseminated
   heat seen (any time)    → on Today's Breed Report that day unless excluded
                             (breeding_exclusion); an inseminated cow goes open
+  heat, not bred that day → open the next day, whatever she was doing
   heat check at day 19-25 → if no heat, stays inseminated
   pregnancy check +ve     → status = pregnant, compute dry_date (day 223) & due_date (day 283)
   pregnancy check -ve     → status = open (protocol selection via Open report)
@@ -25,12 +26,12 @@ from typing import Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import aliased
 
 from app.core.timeutils import local_today
 from app.models.models import (
-    Cow, CowStatus, Farm, Insemination, NeedlingEnrollment, NeedlingRecord,
+    Cow, CowStatus, Farm, HeatCheck, Insemination, NeedlingEnrollment, NeedlingRecord,
     EnrollmentStatus, ProtocolType,
 )
 from app.services.notifications import create_notification
@@ -341,14 +342,12 @@ async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Opt
     """A heat was seen (incl. blood on tail). Returns why she is not to be
     bred, or None when she goes on Today's Breed Report.
 
-    Josh, Oct 4: she goes on Today's Breed Report at once; if she is not
-    inseminated by the next day she drops off "with no consequence ... assume
-    nothing happened". So the report is derived from the heat record and
-    nothing about her is parked here -- no status, no program -- for a sweep to
-    undo. The one exception is a cow that was carrying a breeding
-    (inseminated, pregnant, dry): a heat means it failed, so she is open again
-    whatever happens next, and the pregnancy-cycle dates belong to the cycle
-    that just ended.
+    Josh, Oct 4: she goes on Today's Breed Report at once. Whether she is bred
+    is only known at the end of the day, so nothing about her is changed here
+    except for a cow that was carrying a breeding (inseminated, pregnant,
+    dry): a heat means it failed, so she is open again whatever happens next,
+    and the pregnancy-cycle dates belong to the cycle that just ended. Not bred
+    that day, the next day's sweep makes her Open (_open_after_unbred_heat).
     """
     was_inseminated = cow.status in _CARRYING_STATUSES
     if was_inseminated:
@@ -364,7 +363,7 @@ async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Opt
         create_notification(
             db, cow.farm_id, cow.id, "breeding_due",
             f"{cow.label} was seen in heat — she is on Today's Breed Report "
-            "and must be bred today.",
+            "and must be bred today. If she isn't, she goes to Open tomorrow.",
         )
     elif reason is None and was_inseminated:
         # Written up after the day: the heat is already gone, so there is no
@@ -652,12 +651,94 @@ async def run_lifecycle_transitions(
             )
             changed += 1
 
+    changed += await _open_after_unbred_heat(db, farm_ids, today)
     changed += await _expire_stale_enrollments(db, farm_ids, today)
     changed += await _remind_pregnancy_checks(db, farm_ids, today)
     changed += await _announce_self_injections(db, farm_ids, today)
 
     if changed:
         await db.commit()
+    return changed
+
+
+# How far back the sweep looks for a heat nobody bred. It runs whenever reports
+# load, so in practice it acts the next morning; the window only covers days
+# nobody opened the app, and keeps the query off the whole heat history.
+UNBRED_HEAT_LOOKBACK_DAYS = 14
+
+
+async def _open_after_unbred_heat(
+    db: AsyncSession, farm_ids: Optional[Iterable[uuid.UUID]], today: date,
+) -> int:
+    """A cow seen in heat and not inseminated that day is Open the next day.
+
+    Josh (Oct 2026): "any cow, it doesn't matter the situation, that's in heat
+    that is not inseminated that day, the next day is automatically enrolled
+    to open". So a protocol she was on stops, a heifer leaves the Insemination
+    Program, a fresh cow does not wait for day 70 -- all of them go to the
+    Open Cow Report, where the technician picks her next step.
+
+    Left alone, because the heat changed nothing for them:
+      * a cow bred that day or since -- the heat was used;
+      * a cow that was never put on Today's Breed Report (under 60 days post
+        calving, under 13 months, on a breeding list): a heat does not make
+        her breedable, so it does not move her either;
+      * a protocol started AFTER the heat -- someone already took the next
+        step, and undoing it would throw their decision away.
+    """
+    stmt = (
+        select(HeatCheck, Cow)
+        .join(Cow, Cow.id == HeatCheck.cow_id)
+        .where(
+            or_(HeatCheck.heat_detected == True,  # noqa: E712
+                HeatCheck.bleeding_event == True),  # noqa: E712
+            HeatCheck.check_date < today,
+            HeatCheck.check_date >= today - timedelta(days=UNBRED_HEAT_LOOKBACK_DAYS),
+            Cow.status.in_((CowStatus.needling, CowStatus.fresh, CowStatus.open)),
+        )
+        .order_by(HeatCheck.check_date.desc(), HeatCheck.created_at.desc())
+    )
+    if farm_ids is not None:
+        farm_ids = list(farm_ids)
+        if not farm_ids:
+            return 0
+        stmt = stmt.where(Cow.farm_id.in_(farm_ids))
+
+    changed = 0
+    done: set = set()
+    for check, cow in (await db.execute(stmt)).all():
+        if cow.id in done:
+            continue
+        done.add(cow.id)  # her latest heat decides
+        if not check.heat_detected and check.days_since_insemination is not None \
+                and is_metestrous_bleeding(check.days_since_insemination):
+            continue  # spotting after a breeding is not a heat
+        if cow.last_insemination_date and cow.last_insemination_date >= check.check_date:
+            continue
+        if cow.status == CowStatus.open and cow.current_program is None:
+            continue  # already Open
+        if breeding_exclusion(cow, check.check_date) is not None:
+            continue
+        if cow.status == CowStatus.needling:
+            started_after = await db.scalar(
+                select(NeedlingEnrollment.id).where(
+                    NeedlingEnrollment.cow_id == cow.id,
+                    NeedlingEnrollment.status.in_(
+                        [EnrollmentStatus.active, EnrollmentStatus.completed_pending_ai]),
+                    NeedlingEnrollment.created_at > check.created_at,
+                ).limit(1)
+            )
+            if started_after:
+                continue
+        await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
+        cow.status = CowStatus.open
+        cow.current_program = None
+        create_notification(
+            db, cow.farm_id, cow.id, "open",
+            open_message(cow, f"was seen in heat on {check.check_date} and not "
+                              "inseminated, so she is Open again"),
+        )
+        changed += 1
     return changed
 
 
