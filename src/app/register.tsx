@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
   },
   brand: { alignItems: 'center' },
-  logoImage: { width: 220, height: 100 },
+  logoImage: { width: 180, height: 100 },
   form: {
     backgroundColor: 'rgba(29,27,26,0.55)',
     borderRadius: radius.xl,

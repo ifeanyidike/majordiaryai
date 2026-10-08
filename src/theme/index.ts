@@ -1,7 +1,7 @@
 import { ViewStyle } from 'react-native';
 
-export { colors, red, charcoal, cream, status, statusFallback, onDark, alpha } from './colors';
-export type { StatusKey } from './colors';
+export { colors, red, charcoal, cream, status, statusFallback, onDark, alpha, tileTone } from './colors';
+export type { StatusKey, TileTone } from './colors';
 export { typography } from './typography';
 export { duration, stagger, staggerFor, useMotion, useReduceMotion } from './motion';
 export type { TextVariant } from './typography';

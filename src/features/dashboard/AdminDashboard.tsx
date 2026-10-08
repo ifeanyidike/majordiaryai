@@ -11,7 +11,7 @@ import {
   Text,
   FocusedStatusBar,
 } from '@/components';
-import { colors, gradients, onDark, radius, shadows, spacing, status } from '@/theme';
+import { colors, gradients, onDark, radius, shadows, spacing, status, tileTone, TileTone } from '@/theme';
 import { summarize, useAppStore } from '@/store/useAppStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -30,20 +30,22 @@ export function AdminDashboard() {
 
   useEffect(() => { fetchKpis(); }, []);
 
-  const mainActions: { label: string; caption: string; icon: IconName; onPress: () => void }[] = [
-    { label: 'Farms CRM', caption: `${farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
+  const mainActions: {
+    label: string; caption: string; icon: IconName; tone: TileTone; onPress: () => void;
+  }[] = [
+    { label: 'Farms CRM', tone: tileTone.farms, caption: `${farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
     // No Reports card, as on the technician's home: reports belong to a farm
     // (client correction), so the honest route is Farms CRM -> farm -> Reports.
     // Cow Search stays — for the admin it is the only lookup across all farms.
-    { label: 'Cow Search', caption: `${summary.total} cows`, icon: 'search', onPress: () => router.push('/cow-search') },
-    { label: 'Veterinarians', caption: `${vets.length} partners`, icon: 'medkit', onPress: () => router.push('/vets') },
+    { label: 'Cow Search', tone: tileTone.cowSearch, caption: `${summary.total} cows`, icon: 'search', onPress: () => router.push('/cow-search') },
+    { label: 'Veterinarians', tone: tileTone.vets, caption: `${vets.length} partners`, icon: 'medkit', onPress: () => router.push('/vets') },
     // Roles and farm assignment live here — it is the only way to make a Farm
     // Manager, so it belongs on the admin's front screen, not buried.
-    { label: 'People', caption: 'Roles & access', icon: 'people', onPress: () => router.push('/users') },
+    { label: 'People', tone: tileTone.people, caption: 'Roles & access', icon: 'people', onPress: () => router.push('/users') },
     // Office Alerts are the administrator's channel to a technician. Opening
     // the feed shows what has been sent (route changes arrive there on their
     // own); the pen in its header writes a new one.
-    { label: 'Office Alerts', caption: 'To technicians', icon: 'briefcase', onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }) },
+    { label: 'Office Alerts', tone: tileTone.officeAlerts, caption: 'To technicians', icon: 'briefcase', onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }) },
   ];
 
   const kpiRow = [
@@ -77,6 +79,7 @@ export function AdminDashboard() {
             <ActionCard
               key={a.label}
               icon={a.icon}
+              tone={a.tone}
               label={a.label}
               sublabel={a.caption}
               onPress={a.onPress}

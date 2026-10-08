@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
   },
   brand: { alignItems: 'center', gap: spacing.md },
-  logoImage: { width: 280, height: 129 },
+  logoImage: { width: 230, height: 127 },
   taglineRule: {
     width: 44,
     height: 3,

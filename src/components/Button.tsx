@@ -78,7 +78,17 @@ export function Button({
       ) : (
         <>
           {icon ? <Ionicons name={icon} size={compact ? 18 : 22} color={v.text} /> : null}
-          <Text variant={compact ? 'bodyBold' : 'subheading'} color={v.text}>
+          {/* One line, shrinking a little if it must: three compact buttons
+              in a row broke "Directions" as "Direction / s" on Android, where
+              the system font is often set larger. */}
+          <Text
+            variant={compact ? 'bodyBold' : 'subheading'}
+            color={v.text}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            style={styles.label}
+          >
             {label}
           </Text>
         </>
@@ -88,6 +98,7 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
+  label: { flexShrink: 1 },
   base: {
     height: touch.buttonHeight,
     borderRadius: radius.md,

@@ -8,6 +8,7 @@ import {
   ErrorBanner,
   Header,
   ListRow,
+  PressableScale,
   Screen,
   Text,
   SkeletonList,
@@ -85,32 +86,29 @@ export default function FarmTodoScreen() {
         </View>
       ) : null}
 
-      {/* Quick farm actions while on site */}
+      {/* Quick farm actions while on site. Icon above the label, as on the
+          farm page: beside it, a third of a phone's width could not hold
+          "Directions" -- it broke as "Direction / s" on Android. */}
       <View style={styles.actionRow}>
-        <Button
-          compact
-          variant="secondary"
-          label="Directions"
-          icon="navigate"
-          onPress={() => openDirections(address)}
-          style={styles.flex1}
-        />
-        <Button
-          compact
-          variant="secondary"
-          label="Call Farm"
-          icon="call"
-          onPress={() => dial(farm.phone)}
-          style={styles.flex1}
-        />
-        <Button
-          compact
-          variant="secondary"
-          label="Herd"
-          icon="list"
-          onPress={() => router.push({ pathname: '/farm/herd', params: { id: farm.farmId } })}
-          style={styles.flex1}
-        />
+        {[
+          { label: 'Directions', icon: 'navigate' as const, onPress: () => openDirections(address) },
+          { label: 'Call Farm', icon: 'call' as const, onPress: () => dial(farm.phone) },
+          {
+            label: 'Herd', icon: 'list' as const,
+            onPress: () => router.push({ pathname: '/farm/herd', params: { id: farm.farmId } }),
+          },
+        ].map((a) => (
+          <PressableScale
+            key={a.label}
+            onPress={a.onPress}
+            style={styles.action}
+            accessibilityRole="button"
+            accessibilityLabel={a.label}
+          >
+            <Ionicons name={a.icon} size={20} color={colors.text} />
+            <Text variant="bodyBold" numberOfLines={1}>{a.label}</Text>
+          </PressableScale>
+        ))}
       </View>
 
       {reports.length === 0 ? (
@@ -138,6 +136,8 @@ export default function FarmTodoScreen() {
                 iconBg={c.bg}
                 title={r.title}
                 subtitle={r.subtitle}
+                titleLines={2}
+                subtitleLines={2}
                 right={
                   <View style={styles.countPill}>
                     <Text variant="bodyBold" color={c.fg}>{r.count}</Text>
@@ -171,6 +171,16 @@ export default function FarmTodoScreen() {
 
 const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  action: {
+    flex: 1,
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+  },
   flex1: { flex: 1 },
   sectionLabel: { marginBottom: spacing.sm },
   allReports: { marginTop: spacing.lg },

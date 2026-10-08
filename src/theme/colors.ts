@@ -62,6 +62,23 @@ export type StatusKey = keyof typeof status;
 /** Fallback pill colors for statuses the app doesn't know yet */
 export const statusFallback = { fg: charcoal[500], bg: charcoal[50] } as const;
 
+/**
+ * Home-screen tile icons: the soft report palette (pale circle, deeper glyph)
+ * instead of brand red on every tile. Josh asked for "the faded colors" of
+ * the report icons (Oct 2026), and a different hue per tile lets the four be
+ * told apart at a glance.
+ */
+export const tileTone = {
+  farms: status.dry,
+  alarms: status.heat,
+  officeAlerts: status.inseminated,
+  todo: status.fresh,
+  cowSearch: status.open,
+  vets: status.pregnant,
+  people: status.fresh,
+} as const;
+export type TileTone = { fg: string; bg: string };
+
 /** Append an alpha channel to a #RRGGBB hex — never string-concat alpha in screens */
 export const alpha = (hex: string, opacity: number) =>
   hex + Math.round(Math.min(Math.max(opacity, 0), 1) * 255).toString(16).padStart(2, '0');

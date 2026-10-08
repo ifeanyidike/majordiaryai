@@ -18,6 +18,10 @@ interface ListRowProps {
   badge?: React.ReactNode;
   onPress?: () => void;
   chevron?: boolean;
+  /** Lines before the title / subtitle are cut short. One suits a list of
+   *  cows; report names are long enough to need two on a narrow phone. */
+  titleLines?: number;
+  subtitleLines?: number;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -32,17 +36,19 @@ export function ListRow({
   badge,
   onPress,
   chevron = true,
+  titleLines = 1,
+  subtitleLines = 1,
   style,
 }: ListRowProps) {
   const content = (
     <>
       {icon ? <IconCircle name={icon} color={iconColor} bg={iconBg} /> : null}
       <View style={styles.textCol}>
-        <Text variant="subheading" numberOfLines={1}>
+        <Text variant="subheading" numberOfLines={titleLines}>
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>
+          <Text variant="caption" color={colors.textSecondary} numberOfLines={subtitleLines}>
             {subtitle}
           </Text>
         ) : null}

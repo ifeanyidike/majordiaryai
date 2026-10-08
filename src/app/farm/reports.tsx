@@ -117,6 +117,7 @@ export default function FarmReportsScreen() {
           iconColor={c.fg}
           iconBg={c.bg}
           title={r.title}
+          titleLines={2}
           subtitle={`${r.count} ${r.count === 1 ? 'cow' : 'cows'}`}
           onPress={() =>
             router.push({

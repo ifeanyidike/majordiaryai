@@ -75,3 +75,10 @@ major_diary_*.md
 google-credential.json
 # Herd exports are a farm's real data; the repository is public.
 *.xls
+
+# Brand source files and reference screenshots (the app uses the processed
+# copies in assets/images). ref.jpeg shows a real farm's herd.
+icon_new.png
+logo_new.jpeg
+logo_new2.png
+ref.jpeg

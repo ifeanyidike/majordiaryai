@@ -50,7 +50,8 @@ export function Screen({
   return (
     <ScrollView
       style={[styles.root, style]}
-      contentContainerStyle={[padding, { paddingBottom: spacing.huge * 2 }, contentStyle]}
+      // Clear of Android's navigation bar, which draws over the app.
+      contentContainerStyle={[padding, { paddingBottom: spacing.huge * 2 + insets.bottom }, contentStyle]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       refreshControl={

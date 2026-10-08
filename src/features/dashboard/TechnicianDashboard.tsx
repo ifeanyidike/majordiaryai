@@ -10,7 +10,7 @@ import {
   Text,
   FocusedStatusBar,
 } from '@/components';
-import { colors, gradients, onDark, radius, shadows, spacing } from '@/theme';
+import { colors, gradients, onDark, radius, shadows, spacing, tileTone, TileTone } from '@/theme';
 import {
   farmsToVisit, unreadNotificationCount, useAppStore, worklistTotal,
 } from '@/store/useAppStore';
@@ -55,14 +55,16 @@ export function TechnicianDashboard() {
   // anywhere. Raised with the client — finding a cow whose farm you cannot
   // remember has no other route in the app.
   const mainActions: {
-    label: string; caption: string; icon: IconName; badge?: number; onPress: () => void;
+    label: string; caption: string; icon: IconName; tone: TileTone; badge?: number;
+    onPress: () => void;
   }[] = [
     // "All" matters: the hero above shows farms on TODAY'S route, and on a day
     // when every farm is scheduled the two numbers are identical. Without a
     // qualifier the pair reads as the same statistic printed twice.
-    { label: 'Farms CRM', caption: `All ${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
+    { label: 'Farms CRM', tone: tileTone.farms, caption: `All ${store.farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
     {
       label: 'Alarms',
+      tone: tileTone.alarms,
       // Short enough to stay on one line, or this card grows taller than its neighbour.
       caption: alarms ? `${alarms} from the barn` : 'From the farms',
       icon: 'alert-circle',
@@ -71,12 +73,13 @@ export function TechnicianDashboard() {
     },
     {
       label: 'Office Alerts',
+      tone: tileTone.officeAlerts,
       caption: officeAlerts ? `${officeAlerts} from the office` : 'From the office',
       icon: 'briefcase',
       badge: officeAlerts,
       onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }),
     },
-    { label: 'To Do List', caption: route.length ? `${route.length} farms · ${outstanding} cows` : 'All clear', icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
+    { label: 'To Do List', tone: tileTone.todo, caption: route.length ? `${route.length} farms · ${outstanding} cows` : 'All clear', icon: 'checkbox', onPress: () => router.push('/(tabs)/tasks') },
   ];
 
   const quickLinks: { label: string; icon: IconName; badge?: number; onPress: () => void }[] = [
@@ -118,7 +121,7 @@ export function TechnicianDashboard() {
             <View key={a.label} style={styles.gridItem}>
               <PressableScale onPress={a.onPress} style={styles.actionCard}>
                 <View>
-                  <IconCircle name={a.icon} size={52} />
+                  <IconCircle name={a.icon} size={52} color={a.tone.fg} bg={a.tone.bg} />
                   {/* Unread count sits on the icon, not beside the label: two
                       of these four cards are feeds, and the number is the
                       reason to tap before the words are read. */}
