@@ -210,12 +210,20 @@ def test_heat_detected_cow_is_on_the_insemination_report_not_open():
     assert not _rows([cow], "open-report")
 
 
-def test_sick_cow_is_only_listed_when_her_recheck_is_due():
-    """Spec: recheck every 7 days — not every day."""
+def test_a_sick_cow_stays_on_the_open_report_flagged_until_her_recheck():
+    """Josh's test plan (Oct 26): "on the report with a health flag; no
+    protocol starts; recheck in 7 days". She used to drop off it until the
+    recheck, which read as a cow that had gone missing. The recheck itself is
+    still every 7 days (spec), not every day."""
     base = dict(status=CowStatus.open, health_status=HealthStatus.sick,
                 last_calving_date=TODAY - timedelta(days=90))
-    assert not _rows([_cow(**base, recheck_due_date=TODAY + timedelta(days=3))], "open-report")
-    assert _rows([_cow(**base, recheck_due_date=TODAY)], "open-report")
+    waiting = _rows([_cow(**base, recheck_due_date=TODAY + timedelta(days=3))], "open-report")
+    assert len(waiting) == 1
+    assert waiting[0]["action"].startswith("Sick — no protocol until she is healthy")
+    assert "Sick — recheck due" in waiting[0]["detail"]
+
+    due = _rows([_cow(**base, recheck_due_date=TODAY)], "open-report")
+    assert due[0]["action"].startswith("Recheck health today")
 
 
 def test_dry_report_covers_both_sides_of_the_day_223_transition():

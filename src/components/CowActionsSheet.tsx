@@ -19,7 +19,7 @@ import { api, isApiConfigured } from '@/lib/api';
 import {
   daysSince, isValidPastOrTodayDate, isValidStartDate, START_DATE_LOOKAHEAD_DAYS, todayISO,
 } from '@/lib/dates';
-import { isPreferredStartDay, PROTOCOLS, protocolByValue } from '@/data/protocols';
+import { isPreferredStartDay, nextStartDay, PROTOCOLS, protocolByValue } from '@/data/protocols';
 import { Role as UserRole, useAuthStore, useRole } from '@/store/useAuthStore';
 import { colors, radius, shadows, spacing, typography } from '@/theme';
 import { Cow, CowStatus } from '@/data/types';
@@ -1079,7 +1079,8 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
   const [health, setHealth] = useState<'healthy' | 'sick' | null>(null);
   const [healthConfirmed, setHealthConfirmed] = useState(false);
   const [protocol, setProtocol] = useState<string | null>(null);
-  const [startDate, setStartDate] = useState(todayISO());
+  // Today when protocols may start today, else the next Mon/Tue/Sat.
+  const [startDate, setStartDate] = useState(() => nextStartDay(todayISO()));
   const [loading, setLoading] = useState(false);
   const [savingHealth, setSavingHealth] = useState(false);
 
@@ -1225,8 +1226,8 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         </Text>
       )}
       {offPreferredDay && (
-        <Text variant="caption" color={colors.warning} style={styles.fieldError}>
-          Program starts are scheduled Monday, Tuesday or Saturday.
+        <Text variant="caption" color={colors.danger} style={styles.fieldError}>
+          A protocol can only start on a Monday, Tuesday or Saturday.
         </Text>
       )}
       <FormActions
@@ -1235,7 +1236,7 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         submitIcon="list"
         onSubmit={submit}
         loading={loading}
-        disabled={!dateValid || !protocol}
+        disabled={!dateValid || offPreferredDay || !protocol}
       />
     </>
   );

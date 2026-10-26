@@ -14,7 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
-    Cow, CowStatus, EnrollmentStatus, Farm, FarmVisitAssignment, HeatCheck,
+    Cow, CowStatus, CullRecord, EnrollmentStatus, Farm, FarmVisitAssignment, HeatCheck,
     NeedlingEnrollment, NeedlingRecord, User, VaccinationRecord,
 )
 from app.services.access import scope_to_farms
@@ -109,6 +109,22 @@ async def _heat_events_by_cow(db: AsyncSession, current_user: dict, today: date,
             continue
         out[str(cow.id)] = {"detected_on": check.check_date}
     return out
+
+
+async def _culls_by_cow(db: AsyncSession, current_user: dict,
+                        farm_id: Optional[UUID]) -> dict:
+    """The cull date and reason of each culled cow, for the Cull Cow List."""
+    stmt = (
+        select(CullRecord, Cow)
+        .join(Cow, Cow.id == CullRecord.cow_id)
+        .where(Cow.status == CowStatus.cull)
+        .order_by(CullRecord.created_at)
+    )
+    stmt = scope_to_farms(stmt, current_user, farm_id, col=Cow.farm_id)
+    # Ordered oldest first, so a later record (culled, restored, culled
+    # again) is the one kept.
+    return {str(cow.id): {"cull_date": rec.cull_date, "reason": rec.reason}
+            for rec, cow in (await db.execute(stmt)).all()}
 
 
 async def _needling_by_cow(db: AsyncSession, current_user: dict, today: date,
@@ -294,6 +310,7 @@ async def build_worklist(
     post_calving = await _post_calving_by_cow(db, current_user, farm_id)
     farmer_injections = await _farmer_injections_by_cow(db, current_user, today, farm_id)
     heat_events = await _heat_events_by_cow(db, current_user, today, farm_id)
+    culls = await _culls_by_cow(db, current_user, farm_id)
 
     by_farm: dict = {}
     for cow in cows:
@@ -314,6 +331,7 @@ async def build_worklist(
             needling=needling, breeding=breeding, vaccinations=vaccinations,
             post_calving=post_calving, farmer_injections=farmer_injections,
             heat_events=heat_events, farm_self_vaccinate=farm.self_vaccinate,
+            culls=culls,
         )
         reports = build_reports(ctx)
         # Off-rotation with nobody assigned: the farm stays in the payload for

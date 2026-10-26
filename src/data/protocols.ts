@@ -1,4 +1,5 @@
 /** Needling / synchronization protocol tables — mirrors the Phase 1 spec exactly. */
+import { addDays } from '@/lib/dates';
 
 export interface ProtocolStep {
   day: number;
@@ -87,9 +88,18 @@ export const PROTOCOLS: ProtocolDef[] = [
 
 export const protocolByValue = (value: string) => PROTOCOLS.find((p) => p.value === value);
 
-/** Per the spec, program entry days should land on Monday, Tuesday or Saturday. */
+/** Josh: a protocol "can only start on a Monday, Tuesday or Saturday". The
+ *  API refuses any other day; this keeps the form from offering one. */
 export function isPreferredStartDay(iso: string): boolean {
   const [y, m, d] = iso.split('-').map(Number);
   const dow = new Date(y, (m ?? 1) - 1, d ?? 1).getDay();
   return dow === 1 || dow === 2 || dow === 6;
+}
+
+/** The first day a protocol may start on, from `iso`: that day itself when it
+ *  is a Monday, Tuesday or Saturday, else the next one. */
+export function nextStartDay(iso: string): string {
+  let day = iso;
+  while (!isPreferredStartDay(day)) day = addDays(day, 1);
+  return day;
 }

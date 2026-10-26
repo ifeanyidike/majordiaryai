@@ -87,6 +87,15 @@ def test_her_tag_is_the_number_shown_and_her_id_is_kept():
     assert cow.herd_id == "90001"
 
 
+def test_her_barn_name_is_kept():
+    """BNAME was read by nothing, so DAISY arrived nameless and searching her
+    name found no cow (Josh's checklist, row 65)."""
+    cow = one(row(ID=90064.0, TAG=9064.0, BNAME="DAISY", RPRO="HEIFER",
+                  BDAT=dmy(date(2026, 1, 1))))
+    assert cow.name == "DAISY"
+    assert one(row(ID=90065.0, RPRO="HEIFER", BDAT=dmy(date(2026, 1, 1)))).name is None
+
+
 def test_two_animals_on_one_tag_are_both_imported():
     """Real herds reuse tags -- a cow and a heifer both on 9066. They are two
     animals, told apart by their IDs, not one row and a duplicate."""

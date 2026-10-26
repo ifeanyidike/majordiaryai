@@ -462,7 +462,9 @@ async def on_bleeding_before_insemination(cow: Cow, db: AsyncSession, start_date
     _clear_reproductive_fields(cow)
 
     if start_date is None:
-        start_date = local_today()
+        # A protocol only starts on a Monday, Tuesday or Saturday (Josh) --
+        # today if it is one, else the next.
+        start_date = adjust_to_breeding_day(local_today())
     enrollment = NeedlingEnrollment(
         cow_id=cow.id, protocol=ProtocolType.ovsynch, start_date=start_date,
     )

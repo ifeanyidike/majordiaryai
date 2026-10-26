@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 from uuid import UUID
+import datetime as dt
 from datetime import date, datetime
 from app.core.timeutils import local_today
 from app.models.models import CalfSex, CowStatus, HealthStatus
@@ -115,7 +116,10 @@ class CullBody(BaseModel):
 
 class ExitBody(BaseModel):
     """Body for marking a cow sold or dead."""
-    date: Optional[date] = None  # defaults to today (farm-local)
+    # dt.date, spelled out: annotated with the bare name, a field called
+    # `date` resolved to its own default (None), so only None was accepted
+    # and every date sent was a 422.
+    date: Optional[dt.date] = None  # defaults to today (farm-local)
     reason: Optional[str] = None
 
 

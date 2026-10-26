@@ -66,6 +66,7 @@ class CowPlan:
     ear_tag: str    # her TAG, or the ID when the export has no tag
     status: CowStatus
     dc_status: str
+    name: Optional[str] = None   # BNAME
     lactation_number: int = 0
     date_of_birth: Optional[date] = None
     last_calving_date: Optional[date] = None
@@ -83,7 +84,8 @@ class CowPlan:
     def cow_fields(self) -> dict:
         """Columns for the Cow row (the insemination is written separately)."""
         return {
-            "herd_id": self.herd_id, "ear_tag": self.ear_tag, "status": self.status,
+            "herd_id": self.herd_id, "ear_tag": self.ear_tag, "name": self.name,
+            "status": self.status,
             "lactation_number": self.lactation_number,
             "date_of_birth": self.date_of_birth,
             "last_calving_date": self.last_calving_date,
@@ -230,6 +232,9 @@ def _plan_cow(row_no: int, herd_id: str, dc: str, r: Dict, sire_of: Dict[str, Op
     cow = CowPlan(
         row=row_no, herd_id=herd_id, ear_tag=_text(r.get("TAG")) or herd_id,
         status=CowStatus.open, dc_status=dc,
+        # Her barn name, when the farm gave her one -- what the app searches
+        # by name and shows as "DAISY (9064)". It was dropped on the floor.
+        name=_text(r.get("BNAME")) or None,
         lactation_number=lact, date_of_birth=dob,
         sire=_text(r.get("SIRE")) or None,
         maternal_sire=sire_of.get(dam) if dam and dam != "0" else None,

@@ -154,6 +154,8 @@ class WorklistContext:
     # cow_id -> {"detected_on": date} for a heat seen TODAY. Today's Breed
     # Report is built from these (worklist_builder._heat_events_by_cow).
     heat_events: Dict[str, dict] = field(default_factory=dict)
+    # cow_id -> {"cull_date", "reason"} of her latest cull record.
+    culls: Dict[str, dict] = field(default_factory=dict)
 
     def may_record(self, definition: "ReportDef") -> bool:
         return not definition.record_roles or self.role in definition.record_roles
@@ -587,16 +589,26 @@ def _open(ctx: WorklistContext) -> List[ReportRow]:
             continue
         if _not_to_be_bred(cow):
             continue
+        # A sick cow stays on the report, flagged, with no protocol until she
+        # is healthy (Josh's test plan, Oct 26: "on the report with a health
+        # flag; no protocol starts; recheck in 7 days"). Her recheck is the
+        # work; before it is due the row only says when it is.
         sick = cow.health_status == HealthStatus.sick
-        if sick and cow.recheck_due_date and cow.recheck_due_date > ctx.today:
-            continue  # recheck every 7 days, not every day
+        recheck_due = sick and (cow.recheck_due_date is None
+                                or cow.recheck_due_date <= ctx.today)
+        if recheck_due:
+            action = f"Recheck health today (marked sick, recheck due {_fmt(cow.recheck_due_date)})"
+        elif sick:
+            action = f"Sick — no protocol until she is healthy; recheck {_fmt(cow.recheck_due_date)}"
+        else:
+            action = "Assess health and choose a needling protocol"
         days_open = _days_since(cow.last_calving_date, ctx.today)
         rows.append(ReportRow(
             cow=cow,
-            action=(f"Recheck health today (marked sick, recheck due {_fmt(cow.recheck_due_date)})"
-                    if sick else "Assess health and choose a needling protocol"),
+            action=action,
             detail=(f"{days_open} days open · " if days_open is not None else "")
-                   + ("Sick — recheck due" if sick else "Healthy — ready to breed"),
+                   + (f"Sick — recheck due {_fmt(cow.recheck_due_date)}" if sick
+                      else "Healthy — ready to breed"),
             record_kind="enroll",
         ))
     return rows
@@ -646,12 +658,21 @@ def _breeding_list(flag: str):
 
 
 def _cull_list(ctx: WorklistContext) -> List[ReportRow]:
-    return [
-        ReportRow(cow=cow, action="", detail=f"Exited {_fmt(cow.exit_date)}"
-                                             + (f" · {cow.exit_reason}" if cow.exit_reason else ""))
-        for cow in ctx.cows
-        if cow.status == CowStatus.cull
-    ]
+    """Each culled cow with the date and reason her cull was recorded with.
+
+    It printed exit_date/exit_reason, which only selling or a death sets, so
+    every row read "Exited —" and the reason the technician typed was lost.
+    """
+    rows = []
+    for cow in ctx.cows:
+        if cow.status != CowStatus.cull:
+            continue
+        cull = ctx.culls.get(str(cow.id), {})
+        reason = cull.get("reason")
+        rows.append(ReportRow(cow=cow, action="",
+                              detail=f"Culled {_fmt(cull.get('cull_date'))}"
+                                     + (f" · {reason}" if reason else "")))
+    return rows
 
 
 # ── the catalog ──────────────────────────────────────────────────────

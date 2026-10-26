@@ -22,6 +22,9 @@ from app.services.protocols import get_final_day, self_inject_step
 from app.services.report_catalog import WorklistContext, build_reports
 
 TODAY = local_today()
+# A protocol only starts on a Monday, Tuesday or Saturday (Josh), so the
+# enrolment tests start on the first such day from today -- on any weekday.
+START = status_engine.adjust_to_breeding_day(TODAY)
 
 
 def _reports(**ctx_kwargs) -> dict:
@@ -50,7 +53,7 @@ async def test_a_self_injecting_farm_gets_the_last_hormone_the_day_before(
     async with api("technician", user_id=tech.id) as client:
         r = await client.post("/needling/enroll", json={
             "cow_id": str(cow.id), "protocol": "ovsynch",
-            "start_date": TODAY.isoformat(),
+            "start_date": START.isoformat(),
         })
     assert r.status_code == 201, r.text
 
@@ -64,7 +67,7 @@ async def test_a_self_injecting_farm_gets_the_last_hormone_the_day_before(
     assert len(mine) == 1, [(r.protocol_day, r.self_administered) for r in records]
     farmers = mine[0]
     assert farmers.protocol_day == get_final_day("ovsynch") - 1 == 9
-    assert farmers.scheduled_date == TODAY + timedelta(days=8)
+    assert farmers.scheduled_date == START + timedelta(days=8)
     # The hormone alone — the insemination stays with the technician on day 10.
     assert farmers.treatment == "2cc GnRH"
     assert "Insemination" not in farmers.treatment
@@ -97,7 +100,7 @@ async def test_an_ordinary_farm_still_gets_hormone_and_ai_together(
     async with api("technician", user_id=tech.id) as client:
         await client.post("/needling/enroll", json={
             "cow_id": str(cow.id), "protocol": "ovsynch",
-            "start_date": TODAY.isoformat(),
+            "start_date": START.isoformat(),
         })
 
     from sqlalchemy import select
@@ -130,7 +133,7 @@ async def test_the_farm_is_told_the_day_before_not_at_enrollment(
     async with api("technician", user_id=tech.id) as client:
         await client.post("/needling/enroll", json={
             "cow_id": str(cow.id), "protocol": "ovsynch",
-            "start_date": TODAY.isoformat(),
+            "start_date": START.isoformat(),
         })
 
     def notes():
@@ -139,13 +142,13 @@ async def test_the_farm_is_told_the_day_before_not_at_enrollment(
 
     assert (await notes()).scalars().all() == [], "announced at enrollment"
 
-    # Day 9 is TODAY + 8; the day before it is TODAY + 7.
+    # Day 9 is START + 8; the day before it is START + 7.
     await status_engine.run_lifecycle_transitions(
-        db, farm_ids=[farm.id], today=TODAY + timedelta(days=6))
+        db, farm_ids=[farm.id], today=START + timedelta(days=6))
     assert (await notes()).scalars().all() == [], "announced two days early"
 
     await status_engine.run_lifecycle_transitions(
-        db, farm_ids=[farm.id], today=TODAY + timedelta(days=7))
+        db, farm_ids=[farm.id], today=START + timedelta(days=7))
     sent = (await notes()).scalars().all()
     assert len(sent) == 1
     message = sent[0].message
@@ -155,7 +158,7 @@ async def test_the_farm_is_told_the_day_before_not_at_enrollment(
 
     # Six-hourly sweeps must not repeat it.
     await status_engine.run_lifecycle_transitions(
-        db, farm_ids=[farm.id], today=TODAY + timedelta(days=7))
+        db, farm_ids=[farm.id], today=START + timedelta(days=7))
     assert len((await notes()).scalars().all()) == 1
 
 
@@ -174,12 +177,12 @@ async def test_a_missed_sweep_still_announces_the_farmers_shot(db, farm, api, ma
     async with api("technician", user_id=tech.id) as client:
         await client.post("/needling/enroll", json={
             "cow_id": str(cow.id), "protocol": "ovsynch",
-            "start_date": TODAY.isoformat(),
+            "start_date": START.isoformat(),
         })
 
-    # Nothing ran on TODAY+7; the sweep first runs ON the shot's day.
+    # Nothing ran on START+7; the sweep first runs ON the shot's day.
     await status_engine.run_lifecycle_transitions(
-        db, farm_ids=[farm.id], today=TODAY + timedelta(days=8))
+        db, farm_ids=[farm.id], today=START + timedelta(days=8))
     sent = (await db.execute(select(Notification).where(
         Notification.cow_id == cow.id, Notification.type == "self_inject"
     ))).scalars().all()
@@ -248,7 +251,7 @@ async def test_an_ordinary_farm_gets_no_extra_shot(db, farm, api, make_user):
     async with api("technician", user_id=tech.id) as client:
         await client.post("/needling/enroll", json={
             "cow_id": str(cow.id), "protocol": "ovsynch",
-            "start_date": TODAY.isoformat(),
+            "start_date": START.isoformat(),
         })
 
     from sqlalchemy import select
@@ -281,13 +284,20 @@ async def test_the_farmers_shot_stays_off_the_technicians_injection_report(
     db.add(cow)
     await db.flush()
 
-    # Start it so that the farmer's day-9 shot falls TODAY.
+    # Start it so that the farmer's day-9 shot falls TODAY. Through the same
+    # builder the endpoint uses: the endpoint refuses more than a day of
+    # back-dating, and this test used to call it 8 days back -- so nothing was
+    # enrolled and the assertion below passed over an empty list.
     start = TODAY - timedelta(days=8)
-    async with api("technician", user_id=tech.id) as client:
-        await client.post("/needling/enroll", json={
-            "cow_id": str(cow.id), "protocol": "ovsynch",
-            "start_date": start.isoformat(),
-        })
+    enrollment = NeedlingEnrollment(
+        id=uuid.uuid4(), cow_id=cow.id, protocol=ProtocolType.ovsynch,
+        start_date=start, current_day=1, status=EnrollmentStatus.active,
+    )
+    db.add(enrollment)
+    await db.flush()
+    await status_engine.add_protocol_records(cow, enrollment.id, "ovsynch", start, db)
+    cow.status = CowStatus.needling
+    await db.flush()
 
     from app.services.worklists import needling_due_stmt
     from sqlalchemy import select
@@ -295,9 +305,14 @@ async def test_the_farmers_shot_stays_off_the_technicians_injection_report(
     due = (await db.execute(
         needling_due_stmt(TODAY).where(Cow.id == cow.id)
     )).all()
+    assert due, "nothing was due -- the test is not looking at a real protocol"
     assert all(not record.self_administered for record, _ in due), (
         "the farmer's own shot was put on the technician's route"
     )
+    farmers = (await db.execute(select(NeedlingRecord).where(
+        NeedlingRecord.cow_id == cow.id, NeedlingRecord.self_administered == True  # noqa: E712
+    ))).scalar_one()
+    assert farmers.scheduled_date == TODAY  # it IS due today, and still kept off
 
 
 def test_the_technician_is_prompted_to_leave_the_note():

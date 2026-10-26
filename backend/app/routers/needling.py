@@ -79,6 +79,13 @@ async def enroll_cow(
                 f"{ENROLL_LOOKAHEAD_DAYS} days ahead"
             ),
         )
+    # Josh: a protocol "can only start on a Monday, Tuesday or Saturday" -- the
+    # breeding days the Open program already lands on (Master Structure).
+    if body.start_date.weekday() not in status_engine.BREEDING_WEEKDAYS:
+        raise HTTPException(
+            status_code=422,
+            detail="A protocol can only start on a Monday, Tuesday or Saturday",
+        )
 
     # Validate the protocol name before anything is written: the records
     # themselves are laid out by add_protocol_records below, which raises the
