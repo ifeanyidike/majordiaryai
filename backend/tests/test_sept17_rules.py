@@ -401,6 +401,26 @@ async def test_the_check_reminder_is_sent_once_not_once_per_sweep(db, farm):
     assert len(notes) == 1, f"sent {len(notes)} times"
 
 
+async def test_a_late_reminder_states_her_real_day(db, farm):
+    """Inside the catch-up window the reminder is sent late. It said "day 30"
+    to a cow on day 33 (Josh's test herd, Oct 26)."""
+    from sqlalchemy import select
+
+    late = status_engine.PREGNANCY_REPORT_DAY + status_engine.REMINDER_CATCHUP_DAYS
+    cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="PC-3",
+              status=CowStatus.inseminated, lactation_number=1,
+              last_insemination_date=TODAY - timedelta(days=late))
+    db.add(cow)
+    await db.flush()
+
+    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
+
+    note = (await db.execute(
+        select(Notification).where(Notification.cow_id == cow.id)
+    )).scalar_one()
+    assert f"is day {late} since insemination" in note.message, note.message
+
+
 async def test_a_cow_short_of_the_day_is_not_reminded_yet(db, farm):
     from sqlalchemy import select
 

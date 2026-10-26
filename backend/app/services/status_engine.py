@@ -899,10 +899,12 @@ async def _remind_pregnancy_checks(
         )
         if already.scalar() is not None:
             continue
+        # Her real day, not PREGNANCY_REPORT_DAY: a reminder sent inside the
+        # catch-up window ("day 30" to a cow on day 33) states a wrong fact.
         create_notification(
             db, cow.farm_id, cow.id, "preg_check",
-            f"{cow.label} is day {PREGNANCY_REPORT_DAY} since insemination — "
-            "she is due for her pregnancy check.",
+            f"{cow.label} is day {(today - cow.last_insemination_date).days} since "
+            "insemination — she is due for her pregnancy check.",
         )
         sent += 1
     return sent
