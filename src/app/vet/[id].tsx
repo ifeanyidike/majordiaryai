@@ -139,7 +139,8 @@ export default function VetProfileScreen() {
                   iconColor={colors.primary}
                   iconBg={colors.primarySoft}
                   title={f.name}
-                  subtitle={`${f.city} · ${c.due} due${c.warning > 0 ? ` · ${c.warning} overdue` : ''}`}
+                  subtitle={[f.city, `${c.due} due`, c.warning > 0 ? `${c.warning} overdue` : null]
+                  .filter(Boolean).join(' · ')}
                   onPress={() => router.push({ pathname: '/farm/[id]', params: { id: f.id } })}
                 />
               );

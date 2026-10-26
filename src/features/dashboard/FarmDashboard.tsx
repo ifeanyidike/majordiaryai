@@ -23,6 +23,7 @@ import {
 } from '@/components';
 import { colors, gradients, onDark, radius, spacing, status, useMotion } from '@/theme';
 import { dial } from '@/lib/contact';
+import { formatAddress } from '@/lib/maps';
 import { farmUpcomingActivities, summarize, useAppStore } from '@/store/useAppStore';
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -91,7 +92,8 @@ export function FarmDashboard() {
               {farm.name}
             </Text>
             <Text variant="caption" color={onDark.textSecondary}>
-              {farm.city}, {farm.province} · {summary.total} tracked cows
+              {[formatAddress(farm.city, farm.province), `${summary.total} tracked cows`]
+                .filter(Boolean).join(' · ')}
             </Text>
           </View>
         </Animated.View>

@@ -130,7 +130,8 @@ export default function FarmProfileScreen() {
               {farm.name}
             </Text>
             <Text variant="caption" color={onDark.textSecondary}>
-              {farm.owner} · {farm.city}, {farm.province} · {summary.total} cows
+              {[farm.owner, formatAddress(farm.city, farm.province), `${summary.total} cows`]
+                .filter(Boolean).join(' · ')}
             </Text>
           </View>
         </Animated.View>

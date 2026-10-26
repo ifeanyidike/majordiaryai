@@ -48,7 +48,8 @@ export default function FarmsScreen() {
   const role = useRole();
 
   const totalCows = farms.reduce((n, f) => n + f.herdSize, 0);
-  const cities = new Set(farms.map((f) => f.city)).size;
+  // A farm with no city on file is not a city of its own.
+  const cities = new Set(farms.map((f) => f.city).filter(Boolean)).size;
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -151,7 +152,7 @@ export default function FarmsScreen() {
                       {farm.name}
                     </Text>
                     <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>
-                      {farm.owner} · {farm.city}
+                      {[farm.owner, farm.city].filter(Boolean).join(' · ')}
                     </Text>
                     <View style={styles.cowChip}>
                       <Ionicons name="analytics-outline" size={11} color={accent.fg} />

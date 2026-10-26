@@ -136,7 +136,7 @@ export function AdminDashboard() {
               key={f.id}
               icon="business"
               title={f.name}
-              subtitle={`${f.owner} · ${f.city} · ${f.herdSize} cows`}
+              subtitle={[f.owner, f.city, `${f.herdSize} cows`].filter(Boolean).join(' · ')}
               onPress={() => router.push({ pathname: '/farm/[id]', params: { id: f.id } })}
             />
           ))}
