@@ -94,6 +94,9 @@ def test_her_barn_name_is_kept():
                   BDAT=dmy(date(2026, 1, 1))))
     assert cow.name == "DAISY"
     assert one(row(ID=90065.0, RPRO="HEIFER", BDAT=dmy(date(2026, 1, 1)))).name is None
+    # Her own number in the name column is not a name.
+    assert one(row(ID=3404.0, TAG=3404.0, BNAME=3404.0, RPRO="HEIFER",
+                   BDAT=dmy(date(2026, 1, 1)))).name is None
 
 
 def test_two_animals_on_one_tag_are_both_imported():

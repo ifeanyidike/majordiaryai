@@ -229,12 +229,15 @@ def _plan_cow(row_no: int, herd_id: str, dc: str, r: Dict, sire_of: Dict[str, Op
     dslh = _int(r.get("DSLH")) or 0
     dob = parse_date(r.get("BDAT"), not_after=E)
     dam = _text(r.get("DID"))
+    tag = _text(r.get("TAG")) or herd_id
+    # Her barn name, when the farm gave her one -- what the app searches by
+    # name and shows as "DAISY (9064)". A BNAME that only repeats her number
+    # (one real export has "3404" on cow 3404) is no name: "3404 (3404)".
+    bname = _text(r.get("BNAME"))
     cow = CowPlan(
-        row=row_no, herd_id=herd_id, ear_tag=_text(r.get("TAG")) or herd_id,
+        row=row_no, herd_id=herd_id, ear_tag=tag,
         status=CowStatus.open, dc_status=dc,
-        # Her barn name, when the farm gave her one -- what the app searches
-        # by name and shows as "DAISY (9064)". It was dropped on the floor.
-        name=_text(r.get("BNAME")) or None,
+        name=bname if bname and bname not in (herd_id, tag) else None,
         lactation_number=lact, date_of_birth=dob,
         sire=_text(r.get("SIRE")) or None,
         maternal_sire=sire_of.get(dam) if dam and dam != "0" else None,
