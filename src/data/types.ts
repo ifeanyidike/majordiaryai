@@ -18,6 +18,9 @@ export interface Cow {
   /** Either identifier may be absent — but never both. Use `label` to show her. */
   earTag?: string;
   name?: string;
+  /** Her ID in the farm's herd software (DairyComp), kept by the import so
+   *  the old number still finds her. Tags can repeat; this does not. */
+  herdId?: string;
   /** "Bluebell (CA 124 578 1042)", or just the tag when she has no name. */
   label: string;
   farmId: string;

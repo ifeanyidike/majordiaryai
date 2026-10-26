@@ -469,7 +469,13 @@ async def import_cows(
                     .where(Cow.farm_id == target_farm_id, Cow.ear_tag == ear_tag)
                     .with_for_update()
                 )
-                existing = result.scalar_one_or_none()
+                matches = result.scalars().all()
+                if len(matches) > 1:
+                    # An imported herd can reuse a tag (migration 0022); which
+                    # of them this row means cannot be told from the tag.
+                    raise RowError(f"{len(matches)} animals on this farm wear tag "
+                                   f"{ear_tag} — update them in the app instead")
+                existing = matches[0] if matches else None
                 if existing is not None:
                     for name, value in fields.items():
                         if name == "ear_tag":

@@ -10,8 +10,9 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 16.13 (Postgres.app)
--- Dumped by pg_dump version 16.8 (Homebrew)
+
+-- Dumped from database version 17.6 (Homebrew)
+-- Dumped by pg_dump version 17.6 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -278,6 +279,11 @@ CREATE TABLE public.cows (
     dry_off_confirmed_date date,
     name character varying,
     calving_assumed boolean DEFAULT false NOT NULL,
+    sire character varying,
+    maternal_sire character varying,
+    do_not_breed boolean DEFAULT false NOT NULL,
+    do_not_inseminate boolean DEFAULT false NOT NULL,
+    herd_id character varying,
     CONSTRAINT ck_cows_has_an_identifier CHECK (((ear_tag IS NOT NULL) OR (name IS NOT NULL))),
     CONSTRAINT ck_cows_lactation_number_non_negative CHECK ((lactation_number >= 0))
 );
@@ -345,9 +351,9 @@ CREATE TABLE public.farms (
 CREATE TABLE public.heat_checks (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
     cow_id uuid NOT NULL,
-    insemination_id uuid NOT NULL,
+    insemination_id uuid,
     check_date date NOT NULL,
-    days_since_insemination integer NOT NULL,
+    days_since_insemination integer,
     heat_detected boolean,
     bleeding_event boolean DEFAULT false,
     technician_id uuid,
@@ -582,14 +588,6 @@ ALTER TABLE ONLY public.calving_records
 
 
 --
--- Name: cows cows_farm_id_ear_tag_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.cows
-    ADD CONSTRAINT cows_farm_id_ear_tag_key UNIQUE (farm_id, ear_tag);
-
-
---
 -- Name: cows cows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -699,6 +697,14 @@ ALTER TABLE ONLY public.push_tokens
 
 ALTER TABLE ONLY public.bulls
     ADD CONSTRAINT uq_bulls_farm_name UNIQUE (farm_id, name);
+
+
+--
+-- Name: cows uq_cows_farm_id_herd_id; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cows
+    ADD CONSTRAINT uq_cows_farm_id_herd_id UNIQUE (farm_id, herd_id);
 
 
 --
@@ -936,6 +942,13 @@ CREATE INDEX idx_vaccination_records_scheduled_date ON public.vaccination_record
 --
 
 CREATE INDEX ix_bulls_farm_active ON public.bulls USING btree (farm_id, active);
+
+
+--
+-- Name: ix_cows_farm_id_ear_tag; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_cows_farm_id_ear_tag ON public.cows USING btree (farm_id, ear_tag);
 
 
 --
@@ -1675,4 +1688,5 @@ CREATE POLICY vets_read ON public.vets FOR SELECT USING ((public.get_my_role() =
 --
 -- PostgreSQL database dump complete
 --
+
 

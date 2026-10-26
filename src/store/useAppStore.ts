@@ -33,6 +33,7 @@ interface ApiFarm {
 
 interface ApiCow {
   id: string; ear_tag?: string | null; name?: string | null; label?: string;
+  herd_id?: string | null;
   farm_id: string; farm_name?: string; calving_assumed?: boolean;
   sire?: string | null; maternal_sire?: string | null;
   do_not_breed?: boolean; do_not_inseminate?: boolean;
@@ -219,7 +220,7 @@ function mapCow(c: ApiCow): Cow {
   const inHeat = status === 'inseminated' && dsi >= HEAT_WINDOW[0] && dsi <= HEAT_WINDOW[1];
 
   return {
-    id: c.id, earTag: c.ear_tag ?? undefined, farmId: c.farm_id,
+    id: c.id, earTag: c.ear_tag ?? undefined, herdId: c.herd_id ?? undefined, farmId: c.farm_id,
     calvingAssumed: c.calving_assumed ?? false,
     name: c.name ?? undefined,
     // The API computes the label so every screen names her identically; fall
@@ -1231,6 +1232,11 @@ export const unreadNotificationCount = (s: AppState) =>
 
 /** API already scopes by role, so just return all cows */
 export const visibleCows = (s: AppState) => s.cows;
+
+/** "ID 90066" when her DairyComp ID is not just her tag again — how two
+ *  animals on one tag are told apart in a list. */
+export const herdIdLabel = (c: Cow): string | null =>
+  c.herdId && c.herdId !== c.earTag ? `ID ${c.herdId}` : null;
 
 /** API already scopes by role, so just return all farms */
 export const visibleFarms = (s: AppState) => s.farms;

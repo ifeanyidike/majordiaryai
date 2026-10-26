@@ -9,7 +9,7 @@ import {
 } from '@/components';
 import { Cow, CowStatus } from '@/data/types';
 import { colors, spacing, useMotion } from '@/theme';
-import { cowsByFarm, farmById, useAppStore } from '@/store/useAppStore';
+import { cowsByFarm, farmById, herdIdLabel, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 // The order a farmer thinks of the cycle in, not alphabetical.
@@ -34,7 +34,9 @@ const squash = (s: string) => s.toLowerCase().replace(/\s+/g, '');
 function matchesSearch(cow: Cow, query: string): boolean {
   const q = squash(query);
   if (!q) return true;
-  return squash(cow.earTag ?? '').includes(q) || squash(cow.name ?? '').includes(q);
+  return squash(cow.earTag ?? '').includes(q) || squash(cow.name ?? '').includes(q)
+    // Her old DairyComp ID still finds her (Josh, Oct 26).
+    || squash(cow.herdId ?? '').includes(q);
 }
 
 /** Days in milk only means something for a cow that is milking. */
@@ -148,7 +150,7 @@ export default function HerdScreen() {
                 <SearchBar
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search by name or ear tag"
+                  placeholder="Search by name, ear tag or ID"
                 />
                 <FilterChips
                   label="Status"
@@ -193,7 +195,7 @@ export default function HerdScreen() {
               // Blank parts are left out: a herd from DairyComp often has no
               // breed, and days in milk means nothing on a heifer.
               subtitle={[
-                cow.breed, `Lact ${cow.lactationNumber}`,
+                herdIdLabel(cow), cow.breed, `Lact ${cow.lactationNumber}`,
                 cow.isMilking ? `${cow.daysInMilk} DIM` : null,
               ].filter(Boolean).join(' · ')}
               badge={<StatusPill kind={cow.status} />}

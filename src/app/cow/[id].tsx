@@ -141,6 +141,8 @@ export default function CowProfileScreen() {
         <SectionHeader title="Cow Information" />
         <Animated.View entering={motion.upAt(150, 500)}>
           <Card style={styles.infoCard}>
+            {/* Her number in DairyComp, when her herd was imported (Josh, Oct 26). */}
+            <InfoRow label="DairyComp ID" value={cow.herdId} hideIfEmpty />
             <InfoRow label="Breed" value={cow.breed} />
             <InfoRow label="Date of Birth" value={fmt(cow.dateOfBirth)} />
             {/* Parentage (Josh, Oct 2) */}

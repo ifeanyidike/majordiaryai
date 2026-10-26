@@ -184,6 +184,19 @@ def compute_dry_date(insemination_date: date) -> date:
     return insemination_date + timedelta(days=DRY_OFF_DAY)
 
 
+def has_calved(cow: Cow) -> bool:
+    """False for a heifer. Josh: a heifer is an animal that has not given
+    birth, however old she is -- so she is not in milk and is never dried
+    off. A pregnant heifer has no dry date and stays Pregnant until she
+    calves (migration 0022)."""
+    return (cow.lactation_number or 0) > 0 or cow.last_calving_date is not None
+
+
+def dry_date_for(cow: Cow, insemination_date: date) -> Optional[date]:
+    """Her day-223 dry-off, or None for a heifer (see has_calved)."""
+    return compute_dry_date(insemination_date) if has_calved(cow) else None
+
+
 def adjust_to_breeding_day(d: date) -> date:
     """Push a date forward to the next Monday, Tuesday or Saturday (spec rule)."""
     while d.weekday() not in BREEDING_WEEKDAYS:
@@ -389,7 +402,7 @@ async def on_pregnancy_confirmed(cow: Cow, insemination_date: date, db: AsyncSes
     """Called when vet confirms pregnancy."""
     cow.status = CowStatus.pregnant
     cow.due_date = compute_due_date(insemination_date)
-    cow.dry_date = compute_dry_date(insemination_date)
+    cow.dry_date = dry_date_for(cow, insemination_date)
 
 
 async def on_pregnancy_negative(cow: Cow, db: AsyncSession) -> None:
@@ -568,7 +581,10 @@ async def run_lifecycle_transitions(
 
     changed = 0
     for cow in cows:  # evaluate every cow — no short-circuiting
-        if cow.status == CowStatus.pregnant and cow.dry_date and cow.dry_date <= today:
+        # has_calved: a heifer has no dry date, but one written before that
+        # rule (or by an import) must still not be told to stop milking.
+        if cow.status == CowStatus.pregnant and cow.dry_date and cow.dry_date <= today \
+                and has_calved(cow):
             cow.status = CowStatus.dry
             create_notification(
                 db, cow.farm_id, cow.id, "dry_off",

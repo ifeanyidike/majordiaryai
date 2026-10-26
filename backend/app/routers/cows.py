@@ -144,24 +144,23 @@ async def create_cow(
     if not await check_farm_access(db, current_user, body.farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
 
+    # The database allows a shared tag, because imported herds have them
+    # (migration 0022). A cow added here is a new animal, so a tag already on
+    # the farm is a typo or a mix-up -- refuse it as before.
+    if body.ear_tag and await db.scalar(
+        select(func.count(Cow.id)).where(Cow.farm_id == body.farm_id, Cow.ear_tag == body.ear_tag)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
+        )
+
     cow = Cow(**body.model_dump())
     db.add(cow)
     try:
         await db.commit()
-    except IntegrityError as exc:
+    except IntegrityError:
         await db.rollback()
-        # Every IntegrityError used to be reported as a duplicate ear tag, so a
-        # violated check constraint or a bad foreign key sent the user hunting
-        # for a cow that does not exist. Only claim a duplicate when it is one.
-        # Postgres names it cows_farm_id_ear_tag_key (the model declares the
-        # UniqueConstraint without an explicit name, so match on the shape).
-        constraint = getattr(getattr(exc, "orig", None), "constraint_name", "") or ""
-        detail_text = str(getattr(exc, "orig", exc))
-        if "ear_tag" in constraint or "ear_tag" in detail_text:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
-            )
         raise HTTPException(
             status_code=409,
             detail="This cow could not be saved — check the values and try again",
@@ -207,6 +206,13 @@ async def update_cow(
         if value is None and field in _NON_NULLABLE_FIELDS:
             continue  # never null out non-nullable columns
         setattr(cow, field, value)
+
+    # Whether a pregnant animal is ever dried off depends on whether she has
+    # calved (status_engine.has_calved), so correcting her lactation number
+    # can give her a dry date or take a heifer's away.
+    if "lactation_number" in data and cow.status == CowStatus.pregnant \
+            and cow.last_insemination_date:
+        cow.dry_date = status_engine.dry_date_for(cow, cow.last_insemination_date)
 
     # Clearing her name when she has no tag (or vice versa) would leave a cow
     # nobody can refer to. ck_cows_has_an_identifier catches it, but only as a

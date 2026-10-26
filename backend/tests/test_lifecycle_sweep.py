@@ -92,6 +92,37 @@ async def test_dry_off_is_not_repeated_on_the_next_sweep(db, farm):
     assert await _sweep(db) == 0
 
 
+# ── a heifer is never dried off ──────────────────────────────────────
+
+async def test_a_pregnant_heifer_is_given_no_dry_date(db, farm):
+    """Josh: a heifer has not given birth, however old she is, so she is not
+    in milk -- there is nothing to dry off and no "stop milking" to send."""
+    bred = TODAY - timedelta(days=100)
+    heifer = await _cow(db, farm, status=CowStatus.inseminated, lactation_number=0)
+    cow = await _cow(db, farm, status=CowStatus.inseminated, lactation_number=2)
+    for c in (heifer, cow):
+        await status_engine.on_pregnancy_confirmed(c, bred, db)
+
+    assert heifer.status == CowStatus.pregnant
+    assert heifer.due_date == bred + timedelta(days=status_engine.GESTATION_DAYS)
+    assert heifer.dry_date is None
+    assert cow.dry_date == bred + timedelta(days=status_engine.DRY_OFF_DAY)
+
+
+async def test_a_heifer_past_day_223_stays_pregnant_and_nobody_is_told_to_stop_milking(db, farm):
+    """A heifer that already holds a dry date (written before the rule, or by
+    an import) is the case that would email the farmer."""
+    heifer = await _cow(db, farm, status=CowStatus.pregnant, lactation_number=0,
+                        dry_date=TODAY - timedelta(days=1))
+    assert await _sweep(db) == 0
+    await db.refresh(heifer)
+    assert heifer.status == CowStatus.pregnant
+    notes = (await db.execute(
+        select(Notification).where(Notification.cow_id == heifer.id)
+    )).scalars().all()
+    assert notes == []
+
+
 # ── fresh -> open at day 70, pushed to a breeding day ────────────────
 
 async def test_fresh_to_open_lands_on_a_breeding_day(db, farm):

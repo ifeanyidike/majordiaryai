@@ -77,6 +77,28 @@ def test_the_blank_line_and_the_total_footer_are_not_animals():
     assert not plan.problems and not plan.skipped
 
 
+# ── her numbers ──────────────────────────────────────────────────────
+
+def test_her_tag_is_the_number_shown_and_her_id_is_kept():
+    """Josh: the app shows and searches the TAG; the DairyComp ID is kept so
+    the old number still finds her."""
+    cow = one(row(ID=90001.0, TAG=9001.0, RPRO="HEIFER", BDAT=dmy(date(2026, 1, 1))))
+    assert cow.ear_tag == "9001"
+    assert cow.herd_id == "90001"
+
+
+def test_two_animals_on_one_tag_are_both_imported():
+    """Real herds reuse tags -- a cow and a heifer both on 9066. They are two
+    animals, told apart by their IDs, not one row and a duplicate."""
+    plan = plan_rows([
+        preg_row(90066, date(2026, 6, 1), TAG=9066.0),
+        preg_row(90067, date(2026, 6, 1), TAG=9066.0, LACT=0.0, DIM=0.0),
+    ], EXPORT, TODAY)
+    assert not plan.problems
+    assert sorted((c.ear_tag, c.herd_id) for c in plan.cows) == [
+        ("9066", "90066"), ("9066", "90067")]
+
+
 # ── statuses ─────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("age_days,status,program", [
@@ -138,6 +160,18 @@ def test_a_dry_cow_is_already_in_the_dry_pen():
     assert cow.dry_off_confirmed_date == dried
 
 
+@pytest.mark.parametrize("dc", ["PREG    ", "DRY     "])
+def test_a_pregnant_heifer_is_never_dried_off(dc):
+    """Josh: a heifer has not given birth, however old she is -- she is not in
+    milk, so she has no dry date and is never Dry. She is Pregnant until she
+    calves."""
+    bred = date(2026, 1, 20)
+    cow = one(preg_row(18, bred, RPRO=dc, LACT=0.0, DIM=0.0, DDAT=dmy(date(2026, 9, 1))))
+    assert cow.status == CowStatus.pregnant
+    assert cow.dry_date is None and cow.dry_off_confirmed_date is None
+    assert cow.due_date == bred + timedelta(days=GESTATION_DAYS)
+
+
 def test_dnb_puts_her_on_the_do_not_breed_list():
     cow = one(row(ID=17.0, RPRO="DNB", LACT=3.0, DIM=150.0))
     assert cow.do_not_breed is True
@@ -191,22 +225,27 @@ async def test_writing_adds_cows_with_their_inseminations_and_never_overwrites(d
     from sqlalchemy import select
 
     # Already on the farm, with something the app recorded since the export.
-    db.add(Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="14", status=CowStatus.pregnant,
-               lactation_number=1))
+    db.add(Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="T14", herd_id="14",
+               status=CowStatus.pregnant, lactation_number=1))
     await db.flush()
 
     plan = plan_rows([
-        row(ID=14.0, RPRO="BRED", LACT=1.0, DIM=110.0, DSLH=35.0),
+        row(ID=14.0, TAG="T14", RPRO="BRED", LACT=1.0, DIM=110.0, DSLH=35.0),
         preg_row(15, date(2026, 6, 1)),
         row(ID=12.0, RPRO="FRESH", LACT=2.0, DIM=20.0),
+        # Wears the same tag as 14, but is another animal: her ID says so.
+        row(ID=16.0, TAG="T14", RPRO="HEIFER", BDAT=dmy(date(2026, 1, 1))),
     ], EXPORT, TODAY)
     added, already = await dairycomp.write_plan(db, farm.id, plan, EXPORT)
 
     assert already == ["14"]
-    assert {p.ear_tag for p in added} == {"15", "12"}
-    kept = (await db.execute(select(Cow).where(Cow.farm_id == farm.id, Cow.ear_tag == "14"))
+    assert {p.herd_id for p in added} == {"15", "12", "16"}
+    kept = (await db.execute(select(Cow).where(Cow.farm_id == farm.id, Cow.herd_id == "14"))
             ).scalar_one()
     assert kept.status == CowStatus.pregnant  # the app's record, untouched
+    on_tag = (await db.execute(select(Cow.herd_id).where(
+        Cow.farm_id == farm.id, Cow.ear_tag == "T14"))).scalars().all()
+    assert sorted(on_tag) == ["14", "16"]
 
     preg = (await db.execute(select(Cow).where(Cow.farm_id == farm.id, Cow.ear_tag == "15"))
             ).scalar_one()

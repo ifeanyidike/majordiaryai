@@ -20,6 +20,10 @@ scripts/import_dairycomp.py drives both.
 Dates the app derives (due, dry-off) follow Josh's rules -- 283 and 223 days
 from the breeding -- not DairyComp's. DairyComp is only trusted for the facts:
 when she calved, when she was bred, when she was dried off.
+
+Her TAG is the number the app shows and searches; DairyComp's ID is kept as
+herd_id, so the old number still finds her and a re-import recognises her.
+The ID is the unique one: tags are reused (a cow and a heifer on one tag).
 """
 
 import re
@@ -35,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Cow, CowStatus, Insemination
 from app.services.status_engine import (
     CALF_TO_HEIFER_DAY, DRY_OFF_DAY, FRESH_TO_OPEN_DAY, GESTATION_DAYS,
-    HEIFER_BREEDING_DAY, adjust_to_breeding_day,
+    HEIFER_BREEDING_DAY, adjust_to_breeding_day, dry_date_for,
 )
 
 # DairyComp's own pregnancy length and dry-off lead. Its DRY50 column is its
@@ -58,7 +62,8 @@ class RowProblem(Exception):
 class CowPlan:
     """One animal as the app will hold her."""
     row: int
-    ear_tag: str
+    herd_id: str    # DairyComp's ID
+    ear_tag: str    # her TAG, or the ID when the export has no tag
     status: CowStatus
     dc_status: str
     lactation_number: int = 0
@@ -78,7 +83,7 @@ class CowPlan:
     def cow_fields(self) -> dict:
         """Columns for the Cow row (the insemination is written separately)."""
         return {
-            "ear_tag": self.ear_tag, "status": self.status,
+            "herd_id": self.herd_id, "ear_tag": self.ear_tag, "status": self.status,
             "lactation_number": self.lactation_number,
             "date_of_birth": self.date_of_birth,
             "last_calving_date": self.last_calving_date,
@@ -95,7 +100,7 @@ class CowPlan:
 class Held:
     """An animal deliberately left out, and why."""
     row: int
-    ear_tag: str
+    herd_id: str
     reason: str
 
 
@@ -103,7 +108,7 @@ class Held:
 class Plan:
     cows: List[CowPlan] = field(default_factory=list)
     skipped: List[Held] = field(default_factory=list)
-    # (row, ear tag or None, what is wrong) -- could not be read
+    # (row, DairyComp ID or None, what is wrong) -- could not be read
     problems: List[Tuple[int, Optional[str], str]] = field(default_factory=list)
 
 
@@ -199,23 +204,23 @@ def plan_rows(rows: List[Dict], export_date: date, today: date) -> Plan:
     seen: Dict[str, int] = {}
 
     for row_no, r in animals:
-        tag = _text(r.get("ID"))
+        herd_id = _text(r.get("ID"))
         dc = _text(r.get("RPRO")).upper()
         try:
-            if tag in seen:
-                raise RowProblem(f"ID {tag} also appears on row {seen[tag]}")
-            seen[tag] = row_no
+            if herd_id in seen:
+                raise RowProblem(f"ID {herd_id} also appears on row {seen[herd_id]}")
+            seen[herd_id] = row_no
             if dc == "BULLCAF":
-                plan.skipped.append(Held(row_no, tag, "bull calf — the app keeps records "
-                                                      "for heifers and cows only"))
+                plan.skipped.append(Held(row_no, herd_id, "bull calf — the app keeps records "
+                                                          "for heifers and cows only"))
                 continue
-            plan.cows.append(_plan_cow(row_no, tag, dc, r, sire_of, export_date, today))
+            plan.cows.append(_plan_cow(row_no, herd_id, dc, r, sire_of, export_date, today))
         except RowProblem as e:
-            plan.problems.append((row_no, tag or None, str(e)))
+            plan.problems.append((row_no, herd_id or None, str(e)))
     return plan
 
 
-def _plan_cow(row_no: int, tag: str, dc: str, r: Dict, sire_of: Dict[str, Optional[str]],
+def _plan_cow(row_no: int, herd_id: str, dc: str, r: Dict, sire_of: Dict[str, Optional[str]],
               E: date, today: date) -> CowPlan:
     lact = _int(r.get("LACT")) or 0
     dim = _int(r.get("DIM")) or 0
@@ -223,7 +228,8 @@ def _plan_cow(row_no: int, tag: str, dc: str, r: Dict, sire_of: Dict[str, Option
     dob = parse_date(r.get("BDAT"), not_after=E)
     dam = _text(r.get("DID"))
     cow = CowPlan(
-        row=row_no, ear_tag=tag, status=CowStatus.open, dc_status=dc,
+        row=row_no, herd_id=herd_id, ear_tag=_text(r.get("TAG")) or herd_id,
+        status=CowStatus.open, dc_status=dc,
         lactation_number=lact, date_of_birth=dob,
         sire=_text(r.get("SIRE")) or None,
         maternal_sire=sire_of.get(dam) if dam and dam != "0" else None,
@@ -242,9 +248,12 @@ def _plan_cow(row_no: int, tag: str, dc: str, r: Dict, sire_of: Dict[str, Option
         if dc == "BRED":
             cow.status = CowStatus.inseminated
             cow.due_date = None  # only a confirmed pregnancy has a due date
-        elif dc == "PREG":
+        elif dc == "PREG" or lact == 0:
+            # A heifer is never dried off (status_engine.has_calved), so a
+            # pregnant one has no dry date -- and is not Dry, whatever the
+            # export says.
             cow.status = CowStatus.pregnant
-            cow.dry_date = cow.insemination_date + timedelta(days=DRY_OFF_DAY)
+            cow.dry_date = dry_date_for(cow, cow.insemination_date)
         else:  # DRY: she is already in the dry pen
             cow.status = CowStatus.dry
             dried = parse_date(r.get("DDAT"), not_after=E)
@@ -305,16 +314,16 @@ async def write_plan(db: AsyncSession, farm_id, plan: Plan,
     Only ever adds: an ID already on the farm is left exactly as it is, so the
     app's own records (checks, breedings recorded since) always win over an
     older export, and re-running a later export adds just the new animals.
-    Returns (added, ear tags left alone).
+    Returns (added, IDs left alone).
     """
     existing = set((await db.execute(
-        select(Cow.ear_tag).where(Cow.farm_id == farm_id)
+        select(Cow.herd_id).where(Cow.farm_id == farm_id, Cow.herd_id.isnot(None))
     )).scalars())
     added: List[CowPlan] = []
     already: List[str] = []
     for p in plan.cows:
-        if p.ear_tag in existing:
-            already.append(p.ear_tag)
+        if p.herd_id in existing:
+            already.append(p.herd_id)
             continue
         cow = Cow(id=uuid.uuid4(), farm_id=farm_id, **p.cow_fields())
         db.add(cow)

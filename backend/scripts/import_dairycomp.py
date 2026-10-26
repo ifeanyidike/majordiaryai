@@ -142,7 +142,7 @@ async def _import(db: AsyncSession, args, plan, export_date: date, today: date) 
             w = csv.writer(f)
             w.writerow(["row", "ID", "reason"])
             for h in plan.skipped:
-                w.writerow([h.row, h.ear_tag, h.reason])
+                w.writerow([h.row, h.herd_id, h.reason])
         print(f"Held-out animals listed in {args.held_out_csv}")
 
     if args.apply:

@@ -69,6 +69,8 @@ class CowOut(BaseModel):
     id: UUID
     ear_tag: Optional[str] = None
     name: Optional[str] = None
+    # Her DairyComp ID when her herd was imported (migration 0022).
+    herd_id: Optional[str] = None
     # "Bluebell (CA 124 578 1042)", or just the tag when she has no name —
     # computed once here so every screen names her the same way.
     label: Optional[str] = None

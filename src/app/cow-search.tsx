@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { EmptyState, ErrorBanner, Header, ListRow, Screen, SearchBar, StatusPill, Text, SkeletonList } from '@/components';
 import { colors, spacing, useMotion } from '@/theme';
-import { farmById, useAppStore, visibleCows } from '@/store/useAppStore';
+import { farmById, herdIdLabel, useAppStore, visibleCows } from '@/store/useAppStore';
 
 export default function CowSearchScreen() {
   const motion = useMotion();
@@ -21,6 +21,7 @@ export default function CowSearchScreen() {
       (c) =>
         c.id.toLowerCase().includes(q) ||
         (c.earTag ?? '').toLowerCase().includes(q) ||
+        (c.herdId ?? '').toLowerCase().includes(q) ||
         // A farm that names its cows searches by name — typing "Bluebell"
         // finding nothing is the whole reason the name exists.
         (c.name ?? '').toLowerCase().includes(q) ||
@@ -35,7 +36,7 @@ export default function CowSearchScreen() {
       <SearchBar
         value={query}
         onChangeText={setQuery}
-        placeholder="Search by name, ear tag, breed, farm"
+        placeholder="Search by name, ear tag, ID, breed, farm"
         autoFocus
       />
 
@@ -56,7 +57,7 @@ export default function CowSearchScreen() {
               icon="analytics-outline"
               title={cow.label}
               subtitle={[
-                farmById(state, cow.farmId)?.name ?? 'Unknown farm', cow.breed,
+                herdIdLabel(cow), farmById(state, cow.farmId)?.name ?? 'Unknown farm', cow.breed,
                 `Lact ${cow.lactationNumber}`,
               ].filter(Boolean).join(' · ')}
               badge={<StatusPill kind={cow.status} />}

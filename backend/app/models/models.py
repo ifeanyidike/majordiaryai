@@ -3,7 +3,7 @@ from datetime import datetime, date as date_type
 from typing import Optional, List
 from sqlalchemy import (
     String, Integer, SmallInteger, Boolean, Date, DateTime, ForeignKey, Enum,
-    UniqueConstraint, CheckConstraint, text
+    UniqueConstraint, CheckConstraint, Index, text
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -243,9 +243,12 @@ class Bull(Base):
 class Cow(Base):
     __tablename__ = "cows"
     __table_args__ = (
-        # NULLs are distinct in a unique index, so any number of name-only
-        # cows coexist while two cows still cannot share a real tag.
-        UniqueConstraint("farm_id", "ear_tag"),
+        # The herd software's ID is what tells two animals apart. The ear tag
+        # cannot: real herds reuse tags (a cow and a heifer both wear 9066), so
+        # it is only indexed, and the app refuses a duplicate when one is ADDED
+        # here (routers/cows.py) rather than the database refusing it always.
+        UniqueConstraint("farm_id", "herd_id", name="uq_cows_farm_id_herd_id"),
+        Index("ix_cows_farm_id_ear_tag", "farm_id", "ear_tag"),
         CheckConstraint("lactation_number >= 0", name="ck_cows_lactation_number_non_negative"),
         # One identifier at minimum. A cow with neither is a record of nothing.
         CheckConstraint("ear_tag IS NOT NULL OR name IS NOT NULL",
@@ -258,6 +261,10 @@ class Cow(Base):
     # whether both fields could be optional and said yes.
     ear_tag: Mapped[Optional[str]] = mapped_column(String)
     name: Mapped[Optional[str]] = mapped_column(String)
+    # Her ID in the farm's herd software (DairyComp's ID column), kept when a
+    # herd list is imported so the old number still finds her. Unique per
+    # farm; empty for animals added in the app (migration 0022).
+    herd_id: Mapped[Optional[str]] = mapped_column(String)
     farm_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("farms.id"), nullable=False)
     breed: Mapped[Optional[str]] = mapped_column(String)
     date_of_birth: Mapped[Optional[date_type]] = mapped_column(Date)

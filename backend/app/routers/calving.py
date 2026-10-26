@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
@@ -87,6 +86,14 @@ async def record_calving(
     if body.live_birth and body.calf_sex == CalfSex.female:
         if not calf_ear_tag:
             calf_ear_tag = await _generate_calf_ear_tag(db, cow.farm_id)
+        elif await db.scalar(select(func.count(Cow.id)).where(
+                Cow.farm_id == cow.farm_id, Cow.ear_tag == calf_ear_tag)):
+            # Shared tags are allowed in the database for imported herds
+            # (migration 0022); a newborn's tag already in use is a mistake.
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ear tag '{calf_ear_tag}' already exists on this farm",
+            )
         calf = Cow(
             ear_tag=calf_ear_tag,
             farm_id=cow.farm_id,
@@ -95,14 +102,7 @@ async def record_calving(
             status=CowStatus.calf,
         )
         db.add(calf)
-        try:
-            await db.flush()
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ear tag '{calf_ear_tag}' already exists on this farm",
-            )
+        await db.flush()
         calf_id = calf.id
 
     calving = CalvingRecord(
