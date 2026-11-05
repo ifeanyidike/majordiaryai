@@ -22,7 +22,9 @@ from sqlalchemy import and_, or_, select
 from app.models.models import (
     Cow, CowStatus, EnrollmentStatus, NeedlingEnrollment, NeedlingRecord, ProtocolType,
 )
-from app.services.worklists import needling_due_stmt, timed_breeding_stmt
+from app.services.worklists import (
+    needling_due_stmt, prostaglandin_checks_stmt, timed_breeding_stmt,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -49,11 +51,18 @@ async def on_timed_breeding(db, cow: Cow) -> list:
     return [rec for rec, enr, c, farm in rows if c.id == cow.id]
 
 
+async def on_prostaglandin(db, cow: Cow) -> list:
+    rows = (await db.execute(prostaglandin_checks_stmt(TODAY))).all()
+    return [r for r, c in rows if c.id == cow.id]
+
+
 async def assert_invariants(db, cow: Cow, *, label: str):
-    """Disjoint, and nobody with outstanding work falls off both reports."""
+    """Disjoint, and nobody with outstanding work falls off every report."""
     n = await on_needling(db, cow)
     t = await on_timed_breeding(db, cow)
-    assert not ({r.id for r in n} & {r.id for r in t}), f"{label}: same record on both reports"
+    p = await on_prostaglandin(db, cow)
+    ids = [r.id for r in n] + [r.id for r in t] + [r.id for r in p]
+    assert len(ids) == len(set(ids)), f"{label}: same record on two reports"
 
     # "Outstanding work" excludes records on a cancelled/completed enrollment:
     # those were called off and must NOT appear on a report. Defined here
@@ -82,7 +91,7 @@ async def assert_invariants(db, cow: Cow, *, label: str):
         )
     )).scalars().all()
     if outstanding and cow.status not in (CowStatus.cull, CowStatus.sold, CowStatus.dead):
-        assert n or t, f"{label}: has outstanding work but appears on NO report"
+        assert n or t or p, f"{label}: has outstanding work but appears on NO report"
     return n, t
 
 
@@ -146,15 +155,25 @@ async def test_status_drift_does_not_hide_cow_from_both_reports(db, make_cow):
 
 # ── Protocol semantics ───────────────────────────────────────────────
 
-async def test_prostaglandin_heat_final_day_stays_on_needling(db, make_cow):
+async def test_prostaglandin_heat_final_day_stays_off_timed_breeding(db, make_cow):
     """Its last day is conditional AI on observed heat, not timed AI — it must
-    never be pulled onto Timed Breeding."""
+    never be pulled onto Timed Breeding. It is a heat check, so it is on the
+    Prostaglandin Report, not the Needling Report (test results, Nov 5)."""
     cow = await make_cow(
         protocol=ProtocolType.prostaglandin_heat,
         steps=[(5, 0, "Heat Observation + Insemination if in heat", True, False)],
     )
     n, t = await assert_invariants(db, cow, label="pgf-heat final day")
+    assert not n and not t
+    assert len(await on_prostaglandin(db, cow)) == 1
+
+
+async def test_prostaglandin_heat_day_one_is_a_needling_shot(db, make_cow):
+    cow = await make_cow(protocol=ProtocolType.prostaglandin_heat,
+                         steps=[(1, 0, "2cc PGF", False, False)])
+    n, t = await assert_invariants(db, cow, label="pgf-heat day 1")
     assert len(n) == 1 and not t
+    assert not await on_prostaglandin(db, cow)
 
 
 async def test_terminal_cow_is_on_no_report(db, make_cow):

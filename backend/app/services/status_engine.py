@@ -11,11 +11,13 @@ Rules (from planning docs):
   pregnancy check -ve     → status = open (protocol selection via Open report)
   bleeding pre-AI         → enrollment cancelled, cow open, auto-enrolled in Ovsynch
   calving recorded        → status = fresh, lactation_number++, clear reproductive fields
+                            (only ever recorded by a person; nothing makes her Fresh on a date)
   dry date reached        → status = dry (day 223 post-insemination; farmer notified to change pen)
   fresh day 70            → status = open (entry date pushed to next Mon/Tue/Sat)
   calf day 60             → status = heifer
   heifer day ~395 (13 mo) → status = open (appears on breeding list)
   cull recorded           → status = cull
+  marked Do Not Breed     → status = dnb wherever she would be open (open_or_dnb)
 Timed transitions run via run_lifecycle_transitions(), invoked by the report
 endpoints and POST /admin/run-transitions — never as a GET side effect.
 """
@@ -36,8 +38,8 @@ from app.models.models import (
 )
 from app.services.notifications import create_notification
 from app.services.protocols import (
-    final_step_without_hormone, get_scheduled_records, self_inject_step,
-    TIMED_AI_PROTOCOLS,
+    FIRST_HEAT_CHECK_DAY, final_step_without_hormone, get_scheduled_records, protocol_label,
+    self_inject_step, TIMED_AI_PROTOCOLS,
 )
 
 GESTATION_DAYS = 283
@@ -86,19 +88,23 @@ INSEMINABLE_STATUSES = {
 LEGAL_TRANSITIONS = {
     CowStatus.calf:        {CowStatus.heifer, CowStatus.cull, CowStatus.dead},
     # fresh: a heifer can calve before anyone records a pregnancy check.
-    CowStatus.heifer:      {CowStatus.open, CowStatus.needling, CowStatus.inseminated,
+    CowStatus.heifer:      {CowStatus.open, CowStatus.dnb, CowStatus.needling, CowStatus.inseminated,
                             CowStatus.fresh, CowStatus.cull, CowStatus.dead},
-    CowStatus.fresh:       {CowStatus.open, CowStatus.inseminated, CowStatus.fresh,
+    # needling: started by hand before day 70 (test results, Nov 5).
+    CowStatus.fresh:       {CowStatus.open, CowStatus.dnb, CowStatus.needling, CowStatus.inseminated,
+                            CowStatus.fresh, CowStatus.cull, CowStatus.dead},
+    CowStatus.open:        {CowStatus.dnb, CowStatus.needling, CowStatus.inseminated, CowStatus.fresh,
                             CowStatus.cull, CowStatus.dead},
-    CowStatus.open:        {CowStatus.needling, CowStatus.inseminated, CowStatus.fresh,
-                            CowStatus.cull, CowStatus.dead},
-    CowStatus.needling:    {CowStatus.open, CowStatus.inseminated, CowStatus.fresh,
+    CowStatus.needling:    {CowStatus.open, CowStatus.dnb, CowStatus.inseminated, CowStatus.fresh,
                             CowStatus.cull, CowStatus.dead},
     # fresh: she calved without the pregnancy check ever being recorded.
-    CowStatus.inseminated: {CowStatus.open, CowStatus.pregnant, CowStatus.fresh,
+    CowStatus.inseminated: {CowStatus.open, CowStatus.dnb, CowStatus.pregnant, CowStatus.fresh,
                             CowStatus.cull, CowStatus.dead},
-    CowStatus.pregnant:    {CowStatus.open, CowStatus.dry, CowStatus.fresh, CowStatus.cull, CowStatus.dead},
+    CowStatus.pregnant:    {CowStatus.open, CowStatus.dnb, CowStatus.dry, CowStatus.fresh,
+                            CowStatus.cull, CowStatus.dead},
     CowStatus.dry:         {CowStatus.fresh, CowStatus.cull, CowStatus.dead},
+    # open: taken off the list. fresh: a calving is accepted from any live status.
+    CowStatus.dnb:         {CowStatus.open, CowStatus.fresh, CowStatus.cull, CowStatus.dead},
     CowStatus.cull:        {CowStatus.sold, CowStatus.dead},
     CowStatus.sold:        set(),
     CowStatus.dead:        set(),
@@ -121,14 +127,18 @@ def ensure_transition(cow: Cow, new_status: CowStatus) -> None:
 # statuses below, so milking is DERIVED — storing a flag would be a second
 # source of truth that drifts from status.
 NON_MILKING_STATUSES = {
-    CowStatus.dry, CowStatus.calf, CowStatus.heifer,
-    CowStatus.cull, CowStatus.sold, CowStatus.dead,
+    CowStatus.dry, CowStatus.calf, CowStatus.heifer, CowStatus.sold, CowStatus.dead,
 }
 
 
 def is_milking(cow: Cow) -> bool:
     """True when this cow is currently in milk."""
     if cow.status in NON_MILKING_STATUSES:
+        return False
+    # Cull is a decision, not the day she leaves: she is milked until she goes
+    # (test results, Nov 5: "continue telling days in milk") -- unless she was
+    # dried off first, which her dry date still says.
+    if cow.status == CowStatus.cull and cow.dry_date and cow.dry_date <= local_today():
         return False
     # She only milks once she has actually calved.
     return cow.last_calving_date is not None
@@ -231,6 +241,34 @@ async def cancel_active_enrollments(
         enrollment.status = new_status
 
 
+def open_or_dnb(cow: Cow) -> CowStatus:
+    """The status she takes when she would go Open.
+
+    Test results, Nov 5: Do Not Breed is a status of its own. It takes over
+    from Open, not from the statuses before it: a Fresh cow still owes her
+    vaccine and a Pregnant or Dry one has a calf coming, so a cow marked at
+    those points keeps that status until she would otherwise be Open.
+    """
+    return CowStatus.dnb if cow.do_not_breed else CowStatus.open
+
+
+async def settle_do_not_breed(cow: Cow, db: AsyncSession) -> bool:
+    """Bring her status into line with the mark on her record. True if it moved."""
+    if cow.do_not_breed and cow.status in (CowStatus.open, CowStatus.needling):
+        # A protocol only leads to a breeding she may not have, and one status
+        # cannot say both things.
+        await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
+        cow.status = CowStatus.dnb
+        cow.current_program = None
+        return True
+    if not cow.do_not_breed and cow.status == CowStatus.dnb:
+        cow.status = CowStatus.open
+        # Never calved: a breeding-age heifer, who is bred directly.
+        cow.current_program = None if has_calved(cow) else "Insemination"
+        return True
+    return False
+
+
 async def add_protocol_records(
     cow: Cow, enrollment_id, protocol: str, start_date: date, db: AsyncSession,
 ) -> Optional[NeedlingRecord]:
@@ -300,10 +338,11 @@ async def on_insemination(cow: Cow, insemination: Insemination, db: AsyncSession
 # being pregnant is not one of them. The specs read a heat as proof she is
 # not carrying ("Fail Heat Report ... sent to Insemination"), so a pregnant or
 # dry cow in heat is treated as one whose pregnancy failed. Calves are not
-# breedable at all; cull/sold/dead have left the breeding herd.
+# breedable at all; cull/sold/dead have left the breeding herd. A DNB cow's
+# heat is still worth writing down; the app says she is not to be bred.
 HEAT_RECORDABLE_STATUSES = {
     CowStatus.heifer, CowStatus.fresh, CowStatus.open, CowStatus.needling,
-    CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry,
+    CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry, CowStatus.dnb,
 }
 # A heat on one of these means the breeding she was carrying failed.
 _CARRYING_STATUSES = {CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry}
@@ -311,30 +350,29 @@ _CARRYING_STATUSES = {CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry}
 
 def breeding_list(cow: Cow) -> Optional[str]:
     """The breeding list she is on, by name, or None (Josh, Oct 2/4)."""
-    if cow.do_not_breed:
-        return "Do Not Breed"
-    if cow.do_not_inseminate:
-        return "Do Not Inseminate"
-    return None
+    return "Do Not Breed" if cow.do_not_breed else None
 
 
 def open_message(cow: Cow, how: str) -> str:
-    """"<cow> is Open -- select a needling protocol", unless she is on a
-    breeding list, where that instruction is the one thing not to do."""
-    listed = breeding_list(cow)
-    if listed:
-        return f"{cow.label} {how}. She is on the {listed} list, so no protocol is needed."
+    """"<cow> is Open -- select a needling protocol", unless she is marked Do
+    Not Breed: then she is DNB, not Open, and that instruction is the one
+    thing not to do."""
+    if breeding_list(cow):
+        return f"{cow.label} is DNB. She is on the Do Not Breed list, so no protocol is needed."
     return f"{cow.label} {how} — select a needling protocol."
 
 
-def breeding_exclusion(cow: Cow, today: date) -> Optional[str]:
+def breeding_exclusion(cow: Cow, today: date, overruled: bool = False) -> Optional[str]:
     """Why a cow seen in heat must NOT be bred, or None if she must be.
 
     Josh, Oct 4 -- she does not go on Today's Breed Report if she is: under 60
-    days post calving, on the Do Not Breed list, on the Do Not Inseminate
-    list, Cull, or under 13 months of age. An unknown birth date or calving
-    date does not exclude her: most milking cows are entered without one, and
-    "we don't know" is not a reason to waste a heat.
+    days post calving, on the Do Not Breed list, Cull, or under 13 months of
+    age. An unknown birth date or calving date does not exclude her: most
+    milking cows are entered without one, and "we don't know" is not a reason
+    to waste a heat.
+
+    overruled: the farmer wants her bred anyway. That sets aside the 60-day
+    rule and only that one (test results, Nov 5; see can_overrule).
     """
     if cow.status in (CowStatus.cull, CowStatus.sold, CowStatus.dead):
         return "she is a cull" if cow.status == CowStatus.cull else f"she is {cow.status.value}"
@@ -345,10 +383,55 @@ def breeding_exclusion(cow: Cow, today: date) -> Optional[str]:
         return "she is a calf"
     if cow.date_of_birth and (today - cow.date_of_birth).days < MIN_AGE_DAYS_TO_BREED:
         return "she is under 13 months old"
-    if cow.last_calving_date and \
+    if not overruled and cow.last_calving_date and \
             (today - cow.last_calving_date).days < MIN_DAYS_POST_CALVING_TO_BREED:
         return f"she is under {MIN_DAYS_POST_CALVING_TO_BREED} days post calving"
     return None
+
+
+def can_overrule(cow: Cow, today: date) -> bool:
+    """Is the 60-day rule the one thing keeping her off Today's Breed Report?
+
+    Test results, Nov 5: the farmer may overrule it, after an "Are you sure?".
+    Cull, Do Not Breed and the age limit are not his to overrule here.
+    """
+    return breeding_exclusion(cow, today) is not None \
+        and breeding_exclusion(cow, today, overruled=True) is None
+
+
+def announce_breed_today(cow: Cow, db: AsyncSession) -> None:
+    create_notification(
+        db, cow.farm_id, cow.id, "breeding_due",
+        f"{cow.label} was seen in heat — she is on Today's Breed Report "
+        "and must be bred today. If she isn't, she goes to Open tomorrow.",
+    )
+
+
+async def _answer_heat_check(cow: Cow, detected_on: date, db: AsyncSession) -> None:
+    """A heat answers the Prostaglandin check she was due, however it was seen.
+
+    Marked done without ending the protocol: if this is her last day, the AI
+    that follows closes it, and if nobody breeds her the sweep makes her Open
+    (_open_after_unbred_heat). on_final_record_completed would send her to
+    Open now, while she is in heat and waiting to be bred.
+    """
+    record = await db.scalar(
+        select(NeedlingRecord)
+        .join(NeedlingEnrollment, NeedlingEnrollment.id == NeedlingRecord.enrollment_id)
+        .where(
+            NeedlingRecord.cow_id == cow.id,
+            NeedlingEnrollment.protocol == ProtocolType.prostaglandin_heat,
+            NeedlingEnrollment.status == EnrollmentStatus.active,
+            NeedlingRecord.protocol_day >= FIRST_HEAT_CHECK_DAY,
+            NeedlingRecord.scheduled_date <= detected_on,
+        )
+        .order_by(NeedlingRecord.scheduled_date.desc())
+        .limit(1)
+    )
+    if record is not None and not record.completed:
+        record.completed = True
+        record.completed_date = detected_on
+        record.notes = f"{record.notes}\nIn heat" if record.notes else "In heat"
 
 
 async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Optional[str]:
@@ -364,20 +447,18 @@ async def on_heat_detected(cow: Cow, db: AsyncSession, detected_on: date) -> Opt
     """
     was_inseminated = cow.status in _CARRYING_STATUSES
     if was_inseminated:
-        cow.status = CowStatus.open
+        cow.status = open_or_dnb(cow)
         cow.current_program = None
         # last_insemination_id/date stay: the failed AI is a true fact.
         cow.due_date = None
         cow.dry_date = None
         cow.dry_off_confirmed_date = None
+    elif cow.status == CowStatus.needling:
+        await _answer_heat_check(cow, detected_on, db)
 
     reason = breeding_exclusion(cow, detected_on)
     if reason is None and detected_on == local_today():
-        create_notification(
-            db, cow.farm_id, cow.id, "breeding_due",
-            f"{cow.label} was seen in heat — she is on Today's Breed Report "
-            "and must be bred today. If she isn't, she goes to Open tomorrow.",
-        )
+        announce_breed_today(cow, db)
     elif reason is None and was_inseminated:
         # Written up after the day: the heat is already gone, so there is no
         # breeding to ask for -- only the failed insemination to report.
@@ -407,7 +488,7 @@ async def on_pregnancy_confirmed(cow: Cow, insemination_date: date, db: AsyncSes
 
 async def on_pregnancy_negative(cow: Cow, db: AsyncSession) -> None:
     """Not pregnant (or cysts found) — back to Open for protocol selection."""
-    cow.status = CowStatus.open
+    cow.status = open_or_dnb(cow)
     cow.current_program = None
     _clear_reproductive_fields(cow)
     create_notification(
@@ -438,13 +519,13 @@ async def on_final_record_completed(
     enrollment.status = EnrollmentStatus.completed
     # Guarded like every other status write — a drifted cow must not be moved
     # into an illegal state just because her protocol ran out of steps.
-    ensure_transition(cow, CowStatus.open)
-    cow.status = CowStatus.open
+    target = open_or_dnb(cow)
+    ensure_transition(cow, target)
+    cow.status = target
     cow.current_program = None
     create_notification(
         db, cow.farm_id, cow.id, "open",
-        f"{cow.label} finished {enrollment.protocol.value} — "
-        "returned to Open for a breeding decision.",
+        open_message(cow, f"finished {protocol_label(enrollment.protocol)} and is Open"),
     )
 
 
@@ -501,7 +582,7 @@ async def on_calving(cow: Cow, calving_date: date, db: AsyncSession) -> None:
     # protocol-completion stats with rounds that never finished.
     await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
     cow.status = CowStatus.fresh
-    # Counted here and only here. The day-283 sweep deliberately does not, so
+    # Counted here and only here. The old day-283 rule deliberately did not, so
     # a cow it made Fresh is counted exactly once when her calving is recorded.
     cow.lactation_number = (cow.lactation_number or 0) + 1
     cow.last_calving_date = calving_date
@@ -547,10 +628,12 @@ async def run_lifecycle_transitions(
     POST /admin/run-transitions; commits once if anything changed.
 
       pregnant + dry_date reached      → dry (+ "stop milking" notification)
-      dry + due_date reached (day 283) → fresh (+ "confirm the calving")
       fresh + day 70 (next Mon/Tue/Sat)→ open (+ notification)
       calf + day 60                    → heifer
       heifer + day 395 (~13 months)    → open (breeding-eligible, + notification)
+
+    A marked cow goes to DNB wherever these say open (open_or_dnb). Nothing
+    here makes a Dry cow Fresh: that is a calving, and a person records it.
 
     farm_ids: restrict the sweep to these farms (None = all farms).
     """
@@ -559,12 +642,8 @@ async def run_lifecycle_transitions(
 
     stmt = (
         select(Cow)
-        # `dry` is in the list because the due-date branch below moves her on;
-        # without it that branch is unreachable and a dry cow never becomes
-        # fresh on her own.
         .where(Cow.status.in_([
-            CowStatus.pregnant, CowStatus.dry, CowStatus.fresh,
-            CowStatus.calf, CowStatus.heifer,
+            CowStatus.pregnant, CowStatus.fresh, CowStatus.calf, CowStatus.heifer,
         ]))
         # Deterministic lock order — two concurrent sweeps over overlapping
         # farm scopes must acquire row locks in the same sequence or they
@@ -596,53 +675,21 @@ async def run_lifecycle_transitions(
             changed += 1
             continue
 
-        if cow.status == CowStatus.dry and cow.due_date and cow.due_date <= today:
-            # "On 283 days, the status changes from dry to fresh" -- the
-            # client's own words. Day 283 is GESTATION_DAYS from the
-            # insemination, which is her due date.
-            #
-            # Deliberately conservative about everything EXCEPT the status.
-            # Nobody has told us she actually calved, so:
-            #   * last_calving_date is set to the due date as an ASSUMPTION,
-            #     because without it she is a fresh cow with no clock -- the
-            #     day-70 sweep below would never move her again and the
-            #     vaccine report could never find her;
-            #   * lactation_number is NOT incremented. That belongs to the
-            #     calving itself, and recording the real one later increments
-            #     it and overwrites the assumed date with the true one. If the
-            #     calving is never recorded she stays a lactation behind,
-            #     which is the honest answer: we never confirmed it happened.
-            assumed_calving = cow.due_date
-            cow.status = CowStatus.fresh
-            cow.current_program = None
-            _clear_reproductive_fields(cow)
-            cow.last_calving_date = assumed_calving
-            # Keeps the real calving recordable: without it she is Fresh, and
-            # the app only offers "Record Calving" to pregnant and dry cows.
-            cow.calving_assumed = True
-            create_notification(
-                db, cow.farm_id, cow.id, "calving",
-                f"{cow.label} has reached her due date ({assumed_calving.isoformat()}) "
-                "and is now Fresh — confirm the calving so her lactation and "
-                "dates are right.",
-            )
-            changed += 1
-            continue
-
         if cow.status == CowStatus.fresh and cow.last_calving_date:
             if cow.calving_assumed:
-                # Her calving date is the sweep's guess, not a record. Moving
-                # her to Open would take "Record Calving" away for good, and
-                # recording it once she is bred again would be worse: a
-                # calving resets her pregnancy. The voluntary waiting period is
-                # measured from the REAL calving anyway, so she waits here, on
-                # the Fresh report, until someone records it.
+                # Made Fresh on her due date by the old day-283 rule (test
+                # results, Nov 5, ended it), so her calving date is a guess,
+                # not a record. Moving her to Open would take "Record Calving"
+                # away for good, and recording it once she is bred again would
+                # be worse: a calving resets her pregnancy. The voluntary
+                # waiting period is measured from the REAL calving anyway, so
+                # she waits here, on the Fresh report, until someone records it.
                 continue
             entry_date = adjust_to_breeding_day(
                 cow.last_calving_date + timedelta(days=FRESH_TO_OPEN_DAY)
             )
             if entry_date <= today:
-                cow.status = CowStatus.open
+                cow.status = open_or_dnb(cow)
                 cow.current_program = None
                 create_notification(
                     db, cow.farm_id, cow.id, "open",
@@ -659,16 +706,19 @@ async def run_lifecycle_transitions(
 
         if cow.status == CowStatus.heifer and cow.date_of_birth and \
                 (today - cow.date_of_birth).days >= HEIFER_BREEDING_DAY:
-            cow.status = CowStatus.open
-            # Master Structure: month-13 heifers go straight to the Insemination
-            # Program (bred directly), not to the Open report's protocol choice.
-            cow.current_program = "Insemination"
-            create_notification(
-                db, cow.farm_id, cow.id, "open",
-                f"Heifer {cow.label} reached breeding age — ready for the Insemination Program.",
-            )
+            cow.status = open_or_dnb(cow)
+            if cow.status == CowStatus.open:
+                # Master Structure: month-13 heifers go straight to the
+                # Insemination Program (bred directly), not to the Open
+                # report's protocol choice.
+                cow.current_program = "Insemination"
+                create_notification(
+                    db, cow.farm_id, cow.id, "open",
+                    f"Heifer {cow.label} reached breeding age — ready for the Insemination Program.",
+                )
             changed += 1
 
+    changed += await _settle_marked_cows(db, farm_ids)
     changed += await _open_after_unbred_heat(db, farm_ids, today)
     changed += await _expire_stale_enrollments(db, farm_ids, today)
     changed += await _remind_pregnancy_checks(db, farm_ids, today)
@@ -676,6 +726,36 @@ async def run_lifecycle_transitions(
 
     if changed:
         await db.commit()
+    return changed
+
+
+async def _settle_marked_cows(
+    db: AsyncSession, farm_ids: Optional[Iterable[uuid.UUID]],
+) -> int:
+    """Any cow marked Do Not Breed who is still Open or on a protocol.
+
+    Every route to Open goes through open_or_dnb, so this is for cows marked
+    before DNB was a status: the migration leaves them for this sweep, because
+    the build it replaces cannot read the new value (migration 0023).
+    """
+    stmt = (
+        select(Cow)
+        .where(
+            Cow.do_not_breed == True,  # noqa: E712
+            Cow.status.in_((CowStatus.open, CowStatus.needling)),
+        )
+        .order_by(Cow.id)
+        .with_for_update()
+    )
+    if farm_ids is not None:
+        farm_ids = list(farm_ids)
+        if not farm_ids:
+            return 0
+        stmt = stmt.where(Cow.farm_id.in_(farm_ids))
+
+    changed = 0
+    for cow in (await db.execute(stmt)).scalars().all():
+        changed += await settle_do_not_breed(cow, db)
     return changed
 
 
@@ -695,8 +775,7 @@ async def _open_after_unbred_heat(
     to open". Any cow: a protocol she was on stops, a heifer leaves the
     Insemination Program, a fresh cow does not wait for day 70 -- including
     one that was not allowed on Today's Breed Report (under 60 days, under 13
-    months, on a breeding list). A listed cow is Open but still kept off the
-    breeding reports by her list.
+    months, on a breeding list). A listed cow goes to DNB instead of Open.
 
     Only two things leave her as she is:
       * she was bred that day or since -- the heat was used;
@@ -751,7 +830,7 @@ async def _open_after_unbred_heat(
             if started_later:
                 continue
         await cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
-        cow.status = CowStatus.open
+        cow.status = open_or_dnb(cow)
         cow.current_program = None
         create_notification(
             db, cow.farm_id, cow.id, "open",
@@ -967,14 +1046,15 @@ async def _expire_stale_enrollments(
     changed = 0
     for enrollment, cow, final_date in (await db.execute(stmt)).all():
         enrollment.status = EnrollmentStatus.cancelled
-        ensure_transition(cow, CowStatus.open)
-        cow.status = CowStatus.open
+        target = open_or_dnb(cow)
+        ensure_transition(cow, target)
+        cow.status = target
         cow.current_program = None
         days_late = (today - final_date).days
         create_notification(
             db, cow.farm_id, cow.id, "open",
             f"{cow.label} was not inseminated {days_late} days after her "
-            f"{enrollment.protocol.value} final day — protocol cancelled, she is "
+            f"{protocol_label(enrollment.protocol)} final day — protocol cancelled, she is "
             "Open and needs a new breeding decision.",
         )
         changed += 1

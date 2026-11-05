@@ -126,6 +126,7 @@ _STATUS_SYNONYMS = {
     "empty": CowStatus.open,
     "not_pregnant": CowStatus.open,
     "open": CowStatus.open,
+    "do_not_breed": CowStatus.dnb,
     "dried_off": CowStatus.dry,
     "dry": CowStatus.dry,
     "milking": CowStatus.fresh,
@@ -458,6 +459,10 @@ async def import_cows(
             )
             fields = _extract_cow_fields(raw)
             supplied = _supplied_fields(raw)
+            # A status of DNB is a cow marked Do Not Breed, not one or the other.
+            if fields.get("status") == CowStatus.dnb:
+                fields["do_not_breed"] = True
+                supplied.add("do_not_breed")
 
             # SAVEPOINT per row. A plain rollback() here discarded EVERY row
             # staged so far while the counters kept counting, so a 200-row file

@@ -347,16 +347,16 @@ def test_upcoming_calvings_are_not_counted_as_work():
     assert reports["calving-due"]["is_work_report"] is False
 
 
-def test_needling_observation_days_do_not_read_as_injections():
+def test_a_heat_check_does_not_read_as_an_injection():
     cow = _cow(status=CowStatus.needling)
-    ctx = _ctx([cow], needling={str(cow.id): {
+    ctx = _ctx([cow], prostaglandin={str(cow.id): {
         "id": str(uuid.uuid4()), "treatment": "Heat Examination", "protocol_day": 3,
-        "protocol": "prostaglandin_heat", "days_overdue": 0,
-        "enrollment_id": str(uuid.uuid4()),
+        "is_final": False, "days_overdue": 0,
     }})
-    action = {r["type"]: r for r in build_reports(ctx)}["needling"]["cows"][0]["action"]
-    assert "injection" not in action
-    assert action == "Requires Heat Examination today (PGF Heat, Day 3)"
+    reports = {r["type"]: r for r in build_reports(ctx)}
+    assert "needling" not in reports
+    assert reports["prostaglandin"]["cows"][0]["action"] == \
+        "Check for heat today (Prostaglandin Heat, Day 3)"
 
 
 def test_protocol_labels_never_leak_the_raw_enum():

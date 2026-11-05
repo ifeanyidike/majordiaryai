@@ -62,6 +62,9 @@ async def enroll_cow(
             detail=f"{cow.label} is on the {listed} list, so she is not to be bred. "
                    "Take her off it first if she is to start a protocol.",
         )
+    # Off Fresh, nothing offers "Record Calving" any more.
+    if cow.calving_assumed:
+        raise HTTPException(status_code=409, detail=f"Record {cow.label}'s calving first")
     status_engine.ensure_transition(cow, CowStatus.needling)
 
     # The start date schedules every injection in the protocol, so a typo'd

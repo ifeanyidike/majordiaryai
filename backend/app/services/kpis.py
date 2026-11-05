@@ -294,6 +294,10 @@ class _Herd:
         """
         if cow.id in self.left_undated:
             return False
+        # Not in the pool, and like an undated exit there is no date to say
+        # since when, so she is out of the history too.
+        if cow.status == "dnb":
+            return False
         cull = self.cull_date.get(cow.id)
         if cull is not None and cull <= start:
             return False

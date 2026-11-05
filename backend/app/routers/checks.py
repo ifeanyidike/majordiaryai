@@ -90,6 +90,45 @@ async def record_heat_check(
     out = HeatCheckOut.model_validate(check, from_attributes=True)
     out.on_breed_report = on_breed_report
     out.not_bred_because = not_bred_because
+    # Today's Breed Report only takes a heat seen today.
+    out.can_overrule = (not_bred_because is not None and body.check_date == local_today()
+                        and status_engine.can_overrule(cow, body.check_date))
+    return out
+
+
+@router.post("/heat/{check_id}/overrule", response_model=HeatCheckOut)
+async def overrule_heat_check(
+    check_id: uuid.UUID,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The farmer wants her bred on this heat, under 60 days or not.
+
+    Test results, Nov 5: "the farmer overrules and wants it bred so it should
+    show up in today's breed report", after an "Are you sure?". A step of its
+    own, not a field on the heat: the heat is a fact whichever way he answers,
+    and the app only knows to ask once the server says this rule is the reason.
+    """
+    owner = await db.scalar(select(HeatCheck.cow_id).where(HeatCheck.id == check_id))
+    if owner is None:
+        raise HTTPException(status_code=404, detail="Heat check not found")
+    cow = await get_cow_scoped(db, current_user, owner, for_update=True)
+    check = await db.get(HeatCheck, check_id)
+
+    today = local_today()
+    if check.check_date != today or not (check.heat_detected or check.bleeding_event):
+        raise HTTPException(status_code=409, detail="Only a heat seen today can go on Today's Breed Report")
+    if not status_engine.can_overrule(cow, today):
+        raise HTTPException(status_code=409, detail="This cow cannot be put on Today's Breed Report")
+
+    # Once: a second tap must not tell the farm twice.
+    if not check.breed_anyway:
+        check.breed_anyway = True
+        status_engine.announce_breed_today(cow, db)
+    await db.commit()
+    await db.refresh(check)
+    out = HeatCheckOut.model_validate(check, from_attributes=True)
+    out.on_breed_report = True
     return out
 
 
@@ -215,6 +254,7 @@ async def record_pregnancy_check(
         check_date=body.check_date,
         result=body.result,
         has_infection=body.has_infection,
+        infection_detail=(body.infection_detail or "").strip() or None if body.has_infection else None,
         has_cysts=body.has_cysts,
         notes=body.notes,
         # vet_id only when the caller is actually a vet; acting user always recorded.

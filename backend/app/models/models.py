@@ -43,6 +43,8 @@ class CowStatus(str, enum.Enum):
     inseminated = "inseminated"
     pregnant = "pregnant"
     dry = "dry"
+    # Do Not Breed: milked and kept, never bred (status_engine.open_or_dnb).
+    dnb = "dnb"
     cull = "cull"
     sold = "sold"
     dead = "dead"
@@ -263,7 +265,8 @@ class Cow(Base):
     name: Mapped[Optional[str]] = mapped_column(String)
     # Her ID in the farm's herd software (DairyComp's ID column), kept when a
     # herd list is imported so the old number still finds her. Unique per
-    # farm; empty for animals added in the app (migration 0022).
+    # farm (migration 0022). The Add Cow form asks for it, and needs it when
+    # the tag is already on the farm; other animals added in the app have none.
     herd_id: Mapped[Optional[str]] = mapped_column(String)
     farm_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("farms.id"), nullable=False)
     breed: Mapped[Optional[str]] = mapped_column(String)
@@ -282,9 +285,9 @@ class Cow(Base):
     last_insemination_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("inseminations.id"))
     due_date: Mapped[Optional[date_type]] = mapped_column(Date)
     dry_date: Mapped[Optional[date_type]] = mapped_column(Date)
-    # True from the day-283 sweep, which assumes she calved on her due date,
-    # until the real calving is recorded. It is what keeps "Record Calving"
-    # available on a cow the sweep has already made Fresh (migration 0018).
+    # True if the old day-283 rule made her Fresh on her due date, until the
+    # real calving is recorded. It is what keeps "Record Calving" available on
+    # a Fresh cow (migration 0018). Nothing sets it now (test results, Nov 5).
     calving_assumed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False,
     )
@@ -294,13 +297,11 @@ class Cow(Base):
     # Parentage (Josh, Oct 2): her sire, and her dam's sire.
     sire: Mapped[Optional[str]] = mapped_column(String)
     maternal_sire: Mapped[Optional[str]] = mapped_column(String)
-    # The two lists that keep a cow seen in heat off Today's Breed Report
-    # (Josh, Oct 2/4). Separate on purpose: he kept "Do Not Inseminate" apart
-    # from "Do Not Breed" "for now, to be reviewed later" (migration 0021).
+    # Marked Do Not Breed (Josh, Oct 2/4): kept off Today's Breed Report and
+    # every other breeding job. Her status becomes DNB from the point she
+    # would otherwise be Open (status_engine.open_or_dnb). Do Not Inseminate
+    # was reviewed away (test results, Nov 5): this one mark replaces it.
     do_not_breed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false"), default=False,
-    )
-    do_not_inseminate: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False,
     )
     # Set when the cow leaves the herd (sold / dead)
@@ -419,6 +420,12 @@ class HeatCheck(Base):
     days_since_insemination: Mapped[Optional[int]] = mapped_column(Integer)
     heat_detected: Mapped[Optional[bool]] = mapped_column(Boolean)
     bleeding_event: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The farmer overruled the 60-day rule and wants her bred on this heat
+    # (test results, Nov 5). Stored, because Today's Breed Report re-applies
+    # the rule every time it is built.
+    breed_anyway: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False,
+    )
     technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     notes: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
@@ -440,6 +447,8 @@ class PregnancyCheck(Base):
     performed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     result: Mapped[Optional[PregnancyResult]] = mapped_column(Enum(PregnancyResult, name="pregnancy_result"))
     has_infection: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Which infection, when the vet says (the Infections tab on her history).
+    infection_detail: Mapped[Optional[str]] = mapped_column(String)
     has_cysts: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

@@ -16,7 +16,7 @@ import {
 import { colors, radius, shadows, spacing, useMotion } from '@/theme';
 import { emptyReport, knownReportType } from '@/data/reports';
 import { WorklistCow } from '@/data/types';
-import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/store/useAppStore';
+import { farmWorklist, herdIdLabel, reportFromWorklist, useAppStore, worklistFarms } from '@/store/useAppStore';
 
 /**
  * Layer 3 — the report itself: every cow on it, the exact action for each, and
@@ -37,12 +37,14 @@ import { farmWorklist, reportFromWorklist, useAppStore, worklistFarms } from '@/
  */
 const ROW_PILL_LABEL: Record<string, string> = {
   heat: 'Check Heat',
+  prostaglandin: 'Check Heat',
   'breed-today': 'Breed Today',
   'pregnancy-check': 'Check Pregnancy',
-  // The Needling Report became the Injection Report; its rows said
-  // "NEEDLING" under the new title.
   needling: 'Give Injection',
 };
+
+/** Reports whose rows are about a heat, whatever her status. */
+const HEAT_REPORTS = ['heat', 'prostaglandin', 'breed-today'];
 
 export default function ReportDetailScreen() {
   const motion = useMotion();
@@ -154,11 +156,17 @@ export default function ReportDetailScreen() {
               accessibilityLabel={`${cow.label}. ${cow.action}`}
             >
               <View style={styles.rowTop}>
-                <Text variant="subheading" style={styles.flex1} numberOfLines={2}>
-                  {cow.label}
-                </Text>
+                <View style={styles.flex1}>
+                  <Text variant="subheading" numberOfLines={2}>
+                    {cow.label}
+                  </Text>
+                  {/* Tags can repeat on a farm; this says which animal it is. */}
+                  {herdIdLabel(cow) ? (
+                    <Text variant="caption" color={colors.textSecondary}>{herdIdLabel(cow)}</Text>
+                  ) : null}
+                </View>
                 <StatusPill
-                  kind={report.type === 'heat' || report.type === 'breed-today' ? 'heat' : cow.status}
+                  kind={HEAT_REPORTS.includes(report.type) ? 'heat' : cow.status}
                   label={ROW_PILL_LABEL[report.type]}
                 />
               </View>

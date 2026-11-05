@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Cow, CowStatus, Insemination
 from app.services.status_engine import (
     CALF_TO_HEIFER_DAY, DRY_OFF_DAY, FRESH_TO_OPEN_DAY, GESTATION_DAYS,
-    HEIFER_BREEDING_DAY, adjust_to_breeding_day, dry_date_for,
+    HEIFER_BREEDING_DAY, adjust_to_breeding_day, dry_date_for, open_or_dnb,
 )
 
 # DairyComp's own pregnancy length and dry-off lead. Its DRY50 column is its
@@ -241,7 +241,7 @@ def _plan_cow(row_no: int, herd_id: str, dc: str, r: Dict, sire_of: Dict[str, Op
         lactation_number=lact, date_of_birth=dob,
         sire=_text(r.get("SIRE")) or None,
         maternal_sire=sire_of.get(dam) if dam and dam != "0" else None,
-        # DairyComp's DNB is the list Josh named (Oct 2/4).
+        # DairyComp's DNB is the mark Josh named (Oct 2/4).
         do_not_breed=(dc == "DNB"),
     )
     # A calving date only exists for an animal that has calved. DIM 0 on a
@@ -271,7 +271,7 @@ def _plan_cow(row_no: int, herd_id: str, dc: str, r: Dict, sire_of: Dict[str, Op
         if not cow.last_calving_date:
             raise RowProblem(f"{dc} with no days in milk — cannot date her calving")
         entry = adjust_to_breeding_day(cow.last_calving_date + timedelta(days=FRESH_TO_OPEN_DAY))
-        cow.status = CowStatus.open if entry <= today else CowStatus.fresh
+        cow.status = open_or_dnb(cow) if entry <= today else CowStatus.fresh
     elif dc == "HEIFER" or (lact == 0 and dc in _CALVED_OPEN + ("DNB",)):
         # A heifer is "NO BRED" or "OK/OPEN" to DairyComp when she has never
         # been bred, or was bred and did not take -- an unbred heifer either
@@ -283,8 +283,10 @@ def _plan_cow(row_no: int, herd_id: str, dc: str, r: Dict, sire_of: Dict[str, Op
         age = (today - dob).days
         if age < CALF_TO_HEIFER_DAY:
             cow.status = CowStatus.calf
-        elif age < HEIFER_BREEDING_DAY or cow.do_not_breed:
+        elif age < HEIFER_BREEDING_DAY:
             cow.status = CowStatus.heifer
+        elif cow.do_not_breed:
+            cow.status = CowStatus.dnb
         else:
             # Master Structure: at 13 months she goes to the Insemination
             # Program -- set here, not left to the sweep, which would raise a

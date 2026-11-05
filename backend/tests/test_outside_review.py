@@ -64,18 +64,16 @@ async def _dry_cow_due_today(db, farm, **extra) -> Cow:
     return cow
 
 
-async def test_the_real_calving_can_be_recorded_after_the_sweep(db, farm, api, make_user):
-    """Through POST /calving/, as the app does it. The sweep made her Fresh on
-    her due date; the calving that follows must still count the lactation,
-    correct the date, and create the calf."""
+async def test_the_real_calving_can_be_recorded_on_an_assumed_cow(db, farm, api, make_user):
+    """Through POST /calving/, as the app does it. The old day-283 rule made
+    her Fresh on her due date; the calving that follows must still count the
+    lactation, correct the date, and create the calf. Nothing assumes a calving
+    now, but the cows it happened to are still waiting for theirs."""
     tech = await make_user(UserRole.technician)
     farm.assigned_technician_id = tech.id
-    cow = await _dry_cow_due_today(db, farm)
-
-    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
-    assert cow.status is CowStatus.fresh
-    assert cow.calving_assumed is True
-    assert cow.lactation_number == 3
+    cow = await _dry_cow_due_today(db, farm, last_calving_date=TODAY, calving_assumed=True)
+    cow.status = CowStatus.fresh
+    await db.flush()
 
     real = TODAY - timedelta(days=1)
     async with api("technician", user_id=tech.id) as client:

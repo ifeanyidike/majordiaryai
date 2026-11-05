@@ -34,6 +34,7 @@ export const PROTOCOLS: ProtocolDef[] = [
       // what gets written onto each scheduled record. They had drifted in
       // casing and wording, so the enrol screen promised one thing and the
       // needling card said another for the same day.
+      { day: 2, treatment: 'Heat Observation' },
       { day: 3, treatment: 'Heat Examination' },
       { day: 4, treatment: 'Heat Observation' },
       { day: 5, treatment: 'Heat Observation + Insemination if in heat', final: true },

@@ -1,6 +1,6 @@
 export type CowStatus =
   | 'calf' | 'heifer' | 'fresh' | 'open' | 'needling'
-  | 'inseminated' | 'pregnant' | 'dry' | 'calving' | 'cull'
+  | 'inseminated' | 'pregnant' | 'dry' | 'dnb' | 'calving' | 'cull'
   | 'sold' | 'dead';
 
 export type HealthStatus = 'healthy' | 'sick';
@@ -13,13 +13,13 @@ export interface HistoryEvent {
 
 export interface Cow {
   id: string;
-  /** Fresh by the day-283 sweep; the real calving is still to be recorded. */
+  /** Fresh by the old day-283 rule; the real calving is still to be recorded. */
   calvingAssumed?: boolean;
   /** Either identifier may be absent — but never both. Use `label` to show her. */
   earTag?: string;
   name?: string;
-  /** Her ID in the farm's herd software (DairyComp), kept by the import so
-   *  the old number still finds her. Tags can repeat; this does not. */
+  /** Her ID in the farm's herd software (DairyComp), from the import or the
+   *  Add Cow form. Tags can repeat; this does not. */
   herdId?: string;
   /** "Bluebell (CA 124 578 1042)", or just the tag when she has no name. */
   label: string;
@@ -49,16 +49,36 @@ export interface Cow {
   /** Parentage (Josh, Oct 2): her sire, and her dam's sire. */
   sire?: string;
   maternalSire?: string;
-  /** Either list keeps her off Today's Breed Report when she shows heat. */
+  /** Marked Do Not Breed: off Today's Breed Report and every breeding job.
+   *  Her status is DNB from the point she would otherwise be Open. */
   doNotBreed?: boolean;
-  doNotInseminate?: boolean;
+  /** The protocol she is on now, for the schedule on her page. */
+  activeProtocol?: ActiveProtocol;
   history: {
     inseminations: HistoryEvent[];
     pregnancyChecks: HistoryEvent[];
+    infections: HistoryEvent[];
     vaccinations: HistoryEvent[];
     treatments: HistoryEvent[];
     calvings: HistoryEvent[];
   };
+}
+
+export interface ProtocolStepRecord {
+  id: string;
+  day: number;
+  date: string; // ISO
+  treatment: string;
+  done: boolean;
+  doneOn?: string;
+  /** The farm gives this one, not the technician. */
+  byFarm: boolean;
+}
+
+export interface ActiveProtocol {
+  protocol: string;
+  /** Oldest first. */
+  steps: ProtocolStepRecord[];
 }
 
 export interface Farm {
@@ -116,6 +136,7 @@ export interface Vet {
 /** Which inline form records this row's outcome; null = read-only for this user. */
 export type RecordKind =
   | 'heat'
+  | 'prostaglandin'
   | 'preg'
   | 'needling'
   | 'insemination'
@@ -130,6 +151,8 @@ export type RecordKind =
 export interface WorklistCow {
   cowId: string;
   earTag?: string;
+  /** What tells two animals on one tag apart on a report. */
+  herdId?: string;
   name?: string;
   label: string;
   farmId: string;

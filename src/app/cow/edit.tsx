@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
 } from 'react-native';
@@ -17,6 +17,7 @@ import {
   useToast,
 } from '@/components';
 import { colors, radius, spacing } from '@/theme';
+import { ApiError } from '@/lib/api';
 import { isValidPastOrTodayDate } from '@/lib/dates';
 import { CowInput, cowById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -30,7 +31,12 @@ import { useAuthStore } from '@/store/useAuthStore';
  * Two fields are deliberately create-only. Ear tag is the animal's identity and
  * the farm is where she physically is; changing either after the fact is a
  * different operation (a re-tag or a transfer) with its own record-keeping, not
- * a form edit. The API's CowUpdate omits them for the same reason.
+ * a form edit. The API's CowUpdate omits them for the same reason. Her ID can be
+ * added to an animal that has none, and then stays.
+ *
+ * A tag already on the farm is usually a typo, but real herds do reuse tags. The
+ * server says when it happens; the form then asks "Are you sure?", and an
+ * animal sharing a tag needs an ID so the two can be told apart.
  */
 
 export default function CowEditScreen() {
@@ -45,6 +51,7 @@ export default function CowEditScreen() {
   const isEdit = !!id;
 
   const [earTag, setEarTag] = useState('');
+  const [herdId, setHerdId] = useState('');
   const [name, setName] = useState('');
   const [farmId, setFarmId] = useState<string | undefined>(farmIdParam);
   const [breed, setBreed] = useState('');
@@ -57,9 +64,13 @@ export default function CowEditScreen() {
   // Null until answered for a NEW cow: a pre-picked "No" is the default
   // answer Josh asked to be rid of. Editing shows her record's value.
   const [doNotBreed, setDoNotBreed] = useState<boolean | null>(null);
-  const [doNotInseminate, setDoNotInseminate] = useState<boolean | null>(null);
+  // The tag this form was told is already on the farm, and the answer to
+  // "Are you sure?". Changing the tag or the farm makes both stale.
+  const [tagInUse, setTagInUse] = useState<string | null>(null);
+  const [shareTag, setShareTag] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
+  const scroll = useRef<ScrollView>(null);
 
   useEffect(() => {
     if (farms.length === 0) fetchFarms();
@@ -68,6 +79,7 @@ export default function CowEditScreen() {
   useEffect(() => {
     if (!existing) return;
     setEarTag(existing.earTag ?? '');
+    setHerdId(existing.herdId ?? '');
     setName(existing.name ?? '');
     setFarmId(existing.farmId);
     setBreed(existing.breed ?? '');
@@ -77,8 +89,12 @@ export default function CowEditScreen() {
     setSire(existing.sire ?? '');
     setMaternalSire(existing.maternalSire ?? '');
     setDoNotBreed(!!existing.doNotBreed);
-    setDoNotInseminate(!!existing.doNotInseminate);
   }, [existing?.id]);
+
+  useEffect(() => {
+    setTagInUse(null);
+    setShareTag(null);
+  }, [earTag, farmId]);
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
@@ -92,11 +108,13 @@ export default function CowEditScreen() {
       e.dob = 'Use YYYY-MM-DD, today or earlier';
     }
     if (lactation.trim() && !/^\d+$/.test(lactation.trim())) e.lactation = 'Numbers only';
-    if (doNotBreed === null || doNotInseminate === null) {
-      e.breeding = 'Answer both breeding-list questions';
+    if (doNotBreed === null) e.breeding = 'Answer the Do Not Breed question';
+    if (tagInUse && shareTag !== true) e.earTag = 'Change the tag, or say she shares it';
+    if (tagInUse && shareTag && !herdId.trim()) {
+      e.herdId = 'Give her an ID, so the two animals can be told apart';
     }
     return e;
-  }, [earTag, name, farmId, dob, lactation, isEdit, doNotBreed, doNotInseminate]);
+  }, [earTag, name, farmId, dob, lactation, isEdit, doNotBreed, tagInUse, shareTag, herdId]);
 
   const valid = Object.keys(errors).length === 0;
 
@@ -133,6 +151,8 @@ export default function CowEditScreen() {
     try {
       const input: CowInput = {
         earTag: earTag.trim() || undefined,
+        herdId: herdId.trim() || undefined,
+        allowSharedTag: !!tagInUse && !!shareTag,
         name: name.trim() || undefined,
         farmId: farmId!,
         breed: breed.trim(),
@@ -143,7 +163,6 @@ export default function CowEditScreen() {
         sire: sire.trim(),
         maternalSire: maternalSire.trim(),
         doNotBreed: !!doNotBreed,
-        doNotInseminate: !!doNotInseminate,
       };
       const savedId = await saveCow(input, id);
       toast.success(
@@ -151,7 +170,13 @@ export default function CowEditScreen() {
       );
       router.replace({ pathname: '/cow/[id]', params: { id: savedId } });
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not save the cow');
+      // POST /cows/ opens this refusal with "Ear tag" (routers/cows.py).
+      if (e instanceof ApiError && e.status === 409 && e.message.startsWith('Ear tag')) {
+        setTagInUse(earTag.trim());
+        scroll.current?.scrollTo({ y: 0, animated: true });
+      } else {
+        toast.error(e?.message ?? 'Could not save the cow');
+      }
     } finally {
       setSaving(false);
     }
@@ -167,6 +192,7 @@ export default function CowEditScreen() {
         style={styles.flex1}
       >
       <ScrollView
+        ref={scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -197,9 +223,36 @@ export default function CowEditScreen() {
           />
         )}
 
+        {tagInUse ? (
+          <View style={styles.tagInUse}>
+            <Text variant="bodyBold">Tag {tagInUse} is already on this farm.</Text>
+            <Text variant="caption" color={colors.textSecondary} style={styles.tagInUseHint}>
+              It is usually a typing mistake, but herds do reuse tags.
+            </Text>
+            <YesNoField label="Are you sure this animal has the same tag?" value={shareTag}
+                        onChange={setShareTag} />
+          </View>
+        ) : null}
+
+        {existing?.herdId ? (
+          <View style={styles.locked}>
+            <Text variant="label" color={colors.textSecondary}>ID</Text>
+            <Text variant="bodyBold">{existing.herdId}</Text>
+          </View>
+        ) : (
+          <FormRow
+            label={tagInUse && shareTag ? 'ID' : 'ID (optional)'}
+            value={herdId}
+            onChangeText={setHerdId}
+            placeholder="e.g. 90066"
+            autoCapitalize="characters"
+            hint="Her number in the herd software. It tells apart two animals with the same tag."
+            error={err('herdId')}
+          />
+        )}
+
         {/* Optional: a farm that names its cows can search and read her that
-            way. The tag above is still the identity — unique per farm, and
-            what every other record keys on — so this never replaces it. */}
+            way. It never replaces the tag or the ID. */}
         <FormRow
           label="Name (optional if she has a tag)"
           value={name}
@@ -264,12 +317,16 @@ export default function CowEditScreen() {
                  onChangeText={setMaternalSire}
                  placeholder="e.g. Mogul" autoCapitalize="words" />
 
-        {/* A cow on either list who shows heat is not put on Today's Breed
-            Report (Josh, Oct 4). */}
+        {/* A marked cow who shows heat is not put on Today's Breed Report
+            (Josh, Oct 4). */}
         <SectionHeader title="Breeding" />
-        <YesNoField label="On the Do Not Breed list?" value={doNotBreed} onChange={setDoNotBreed} />
-        <YesNoField label="On the Do Not Inseminate list?" value={doNotInseminate}
-                    onChange={setDoNotInseminate} />
+        <YesNoField label="Do Not Breed (DNB)?" value={doNotBreed} onChange={setDoNotBreed} />
+        {doNotBreed ? (
+          <Text variant="caption" color={colors.textSecondary} style={styles.breedingHint}>
+            An open cow turns DNB now, and any protocol stops. A fresh, bred, pregnant or dry cow
+            keeps her status and turns DNB when she would next go Open.
+          </Text>
+        ) : null}
         {err('breeding') ? (
           <Text variant="caption" color={colors.danger} style={styles.breedingError}>
             {err('breeding')}
@@ -305,6 +362,16 @@ const styles = StyleSheet.create({
   hint: { marginBottom: spacing.md },
   segment: { marginBottom: spacing.md },
   breedingError: { marginTop: -spacing.xs, marginBottom: spacing.md },
+  breedingHint: { marginTop: -spacing.xs, marginBottom: spacing.md },
+  tagInUse: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.red[200],
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  tagInUseHint: { marginBottom: spacing.sm },
   locked: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.sm,

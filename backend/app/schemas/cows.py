@@ -8,7 +8,7 @@ from app.models.models import CalfSex, CowStatus, HealthStatus
 from app.schemas.calving import CalvingOut
 from app.schemas.checks import HeatCheckOut, PregnancyCheckOut
 from app.schemas.inseminations import InseminationOut
-from app.schemas.needling import NeedlingRecordOut
+from app.schemas.needling import NeedlingEnrollmentOut, NeedlingRecordOut
 from app.schemas.vaccinations import VaccinationOut
 
 
@@ -19,6 +19,9 @@ class CowCreate(BaseModel):
     # what is wrong.
     ear_tag: Optional[str] = None
     name: Optional[str] = None
+    # Her ID in the farm's herd software. Tags can repeat on a farm; this
+    # cannot, so an animal sharing a tag must have one.
+    herd_id: Optional[str] = None
     farm_id: UUID
     breed: Optional[str] = None
     date_of_birth: Optional[date] = None
@@ -28,7 +31,8 @@ class CowCreate(BaseModel):
     sire: Optional[str] = None
     maternal_sire: Optional[str] = None
     do_not_breed: bool = False
-    do_not_inseminate: bool = False
+    # The answer to "Are you sure?" when the tag is already on the farm.
+    allow_shared_tag: bool = False
 
     @field_validator("date_of_birth")
     @classmethod
@@ -36,6 +40,11 @@ class CowCreate(BaseModel):
         if v is not None and v > local_today():
             raise ValueError("date_of_birth cannot be in the future")
         return v
+
+    @field_validator("herd_id")
+    @classmethod
+    def blank_id_is_no_id(cls, v):
+        return (v or "").strip() or None
 
     @model_validator(mode="after")
     def needs_an_identifier(self):
@@ -46,6 +55,8 @@ class CowCreate(BaseModel):
 
 class CowUpdate(BaseModel):
     name: Optional[str] = None
+    # Only given to an animal that has none; see update_cow.
+    herd_id: Optional[str] = None
     breed: Optional[str] = None
     date_of_birth: Optional[date] = None
     lactation_number: Optional[int] = Field(default=None, ge=0)
@@ -54,7 +65,6 @@ class CowUpdate(BaseModel):
     sire: Optional[str] = None
     maternal_sire: Optional[str] = None
     do_not_breed: Optional[bool] = None
-    do_not_inseminate: Optional[bool] = None
 
     @field_validator("date_of_birth")
     @classmethod
@@ -63,6 +73,11 @@ class CowUpdate(BaseModel):
             raise ValueError("date_of_birth cannot be in the future")
         return v
 
+    @field_validator("herd_id")
+    @classmethod
+    def blank_id_is_no_id(cls, v):
+        return (v or "").strip() or None
+
 
 class CowOut(BaseModel):
     # Derived: in milk from calving until dry-off (Master Structure, Milk Cycle)
@@ -70,7 +85,7 @@ class CowOut(BaseModel):
     id: UUID
     ear_tag: Optional[str] = None
     name: Optional[str] = None
-    # Her DairyComp ID when her herd was imported (migration 0022).
+    # Her DairyComp ID (migration 0022): from the import, or typed in the app.
     herd_id: Optional[str] = None
     # "Bluebell (CA 124 578 1042)", or just the tag when she has no name —
     # computed once here so every screen names her the same way.
@@ -85,8 +100,8 @@ class CowOut(BaseModel):
     recheck_due_date: Optional[date] = None
     current_program: Optional[str] = None
     last_calving_date: Optional[date] = None
-    # The day-283 sweep made her Fresh without a recorded calving; the real one
-    # is still to be recorded (migration 0018).
+    # The old day-283 rule made her Fresh without a recorded calving; the real
+    # one is still to be recorded (migration 0018).
     calving_assumed: bool = False
     last_insemination_date: Optional[date] = None
     last_insemination_id: Optional[UUID] = None
@@ -98,7 +113,6 @@ class CowOut(BaseModel):
     sire: Optional[str] = None
     maternal_sire: Optional[str] = None
     do_not_breed: bool = False
-    do_not_inseminate: bool = False
     created_at: datetime
     farm_name: Optional[str] = None
 
@@ -130,3 +144,5 @@ class CowHistory(BaseModel):
     calvings: List[CalvingOut] = []
     needling_records: List[NeedlingRecordOut] = []
     vaccinations: List[VaccinationOut] = []
+    # The protocol she is on now, with its steps, for the schedule on her page.
+    active_protocol: Optional[NeedlingEnrollmentOut] = None

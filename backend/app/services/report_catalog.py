@@ -20,8 +20,8 @@ from datetime import date, timedelta
 from typing import Callable, Dict, List, Optional
 
 from app.core.timeutils import to_local_date
-from app.models.models import Cow, CowStatus, HealthStatus
-from app.services.protocols import protocol_label
+from app.models.models import Cow, CowStatus, HealthStatus, ProtocolType
+from app.services.protocols import get_final_day, protocol_label
 # Single source with checks.py and the sweep's pregnancy-check reminder.
 from app.services.status_engine import (
     HEAT_RECORDABLE_STATUSES, HEAT_WINDOW, PREGNANCY_REPORT_DAY, breeding_exclusion,
@@ -38,7 +38,7 @@ VACCINATION_WINDOW = (30, 50)   # days post calving
 # Confirming a pregnancy (or drying her off) closes it: the window is months
 # past by then and keeping her on the list only makes the list less trusted.
 POST_CALVING_STATUSES = (
-    CowStatus.fresh, CowStatus.open, CowStatus.needling, CowStatus.inseminated,
+    CowStatus.fresh, CowStatus.open, CowStatus.needling, CowStatus.inseminated, CowStatus.dnb,
 )
 DRY_LEAD_DAYS = 7               # surfaced this far before day 223
 CALVING_LEAD_DAYS = 3           # due-to-calve heads-up
@@ -76,6 +76,8 @@ class ReportRow:
         return {
             "cow_id": str(cow.id),
             "ear_tag": cow.ear_tag,
+            # Tags can repeat on a farm; this is what tells two animals apart.
+            "herd_id": cow.herd_id,
             # A farm that names its cows calls her by name; the tag stays,
             # because it is the identity every other system knows her by.
             "name": cow.name,
@@ -141,6 +143,8 @@ class WorklistContext:
     cows: List[Cow]
     # cow_id -> the needling record due today (non-final days)
     needling: Dict[str, dict] = field(default_factory=dict)
+    # cow_id -> the Prostaglandin heat check she is waiting on
+    prostaglandin: Dict[str, dict] = field(default_factory=dict)
     # cow_id -> the timed-breeding row (final day, injection folded in)
     breeding: Dict[str, dict] = field(default_factory=dict)
     # cow_id -> a scheduled vaccination whose date has arrived
@@ -151,8 +155,9 @@ class WorklistContext:
     farmer_injections: Dict[str, dict] = field(default_factory=dict)
     # This farm gives the post-calving vaccine itself (farms.self_vaccinate).
     farm_self_vaccinate: bool = False
-    # cow_id -> {"detected_on": date} for a heat seen TODAY. Today's Breed
-    # Report is built from these (worklist_builder._heat_events_by_cow).
+    # cow_id -> {"detected_on": date, "overruled": bool} for a heat seen TODAY.
+    # Today's Breed Report is built from these
+    # (worklist_builder._heat_events_by_cow).
     heat_events: Dict[str, dict] = field(default_factory=dict)
     # cow_id -> {"cull_date", "reason"} of her latest cull record.
     culls: Dict[str, dict] = field(default_factory=dict)
@@ -186,17 +191,16 @@ def _heat(ctx: WorklistContext) -> List[ReportRow]:
 
 
 def _not_to_be_bred(cow: Cow) -> bool:
-    """On the Do Not Breed or Do Not Inseminate list (Josh, Oct 2/4).
+    """On the Do Not Breed list (Josh, Oct 2/4).
 
-    Josh named the lists for heats, but a list that says "do not breed" cannot
+    Josh named the list for heats, but a list that says "do not breed" cannot
     then be handed a breeding job by another report: the Open Cow Report's
     "choose a needling protocol" and a protocol's injections both end in a
     timed insemination, and the Timed Breeding Report and the Insemination
     Program ask for one outright. So she gets no breeding work anywhere, and
-    the API refuses to enroll or inseminate her. A protocol already running
-    when she was listed is left alone rather than cancelled: if she comes off
-    the list that week it simply carries on. She stays on her lists, and on
-    the Open Cow List, for reference.
+    the API refuses to enroll or inseminate her. Marking her stops a protocol
+    she is on (status_engine.settle_do_not_breed). She stays on her list for
+    reference.
     """
     return breeding_list(cow) is not None
 
@@ -209,24 +213,28 @@ def _breeding_today(ctx: WorklistContext, cow: Cow) -> bool:
     # Bred since the heat was seen: done, she leaves the report.
     if cow.last_insemination_date and cow.last_insemination_date >= heat["detected_on"]:
         return False
-    return breeding_exclusion(cow, ctx.today) is None
+    return breeding_exclusion(cow, ctx.today, overruled=heat.get("overruled", False)) is None
 
 
 def _breed_today(ctx: WorklistContext) -> List[ReportRow]:
     """Josh, Oct 4: any cow seen in heat -- on the Heat Report or anywhere
     else -- goes straight onto this report, and is bred today.
 
-    Who is left off (breeding_exclusion): under 60 days post calving, Do Not
-    Breed, Do Not Inseminate, Cull, under 13 months. She leaves when she is
-    inseminated. If she is not, she is gone tomorrow, and the sweep makes her
-    Open whatever she was doing (status_engine._open_after_unbred_heat) --
-    the report itself reads only today's heat records.
+    Who is left off (breeding_exclusion): under 60 days post calving, unless
+    the farmer overruled it, Do Not Breed, Cull, under 13 months. She leaves
+    when she is inseminated. If she is not, she is gone tomorrow, and the
+    sweep makes her Open whatever she was doing
+    (status_engine._open_after_unbred_heat) -- the report itself reads only
+    today's heat records.
     """
     return [
         ReportRow(
             cow=cow,
             action="Seen in heat today — inseminate her today",
-            detail="Heat detected today · Open tomorrow if not bred",
+            # One short line on a phone, so the farmer's decision goes first.
+            detail=("Under 60 days · farmer wants her bred"
+                    if ctx.heat_events[str(cow.id)].get("overruled")
+                    else "Heat detected today · Open tomorrow if not bred"),
             record_kind="insemination",
         )
         for cow in ctx.cows if _breeding_today(ctx, cow)
@@ -288,18 +296,14 @@ def _needling(ctx: WorklistContext) -> List[ReportRow]:
         label = protocol_label(row.get("protocol"))
         context = f"{label}, Day {row['protocol_day']}"
         treatment = row["treatment"] or ""
-        # Not every scheduled step is an injection — Prostaglandin Heat
-        # schedules heat examination/observation days.
-        is_observation = "heat" in treatment.lower()
-        what = treatment if is_observation else f"{treatment} injection"
         extra = row.get("also_pending", 0)
         rows.append(ReportRow(
             cow=cow,
-            action=(f"Requires {what} today ({context})" if treatment
+            action=(f"Requires {treatment} injection today ({context})" if treatment
                     else f"Requires attention today ({context})")
                    + (f" — plus {extra} more pending {'shot' if extra == 1 else 'shots'}"
                       if extra else ""),
-            detail=f"{label} · {'observation' if is_observation else 'injection'} due today"
+            detail=f"{label} · injection due today"
                    + (f" · +{extra} pending" if extra else ""),
             also_pending=extra,
             record_kind="needling",
@@ -312,9 +316,46 @@ def _needling(ctx: WorklistContext) -> List[ReportRow]:
     return rows
 
 
+def _prostaglandin(ctx: WorklistContext) -> List[ReportRow]:
+    """Cows on Prostaglandin Heat, Days 2 to 5, to be checked for heat.
+
+    Test results, Nov 5: "Create additional report called Prostaglandin, and
+    day 2, 3, 4, 5, check for heat. If it doesn't go in heat then mark as open
+    status." In heat, she is inseminated from this report; not in heat on the
+    last day, she goes to Open (status_engine.on_final_record_completed).
+    """
+    last_day = get_final_day(ProtocolType.prostaglandin_heat.value)
+    rows = []
+    for cow in ctx.cows:
+        row = ctx.prostaglandin.get(str(cow.id))
+        if not row:
+            continue
+        # Her Day 1 shot is still owed: she is on the Needling Report for it,
+        # and there is no heat to look for until it is given.
+        if str(cow.id) in ctx.needling:
+            continue
+        if _not_to_be_bred(cow):
+            continue
+        day = row["protocol_day"]
+        rows.append(ReportRow(
+            cow=cow,
+            action=f"Check for heat today (Prostaglandin Heat, Day {day})",
+            detail=(f"Day {day} of {last_day} · last check, Open if no heat" if row["is_final"]
+                    else f"Day {day} of {last_day} · inseminate if in heat"),
+            record_kind="prostaglandin",
+            treatment=row["treatment"],
+            protocol=ProtocolType.prostaglandin_heat.value,
+            protocol_day=day,
+            needling_record_id=row["id"],
+            overdue=row["days_overdue"] > 0,
+        ))
+    return rows
+
+
 def _insemination_program(ctx: WorklistContext) -> List[ReportRow]:
     """Heifers that reached breeding age (Master Structure: heifers at month
-    13 go straight to the Insemination Program).
+    13 go straight to the Insemination Program), and any animal put on it by
+    hand (test results, Nov 5).
 
     They are bred directly rather than enrolled in a protocol, so they do NOT
     belong on the Open report. This report also used to carry every cow a
@@ -542,11 +583,13 @@ def _calving_due(ctx: WorklistContext) -> List[ReportRow]:
 
 
 def _fresh(ctx: WorklistContext) -> List[ReportRow]:
-    """Cows that have just calved -- and cows the day-283 sweep ASSUMES have.
+    """Cows that have just calved -- and cows the old day-283 rule ASSUMED had.
 
     For a recorded calving the action is the post-calving check. For an
     assumed one it is recording the calving itself: until then her lactation
     is one short, her calving date is a guess, and her calf does not exist.
+    Nothing assumes a calving any more (test results, Nov 5); the cows it
+    happened to wait here until theirs is recorded.
     """
     rows = []
     for cow in ctx.cows:
@@ -639,22 +682,21 @@ def _open_list(ctx: WorklistContext) -> List[ReportRow]:
     ]
 
 
-def _breeding_list(flag: str):
-    """The Do Not Breed / Do Not Inseminate lists themselves -- Josh speaks of
-    cows being "on the Do Not Breed list", so the list has to be somewhere a
-    person can read it, not only a flag on each cow."""
-    def build(ctx: WorklistContext) -> List[ReportRow]:
-        return [
-            ReportRow(
-                cow=cow, action="",
-                detail=f"{cow.status.value.capitalize()}"
-                       + (f" · {_days_since(cow.last_calving_date, ctx.today)} days in milk"
-                          if is_milking(cow) and cow.last_calving_date else ""),
-            )
-            for cow in ctx.cows
-            if getattr(cow, flag) and cow.status not in (CowStatus.sold, CowStatus.dead)
-        ]
-    return build
+def _do_not_breed_list(ctx: WorklistContext) -> List[ReportRow]:
+    """The Do Not Breed list itself -- Josh speaks of cows being "on the Do Not
+    Breed list", so the list has to be somewhere a person can read it, not only
+    a mark on each cow. It includes cows marked but not DNB yet, like a
+    pregnant one, and says what each one is."""
+    return [
+        ReportRow(
+            cow=cow, action="",
+            detail=("DNB" if cow.status == CowStatus.dnb else cow.status.value.capitalize())
+                   + (f" · {_days_since(cow.last_calving_date, ctx.today)} days in milk"
+                      if is_milking(cow) and cow.last_calving_date else ""),
+        )
+        for cow in ctx.cows
+        if cow.do_not_breed and cow.status not in (CowStatus.sold, CowStatus.dead)
+    ]
 
 
 def _cull_list(ctx: WorklistContext) -> List[ReportRow]:
@@ -690,9 +732,12 @@ REPORTS: List[ReportDef] = [
     ReportDef("timed-breeding", "Timed Breeding Report", "flask", "inseminated", True, _timed_breeding,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} insemination"),
-    ReportDef("needling", "Injection Report", "fitness", "needling", True, _needling,
+    ReportDef("needling", "Needling Report", "fitness", "needling", True, _needling,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow requires' if n == 1 else 'cows require'} injection"),
+    ReportDef("prostaglandin", "Prostaglandin Report", "eye", "heat", True, _prostaglandin,
+              record_roles=WORK_ROLES,
+              subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to check for heat"),
     ReportDef("farmer-injection", "Farmer Injection", "create", "needling", True,
               _farmer_injection, record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'note' if n == 1 else 'notes'} to leave for the farmer"),
@@ -733,10 +778,7 @@ REPORTS: List[ReportDef] = [
     ReportDef("pregnant", "Pregnant Cow List", "heart-circle", "pregnant", False, _pregnant_list),
     ReportDef("open", "Open Cow List", "list-circle", "open", False, _open_list),
     ReportDef("cull", "Cull Cow List", "alert-circle", "cull", False, _cull_list),
-    ReportDef("do-not-breed", "Do Not Breed List", "ban", "cull", False,
-              _breeding_list("do_not_breed")),
-    ReportDef("do-not-inseminate", "Do Not Inseminate List", "remove-circle", "cull", False,
-              _breeding_list("do_not_inseminate")),
+    ReportDef("do-not-breed", "Do Not Breed List", "ban", "dnb", False, _do_not_breed_list),
 ]
 
 REPORTS_BY_TYPE = {r.type: r for r in REPORTS}

@@ -12,6 +12,7 @@ import {
   HeroHeader,
   HeroStats,
   InfoRow,
+  ProtocolSchedule,
   Screen,
   SectionHeader,
   StatusPill,
@@ -22,8 +23,9 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { colors, gradients, onDark, radius, spacing, touch, useMotion } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { HistoryEvent } from '@/data/types';
+import { protocolByValue } from '@/data/protocols';
 import { HEAT_WINDOW } from '@/data/reports';
-import { cowById, farmById, useAppStore } from '@/store/useAppStore';
+import { cowById, farmById, herdIdLabel, useAppStore } from '@/store/useAppStore';
 
 const fmt = (iso?: string) =>
   iso
@@ -39,11 +41,13 @@ const fmtShort = (iso?: string) =>
     ? new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
     : '—';
 
-type HistoryTab = 'inseminations' | 'pregnancyChecks' | 'vaccinations' | 'treatments' | 'calvings';
+type HistoryTab =
+  | 'inseminations' | 'pregnancyChecks' | 'infections' | 'vaccinations' | 'treatments' | 'calvings';
 
 const HISTORY_TABS: { key: HistoryTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'inseminations', label: 'AI', icon: 'flask' },
   { key: 'pregnancyChecks', label: 'Preg Checks', icon: 'medkit' },
+  { key: 'infections', label: 'Infections', icon: 'bug' },
   { key: 'vaccinations', label: 'Vaccines', icon: 'shield-checkmark' },
   { key: 'treatments', label: 'Treatments', icon: 'bandage' },
   { key: 'calvings', label: 'Calvings', icon: 'heart' },
@@ -76,10 +80,12 @@ export default function CowProfileScreen() {
   }
 
   const farm = farmById(state, cow.farmId);
-  const events: HistoryEvent[] = cow.history[tab];
+  const events: HistoryEvent[] = cow.history[tab] ?? [];
 
   const dsi = cow.lastInseminationDate ? daysSince(cow.lastInseminationDate) : null;
   const inHeatWindow = cow.status === 'inseminated' && dsi !== null && dsi >= HEAT_WINDOW[0] && dsi <= HEAT_WINDOW[1];
+  // Days pregnant are counted from the breeding, so one number serves both.
+  const carrying = ['inseminated', 'pregnant', 'dry'].includes(cow.status);
 
   return (
     <Screen padded={false} topInset={false}>
@@ -93,7 +99,7 @@ export default function CowProfileScreen() {
                 {cow.label}
               </Text>
               <Text variant="caption" color={onDark.textSecondary}>
-                {[cow.breed, `Lactation ${cow.lactationNumber}`].filter(Boolean).join(' · ')}
+                {[herdIdLabel(cow), cow.breed, `Lactation ${cow.lactationNumber}`].filter(Boolean).join(' · ')}
               </Text>
               <Pressable
                 onPress={() => router.push({ pathname: '/farm/[id]', params: { id: cow.farmId } })}
@@ -149,26 +155,35 @@ export default function CowProfileScreen() {
             <InfoRow label="Sire" value={cow.sire} />
             <InfoRow label="Maternal Sire" value={cow.maternalSire} />
             <InfoRow label="Lactation Number" value={cow.lactationNumber} />
-            <InfoRow label="Current Program" value={cow.currentProgram} />
+            <InfoRow
+              label="Current Program"
+              value={protocolByValue(cow.currentProgram)?.label ?? cow.currentProgram}
+            />
             <InfoRow label="Current Location" value={cow.currentLocation} />
             <InfoRow label="Notes" value={cow.notes} hideIfEmpty />
           </Card>
         </Animated.View>
 
+        {cow.activeProtocol ? (
+          <>
+            <SectionHeader title="Protocol Schedule" />
+            <Animated.View entering={motion.upAt(185, 500)}>
+              <ProtocolSchedule protocol={cow.activeProtocol} />
+            </Animated.View>
+          </>
+        ) : null}
+
         {/* Reproductive information */}
         <SectionHeader title="Reproductive Information" />
         <Animated.View entering={motion.upAt(220, 500)}>
           <Card style={styles.infoCard}>
-            {/* Either list keeps her off Today's Breed Report (Josh, Oct 4). */}
-            <InfoRow
-              label="Breeding Lists"
-              value={
-                [cow.doNotBreed && 'Do Not Breed', cow.doNotInseminate && 'Do Not Inseminate']
-                  .filter(Boolean).join(' · ') || 'Neither'
-              }
-            />
+            {/* Keeps her off Today's Breed Report (Josh, Oct 4). */}
+            <InfoRow label="Do Not Breed (DNB)" value={cow.doNotBreed ? 'Yes' : 'No'} />
             <InfoRow label="Last Calving Date" value={fmt(cow.lastCalvingDate)} />
             <InfoRow label="Last Insemination" value={fmt(cow.lastInseminationDate)} />
+            {carrying && dsi !== null ? (
+              <InfoRow label="Since Breeding" value={`Day ${dsi}`} />
+            ) : null}
             <InfoRow label="Bull Used" value={cow.bullUsed} />
             <InfoRow
               label="Pregnancy Status"

@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { EmptyState, ErrorBanner, Header, ListRow, Screen, SearchBar, StatusPill, Text, SkeletonList } from '@/components';
 import { colors, spacing, useMotion } from '@/theme';
-import { farmById, herdIdLabel, useAppStore, visibleCows } from '@/store/useAppStore';
+import { farmById, herdIdLabel, sireMatch, useAppStore, visibleCows } from '@/store/useAppStore';
 
 export default function CowSearchScreen() {
   const motion = useMotion();
@@ -25,6 +25,9 @@ export default function CowSearchScreen() {
         // A farm that names its cows searches by name — typing "Bluebell"
         // finding nothing is the whole reason the name exists.
         (c.name ?? '').toLowerCase().includes(q) ||
+        // Josh's test results, Nov 5: "allow to search by maternal paternal".
+        (c.sire ?? '').toLowerCase().includes(q) ||
+        (c.maternalSire ?? '').toLowerCase().includes(q) ||
         c.breed.toLowerCase().includes(q) ||
         farmById(state, c.farmId)?.name.toLowerCase().includes(q),
     );
@@ -36,7 +39,7 @@ export default function CowSearchScreen() {
       <SearchBar
         value={query}
         onChangeText={setQuery}
-        placeholder="Search by name, ear tag, ID, breed, farm"
+        placeholder="Search by name, ear tag, ID, sire, breed, farm"
         autoFocus
       />
 
@@ -57,7 +60,7 @@ export default function CowSearchScreen() {
               icon="analytics-outline"
               title={cow.label}
               subtitle={[
-                herdIdLabel(cow), farmById(state, cow.farmId)?.name ?? 'Unknown farm', cow.breed,
+                herdIdLabel(cow), sireMatch(cow, query), farmById(state, cow.farmId)?.name ?? 'Unknown farm', cow.breed,
                 `Lact ${cow.lactationNumber}`,
               ].filter(Boolean).join(' · ')}
               badge={<StatusPill kind={cow.status} />}

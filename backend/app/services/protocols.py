@@ -25,6 +25,10 @@ TIMED_AI_PROTOCOLS = frozenset({
     "general_synch_2",
 })
 
+# From this day on, a Prostaglandin Heat step is a look for heat, not an
+# injection: it belongs on the Prostaglandin Report, not the Needling Report.
+FIRST_HEAT_CHECK_DAY = 2
+
 PROTOCOLS: Dict[str, List[Dict]] = {
     "ovsynch": [
         {"day": 1,  "treatment": "2cc GnRH"},
@@ -34,6 +38,7 @@ PROTOCOLS: Dict[str, List[Dict]] = {
     ],
     "prostaglandin_heat": [
         {"day": 1, "treatment": "2cc PGF"},
+        {"day": 2, "treatment": "Heat Observation"},
         {"day": 3, "treatment": "Heat Examination"},
         {"day": 4, "treatment": "Heat Observation"},
         {"day": 5, "treatment": "Heat Observation + Insemination if in heat", "is_final": True},

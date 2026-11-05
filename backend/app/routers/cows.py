@@ -7,8 +7,8 @@ from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
 from app.models.models import (
-    Cow, CowStatus, HealthStatus, CullRecord, Insemination, HeatCheck, PregnancyCheck,
-    CalvingRecord, NeedlingRecord, VaccinationRecord,
+    Cow, CowStatus, EnrollmentStatus, HealthStatus, CullRecord, Insemination, HeatCheck,
+    NeedlingEnrollment, PregnancyCheck, CalvingRecord, NeedlingRecord, VaccinationRecord,
 )
 from app.schemas.cows import (
     CowCreate, CowUpdate, CowOut, CowHealthBody, CullBody, ExitBody, CowHistory,
@@ -28,7 +28,7 @@ DEFAULT_PAGE_SIZE = 200
 MAX_PAGE_SIZE = 1000
 
 # Non-nullable columns that a PATCH must never null out.
-_NON_NULLABLE_FIELDS = {"lactation_number", "status", "do_not_breed", "do_not_inseminate"}
+_NON_NULLABLE_FIELDS = {"lactation_number", "status", "do_not_breed"}
 
 
 def _cow_dict(cow: Cow, farm_name=None) -> dict:
@@ -124,6 +124,18 @@ async def cow_history(
         select(VaccinationRecord).where(VaccinationRecord.cow_id == cow_id)
         .order_by(VaccinationRecord.scheduled_date.desc(), VaccinationRecord.created_at.desc())
     )).scalars().all()
+    active_protocol = await db.scalar(
+        select(NeedlingEnrollment)
+        .where(
+            NeedlingEnrollment.cow_id == cow_id,
+            NeedlingEnrollment.status.in_(
+                [EnrollmentStatus.active, EnrollmentStatus.completed_pending_ai]
+            ),
+        )
+        .options(selectinload(NeedlingEnrollment.records))
+        .order_by(NeedlingEnrollment.start_date.desc())
+        .limit(1)
+    )
 
     return {
         "inseminations": inseminations,
@@ -132,7 +144,17 @@ async def cow_history(
         "calvings": calvings,
         "needling_records": needling_records,
         "vaccinations": vaccinations,
+        "active_protocol": active_protocol,
     }
+
+
+async def _refuse_an_id_in_use(db: AsyncSession, farm_id: uuid.UUID, herd_id: Optional[str]) -> None:
+    """The ID is the number that stays unique on a farm (uq_cows_farm_id_herd_id).
+    Said here, because the constraint can only answer with a generic failure."""
+    if herd_id and await db.scalar(
+        select(func.count(Cow.id)).where(Cow.farm_id == farm_id, Cow.herd_id == herd_id)
+    ):
+        raise HTTPException(status_code=409, detail=f"ID '{herd_id}' is already on this farm")
 
 
 @router.post("/", response_model=CowOut, status_code=status.HTTP_201_CREATED)
@@ -144,18 +166,26 @@ async def create_cow(
     if not await check_farm_access(db, current_user, body.farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
 
-    # The database allows a shared tag, because imported herds have them
-    # (migration 0022). A cow added here is a new animal, so a tag already on
-    # the farm is a typo or a mix-up -- refuse it as before.
+    # Real herds reuse tags (migration 0022), but a tag already on the farm is
+    # usually a typo, so it takes an "Are you sure?" -- and an ID, or the two
+    # animals could not be told apart (test results, Nov 5). The app reads this
+    # 409 by its opening words; see src/app/cow/edit.tsx.
     if body.ear_tag and await db.scalar(
         select(func.count(Cow.id)).where(Cow.farm_id == body.farm_id, Cow.ear_tag == body.ear_tag)
     ):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
-        )
+        if not body.allow_shared_tag:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
+            )
+        if not body.herd_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Another animal on this farm has this tag: give this one an ID",
+            )
+    await _refuse_an_id_in_use(db, body.farm_id, body.herd_id)
 
-    cow = Cow(**body.model_dump())
+    cow = Cow(**body.model_dump(exclude={"allow_shared_tag"}))
     db.add(cow)
     try:
         await db.commit()
@@ -202,10 +232,22 @@ async def update_cow(
         )
     data.pop("status", None)
 
+    # An animal with no ID can be given one. An ID she has stays: a later
+    # export finds her by it, so it is not corrected by a form edit.
+    new_id = data.pop("herd_id", None)
+    if new_id and new_id != cow.herd_id:
+        if cow.herd_id:
+            raise HTTPException(status_code=409, detail="Her ID cannot be changed here")
+        await _refuse_an_id_in_use(db, cow.farm_id, new_id)
+        cow.herd_id = new_id
+
     for field, value in data.items():
         if value is None and field in _NON_NULLABLE_FIELDS:
             continue  # never null out non-nullable columns
         setattr(cow, field, value)
+
+    if "do_not_breed" in data:
+        await status_engine.settle_do_not_breed(cow, db)
 
     # Whether a pregnant animal is ever dried off depends on whether she has
     # calved (status_engine.has_calved), so correcting her lactation number
@@ -258,6 +300,45 @@ async def set_cow_health(
     if body.notes:
         cow.notes = f"{cow.notes}\n{body.notes}" if cow.notes else body.notes
 
+    await db.commit()
+    result = await db.execute(
+        select(Cow).where(Cow.id == cow_id).options(selectinload(Cow.farm))
+    )
+    cow = result.scalar_one()
+    return _cow_dict(cow, cow.farm.name if cow.farm else None)
+
+
+@router.post("/{cow_id}/insemination-program", response_model=CowOut)
+async def put_on_insemination_program(
+    cow_id: uuid.UUID,
+    current_user: dict = Depends(require_roles("admin", "technician")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Put a cow on the Insemination Program by hand, to be bred directly.
+
+    Test results, Nov 5: "allow for manual enrollment in a protocol or
+    programs". Heifers reach it on their own at 13 months; this is for one
+    the farm wants bred before that, or a cow it wants bred without a protocol.
+    """
+    cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
+    listed = status_engine.breeding_list(cow)
+    if listed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{cow.label} is on the {listed} list, so she is not to be bred. "
+                   "Take her off it first if she is to go on the program.",
+        )
+    if cow.status not in (CowStatus.heifer, CowStatus.fresh, CowStatus.open):
+        raise HTTPException(
+            status_code=409,
+            detail=f"A cow that is '{cow.status.value}' cannot go on the Insemination Program",
+        )
+    # Off Fresh, nothing offers "Record Calving" any more.
+    if cow.calving_assumed:
+        raise HTTPException(status_code=409, detail=f"Record {cow.label}'s calving first")
+
+    cow.status = CowStatus.open
+    cow.current_program = "Insemination"
     await db.commit()
     result = await db.execute(
         select(Cow).where(Cow.id == cow_id).options(selectinload(Cow.farm))

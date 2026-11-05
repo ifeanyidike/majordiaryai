@@ -4,8 +4,8 @@
     inseminated             -> off the report; on the Heat Report 19 days later
     not bred by next day    -> gone, "assume nothing happened"
 
-Not bred at all if she is under 60 days post calving, on the Do Not Breed or
-Do Not Inseminate list, a cull, or under 13 months old. The tests below are
+Not bred at all if she is under 60 days post calving, on the Do Not Breed
+list, a cull, or under 13 months old. The tests below are
 the ways those rules fail quietly: a cow kept off the report who should be on
 it, one left on it the day after, one whose program is wrecked by a heat
 nobody acted on.
@@ -52,7 +52,6 @@ def _on_breed_today(cow) -> bool:
 @pytest.mark.parametrize("fields,expected", [
     ({}, True),
     ({"do_not_breed": True}, False),
-    ({"do_not_inseminate": True}, False),
     ({"last_calving_date": TODAY - timedelta(days=59)}, False),
     ({"last_calving_date": TODAY - timedelta(days=60)}, True),
     # A heifer: never calved, so only her age can keep her off.
@@ -85,18 +84,17 @@ def test_a_cow_on_the_breed_report_is_not_also_asked_for_a_protocol():
     assert _reports([cow])["open-report"]["cows"][0]["cow_id"] == str(cow.id)
 
 
-@pytest.mark.parametrize("flag", ["do_not_breed", "do_not_inseminate"])
-def test_a_cow_on_either_list_is_given_no_breeding_work(flag):
+def test_a_listed_cow_is_given_no_breeding_work():
     """"Do not breed" cannot be followed by a report telling the technician to
     pick her a protocol (which ends in a timed AI) or to breed her."""
-    open_cow = _cow(**{flag: True})
-    heifer = _cow(**{flag: True}, current_program="Insemination", lactation_number=0,
+    open_cow = _cow(do_not_breed=True)
+    heifer = _cow(do_not_breed=True, current_program="Insemination", lactation_number=0,
                   last_calving_date=None)
     reports = _reports([open_cow, heifer])
     assert "open-report" not in reports
     assert "insemination" not in reports
-    # Still on the reference list -- she has not vanished from the herd.
-    assert {r["cow_id"] for r in reports["open"]["cows"]} == {str(open_cow.id), str(heifer.id)}
+    # Still on her list -- she has not vanished from the herd.
+    assert {r["cow_id"] for r in reports["do-not-breed"]["cows"]} == {str(open_cow.id), str(heifer.id)}
 
 
 def test_the_reports_are_named_as_josh_names_them():
@@ -354,7 +352,8 @@ async def test_even_a_cow_not_allowed_to_be_bred_is_open_next_day(db, farm, fiel
 
     await _next_day_sweep(db, farm)
 
-    assert cow.status == CowStatus.open
+    # Marked Do Not Breed, she goes where Open would have put her: DNB.
+    assert cow.status == (CowStatus.dnb if cow.do_not_breed else CowStatus.open)
     assert cow.current_program is None
 
 
@@ -462,7 +461,7 @@ async def test_a_listed_cow_cannot_be_inseminated_from_any_form(db, farm, api, t
     """Not on the breed report, not on the Timed Breeding Report, and the
     insemination itself is refused -- the list means it."""
     cow = await make_cow(steps=[(10, 0, "2cc GnRH + Insemination", True, False)],
-                         do_not_inseminate=True)
+                         do_not_breed=True)
 
     async with api("technician", user_id=tech.id) as client:
         f = await _worklist(client, farm)
@@ -474,7 +473,7 @@ async def test_a_listed_cow_cannot_be_inseminated_from_any_form(db, farm, api, t
 
     assert str(cow.id) not in _ids(f, "timed-breeding")
     assert r.status_code == 409
-    assert "Do Not Inseminate" in r.json()["detail"]
+    assert "Do Not Breed" in r.json()["detail"]
 
 
 async def test_a_no_on_a_cow_that_was_never_due_a_check_is_refused(db, farm, api, tech):
@@ -494,7 +493,7 @@ async def test_parentage_and_the_breeding_lists_are_saved_on_the_cow(db, farm, a
     async with api("technician", user_id=tech.id) as client:
         r = await client.patch(f"/cows/{cow.id}", json={
             "sire": "Delta-Lambda", "maternal_sire": "Mogul",
-            "do_not_breed": True, "do_not_inseminate": False,
+            "do_not_breed": True,
         })
         assert r.status_code == 200, r.text
         got = (await client.get(f"/cows/{cow.id}")).json()
@@ -502,7 +501,6 @@ async def test_parentage_and_the_breeding_lists_are_saved_on_the_cow(db, farm, a
     assert got["sire"] == "Delta-Lambda"
     assert got["maternal_sire"] == "Mogul"
     assert got["do_not_breed"] is True
-    assert got["do_not_inseminate"] is False
 
 
 # ── the lists cover every route to a breeding ────────────────────────
@@ -524,8 +522,9 @@ async def test_a_listed_cow_cannot_start_a_protocol(db, farm, api, tech):
 async def test_a_cow_listed_mid_protocol_gets_no_more_shots_asked_for(
     db, farm, api, tech, make_cow,
 ):
-    """Her protocol is left in place (reversible), but nobody is sent to
-    inject a cow whose protocol can only end in an AI she may not have."""
+    """Nobody is sent to inject a cow whose protocol can only end in an AI she
+    may not have. Her protocol stops: DNB is a status, and it cannot be
+    Needling as well (test results, Nov 5)."""
     cow = await make_cow(steps=[(7, 0, "2cc PGF", False, False),
                                 (10, 3, "2cc GnRH + Insemination", True, False)],
                          do_not_breed=True)
@@ -534,24 +533,22 @@ async def test_a_cow_listed_mid_protocol_gets_no_more_shots_asked_for(
         f = await _worklist(client, farm)
 
     assert str(cow.id) not in _ids(f, "needling")
-    assert cow.status == CowStatus.needling
+    assert cow.status == CowStatus.dnb
+    assert cow.current_program is None
 
 
 async def test_the_breeding_lists_can_be_read_as_lists(db, farm, api, tech):
     dnb = await _add(db, _farm_cow(farm, do_not_breed=True))
-    dni = await _add(db, _farm_cow(farm, do_not_inseminate=True))
     await _add(db, _farm_cow(farm))
 
     async with api("technician", user_id=tech.id) as client:
         f = await _worklist(client, farm)
 
     assert _ids(f, "do-not-breed") == {str(dnb.id)}
-    assert _ids(f, "do-not-inseminate") == {str(dni.id)}
     titles = {r["type"]: r["title"] for r in f["reports"]}
     assert titles["do-not-breed"] == "Do Not Breed List"
-    # Reference lists, never counted as the day's work.
-    assert all(not r["is_work_report"] for r in f["reports"]
-               if r["type"] in ("do-not-breed", "do-not-inseminate"))
+    # A reference list, never counted as the day's work.
+    assert all(not r["is_work_report"] for r in f["reports"] if r["type"] == "do-not-breed")
 
 
 async def test_an_open_listed_cow_is_not_sent_for_a_protocol(db, farm):

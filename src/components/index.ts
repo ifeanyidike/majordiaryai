@@ -22,6 +22,7 @@ export { PressableScale } from './PressableScale';
 export { Screen } from './Screen';
 export { SearchBar } from './SearchBar';
 export { SectionHeader } from './SectionHeader';
+export { ProtocolSchedule } from './ProtocolSchedule';
 export { StatCard } from './StatCard';
 export { StatusPill, STATUS_LABELS } from './StatusPill';
 export { FilterChips } from './FilterChips';

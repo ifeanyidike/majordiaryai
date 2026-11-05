@@ -46,6 +46,7 @@ export const status = {
   open:        { fg: '#B07C10', bg: '#F9F0DC' },
   inseminated: { fg: '#7B5EA7', bg: '#F0EBF8' },
   dry:         { fg: '#3B6B9E', bg: '#E7EFF7' },
+  dnb:         { fg: charcoal[400], bg: charcoal[100] },
   fresh:       { fg: '#1F8A8A', bg: '#E2F2F2' },
   cull:        { fg: red[600],  bg: red[50]   },
   heat:        { fg: '#C2542B', bg: '#FBEAE2' },

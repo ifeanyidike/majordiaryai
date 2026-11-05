@@ -187,7 +187,7 @@ def test_a_pregnant_heifer_is_never_dried_off(dc):
 def test_dnb_puts_her_on_the_do_not_breed_list():
     cow = one(row(ID=17.0, RPRO="DNB", LACT=3.0, DIM=150.0))
     assert cow.do_not_breed is True
-    assert cow.status == CowStatus.open
+    assert cow.status == CowStatus.dnb
 
 
 # ── who is left out ──────────────────────────────────────────────────

@@ -433,7 +433,8 @@ async def test_insemination_requires_a_sire_and_a_semen_type(db, api, missing):
     (CowStatus.dry, True, False),        # day 223-283: no milking
     (CowStatus.heifer, False, False),    # never calved, never milked
     (CowStatus.open, False, False),      # no calving on record yet
-    (CowStatus.cull, True, False),
+    (CowStatus.cull, True, True),        # milked until she goes (test results, Nov 5)
+    (CowStatus.sold, True, False),
 ])
 def test_milking_follows_the_spec_milk_cycle(status, calved, milking):
     """Master Structure: milk from calving to day 223, none until she calves

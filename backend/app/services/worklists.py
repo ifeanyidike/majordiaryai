@@ -15,13 +15,13 @@ Invariant (see tests/test_worklists.py, executed against a real database):
 from datetime import date
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import aliased
 
 from app.models.models import (
-    Cow, CowStatus, EnrollmentStatus, Farm, NeedlingEnrollment, NeedlingRecord,
+    Cow, CowStatus, EnrollmentStatus, Farm, NeedlingEnrollment, NeedlingRecord, ProtocolType,
 )
-from app.services.protocols import TIMED_AI_PROTOCOLS
+from app.services.protocols import FIRST_HEAT_CHECK_DAY, TIMED_AI_PROTOCOLS
 
 # Cows that have left the herd never appear on a work list.
 TERMINAL_STATUSES = (CowStatus.cull, CowStatus.sold, CowStatus.dead)
@@ -80,9 +80,19 @@ def defers_to_timed_breeding(today: date):
     )
 
 
+def _is_heat_check():
+    """A Prostaglandin Heat step after the shot: a look for heat, not an
+    injection, so it is the Prostaglandin Report's and never the Needling
+    Report's. One definition, or a step could fall between the two."""
+    return and_(
+        NeedlingEnrollment.protocol == ProtocolType.prostaglandin_heat,
+        NeedlingRecord.protocol_day >= FIRST_HEAT_CHECK_DAY,
+    )
+
+
 def needling_due_stmt(today: date):
     """Rows for GET /needling/today — pending injections, minus the cows the
-    overlap rule defers to Timed Breeding."""
+    overlap rule defers to Timed Breeding and the Prostaglandin heat checks."""
     return (
         select(NeedlingRecord, Cow)
         .join(Cow, Cow.id == NeedlingRecord.cow_id)
@@ -95,10 +105,30 @@ def needling_due_stmt(today: date):
             # him out for a shot that is not his to give.
             NeedlingRecord.self_administered == False,  # noqa: E712
             ~defers_to_timed_breeding(today),
+            ~_is_heat_check(),
             NeedlingEnrollment.status == EnrollmentStatus.active,
             Cow.status.notin_(TERMINAL_STATUSES),
         )
         .order_by(NeedlingRecord.scheduled_date)
+    )
+
+
+def prostaglandin_checks_stmt(today: date):
+    """Every heat-check step that has come round on a running Prostaglandin
+    Heat, newest first. Answered ones are included on purpose: only her latest
+    step counts (a check left unanswered yesterday is not asked today), so
+    the caller needs to see whether that one is done."""
+    return (
+        select(NeedlingRecord, Cow)
+        .join(Cow, Cow.id == NeedlingRecord.cow_id)
+        .join(NeedlingEnrollment, NeedlingEnrollment.id == NeedlingRecord.enrollment_id)
+        .where(
+            _is_heat_check(),
+            NeedlingRecord.scheduled_date <= today,
+            NeedlingEnrollment.status == EnrollmentStatus.active,
+            Cow.status.notin_(TERMINAL_STATUSES),
+        )
+        .order_by(NeedlingRecord.scheduled_date.desc(), NeedlingRecord.protocol_day.desc())
     )
 
 

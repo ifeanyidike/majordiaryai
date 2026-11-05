@@ -85,6 +85,7 @@ export default function FarmReportsScreen() {
     { key: 'open', label: 'Open', count: summary.open, color: status.open.fg },
     { key: 'inseminated', label: 'Bred', count: summary.inseminated, color: status.inseminated.fg },
     { key: 'dry', label: 'Dry', count: summary.dry, color: status.dry.fg },
+    { key: 'dnb', label: 'DNB', count: summary.dnb, color: status.dnb.fg },
     { key: 'fresh', label: 'Fresh', count: summary.fresh, color: status.fresh.fg },
     { key: 'cull', label: 'Cull', count: summary.cull, color: status.cull.fg },
   ];

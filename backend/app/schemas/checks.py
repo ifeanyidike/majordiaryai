@@ -40,6 +40,9 @@ class HeatCheckOut(BaseModel):
     # calving...). The app says so instead of leaving the technician to guess.
     on_breed_report: Optional[bool] = None
     not_bred_because: Optional[str] = None
+    # The 60-day rule is all that stopped her: the app may ask "Are you sure?"
+    # and overrule it (POST /checks/heat/{id}/overrule).
+    can_overrule: Optional[bool] = None
 
 
 class PregnancyCheckCreate(BaseModel):
@@ -53,6 +56,8 @@ class PregnancyCheckCreate(BaseModel):
     # Required, no default (Josh, Oct 4): every report question is answered,
     # never assumed. Every app build already sends it.
     has_infection: bool
+    # Which infection, when the vet says. Kept only with has_infection.
+    infection_detail: Optional[str] = None
     has_cysts: bool
     notes: Optional[str] = None
 
@@ -66,6 +71,7 @@ class PregnancyCheckOut(BaseModel):
     performed_by_id: Optional[UUID] = None
     result: Optional[str] = None
     has_infection: bool
+    infection_detail: Optional[str] = None
     has_cysts: bool
     notes: Optional[str] = None
     created_at: datetime

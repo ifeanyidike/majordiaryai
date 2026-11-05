@@ -15,6 +15,7 @@ import {
   HeatCheckForm,
   InseminationForm,
   PregnancyCheckForm,
+  ProstaglandinCheckForm,
   RecordTarget,
   VaccinationForm,
 } from './CowActionsSheet';
@@ -24,10 +25,11 @@ import { Button, ModalToastHost, Text } from '@/components';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '@/theme';
 import { RecordKind, WorklistCow } from '@/data/types';
-import { useAppStore } from '@/store/useAppStore';
+import { herdIdLabel, useAppStore } from '@/store/useAppStore';
 
 const TITLES: Record<RecordKind, string> = {
   heat: 'Record Heat Check',
+  prostaglandin: 'Check for Heat',
   preg: 'Record Pregnancy Check',
   needling: 'Complete Needling',
   insemination: 'Record Insemination',
@@ -54,6 +56,7 @@ function asTarget(cow: WorklistCow): RecordTarget {
     id: cow.cowId,
     label: cow.label,
     earTag: cow.earTag,
+    herdId: cow.herdId,
     status: cow.status,
     farmId: cow.farmId,
     lastInseminationId: cow.lastInseminationId,
@@ -112,6 +115,12 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
     switch (kind) {
       case 'heat':
         return <HeatCheckForm {...common} />;
+      case 'prostaglandin':
+        return cow.needlingRecordId ? (
+          <ProstaglandinCheckForm {...common} recordId={cow.needlingRecordId} day={cow.protocolDay} />
+        ) : (
+          <Missing onClose={onClose} />
+        );
       case 'preg':
         return <PregnancyCheckForm {...common} />;
       case 'vaccination':
@@ -185,7 +194,7 @@ export function CowRecordSheet({ visible, cow, reportType, onClose, onRecorded }
           <Text variant="heading">{kind ? TITLES[kind] : ''}</Text>
           {cow ? (
             <Text variant="caption" color={colors.textSecondary} style={styles.subtitle}>
-              {cow.label}
+              {[cow.label, herdIdLabel(cow)].filter(Boolean).join(' · ')}
             </Text>
           ) : null}
           <ScrollView

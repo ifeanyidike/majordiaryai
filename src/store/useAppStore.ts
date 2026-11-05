@@ -4,7 +4,7 @@ import { daysBetween, daysSince, todayISO } from '@/lib/dates';
 import { HEAT_WINDOW } from '@/data/reports';
 import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
 import {
-  Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
+  ActiveProtocol, Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
   VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
 } from '@/data/types';
 import {
@@ -36,7 +36,7 @@ interface ApiCow {
   herd_id?: string | null;
   farm_id: string; farm_name?: string; calving_assumed?: boolean;
   sire?: string | null; maternal_sire?: string | null;
-  do_not_breed?: boolean; do_not_inseminate?: boolean;
+  do_not_breed?: boolean;
   status: string; breed?: string; date_of_birth?: string;
   lactation_number: number; current_program?: string;
   notes?: string | null;
@@ -59,7 +59,8 @@ interface ApiVet {
 }
 
 interface ApiWorklistCow {
-  cow_id: string; ear_tag?: string | null; name?: string | null; label?: string;
+  cow_id: string; ear_tag?: string | null; herd_id?: string | null;
+  name?: string | null; label?: string;
   farm_id: string; status: string;
   action: string; detail: string;
   lactation_number?: number;
@@ -125,7 +126,10 @@ export interface CowInput {
   sire?: string;
   maternalSire?: string;
   doNotBreed?: boolean;
-  doNotInseminate?: boolean;
+  /** Her ID in the herd software. Needed when her tag is already on the farm. */
+  herdId?: string;
+  /** The answer to "Are you sure?" when her tag is already on the farm. */
+  allowSharedTag?: boolean;
 }
 
 /** What the vet form collects. */
@@ -189,22 +193,18 @@ function mapFarm(f: ApiFarm): Farm {
 
 const KNOWN_STATUSES: CowStatus[] = [
   'calf', 'heifer', 'fresh', 'open', 'needling', 'inseminated',
-  'pregnant', 'dry', 'calving', 'cull', 'sold', 'dead',
+  'pregnant', 'dry', 'dnb', 'calving', 'cull', 'sold', 'dead',
 ];
-
-const NOT_MILKING: CowStatus[] = ['dry', 'cull', 'sold', 'dead', 'calf', 'heifer'];
 
 function mapCow(c: ApiCow): Cow {
   const status: CowStatus = KNOWN_STATUSES.includes(c.status as CowStatus)
     ? (c.status as CowStatus)
     : 'open';
 
-  // Days in milk runs from the last calving for every lactating status —
-  // pregnant cows milk until dry-off (day 223), so they keep counting.
-  const daysInMilk =
-    c.last_calving_date && !NOT_MILKING.includes(status)
-      ? daysSince(c.last_calving_date)
-      : 0;
+  // Days in milk runs from the last calving for as long as the server says
+  // she is in milk: pregnant cows milk until dry-off (day 223), and a Cull cow
+  // until she goes (Josh's test results, Nov 5).
+  const daysInMilk = c.is_milking && c.last_calving_date ? daysSince(c.last_calving_date) : 0;
 
   // Days open is historical: calving → conception for pregnant/dry cows,
   // calving → today while the cow is still open.
@@ -245,8 +245,9 @@ function mapCow(c: ApiCow): Cow {
     sire: c.sire ?? undefined,
     maternalSire: c.maternal_sire ?? undefined,
     doNotBreed: c.do_not_breed ?? false,
-    doNotInseminate: c.do_not_inseminate ?? false,
-    history: { inseminations: [], pregnancyChecks: [], vaccinations: [], treatments: [], calvings: [] },
+    history: {
+      inseminations: [], pregnancyChecks: [], infections: [], vaccinations: [], treatments: [], calvings: [],
+    },
   };
 }
 
@@ -285,6 +286,7 @@ function mapWorklist(w: ApiWorklist): Worklist {
         cows: (r.cows ?? []).map((c) => ({
           cowId: c.cow_id,
           earTag: c.ear_tag ?? undefined,
+          herdId: c.herd_id ?? undefined,
           name: c.name ?? undefined,
           label: c.label ?? c.name ?? c.ear_tag ?? '',
           farmId: c.farm_id,
@@ -322,6 +324,24 @@ function mapVet(v: ApiVet): Vet {
     notes: '',
     upcomingVisits: v.upcoming_visits ?? 0,
     pendingCases: v.pending_cases ?? 0,
+  };
+}
+
+function mapActiveProtocol(p: any): ActiveProtocol | undefined {
+  if (!p) return undefined;
+  return {
+    protocol: p.protocol,
+    steps: [...(p.records ?? [])]
+      .sort((a: any, b: any) => a.protocol_day - b.protocol_day)
+      .map((r: any) => ({
+        id: r.id,
+        day: r.protocol_day,
+        date: r.scheduled_date,
+        treatment: r.treatment,
+        done: r.completed,
+        doneOn: r.completed_date ?? undefined,
+        byFarm: r.self_administered ?? false,
+      })),
   };
 }
 
@@ -634,9 +654,17 @@ export const useAppStore = create<AppState>((set, get) => ({
           `AI — ${r.bull_name ?? 'bull n/a'}${r.semen_type ? ` (${r.semen_type})` : ''}`),
         pregnancyChecks: toHistoryEvents(h.pregnancy_checks, (r) =>
           r.result === 'pregnant' ? 'Confirmed pregnant' : 'Open'),
+        // Josh's test results, Nov 5: "state any infections and dates".
+        infections: toHistoryEvents(
+          (h.pregnancy_checks ?? []).filter((r: any) => r.has_infection),
+          (r) => [r.infection_detail || 'Infection', 'found at pregnancy check', r.notes]
+            .filter(Boolean).join(' — '),
+        ),
         vaccinations: toHistoryEvents(h.vaccinations, (r) =>
           r.vaccine_name ?? 'Vaccination'),
-        treatments: toHistoryEvents(h.needling_records, (r) =>
+        // What she was given. Steps still to come are on her schedule, and a
+        // step of a protocol that stopped was never given at all.
+        treatments: toHistoryEvents((h.needling_records ?? []).filter((r: any) => r.completed), (r) =>
           `${r.treatment ?? 'Injection'}${r.protocol_day ? ` (Day ${r.protocol_day})` : ''}`),
         calvings: toHistoryEvents(h.calvings, (r) => {
           const sex = r.calf_sex ? `${r.calf_sex} calf` : 'Calving';
@@ -647,11 +675,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       // bull, so the field always read "—" beside an AI history naming one;
       // the history (newest first) has it.
       const ais: any[] = h.inseminations ?? [];
+      const activeProtocol = mapActiveProtocol(h.active_protocol);
       set((s) => ({
         cows: s.cows.map((c) => {
           if (c.id !== id) return c;
           const current = ais.find((a) => a.id === c.lastInseminationId) ?? ais[0];
-          return { ...c, history, bullUsed: current?.bull_name ?? c.bullUsed };
+          return { ...c, history, activeProtocol, bullUsed: current?.bull_name ?? c.bullUsed };
         }),
       }));
     } catch {
@@ -962,7 +991,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       sire: input.sire || null,
       maternal_sire: input.maternalSire || null,
       do_not_breed: input.doNotBreed ?? false,
-      do_not_inseminate: input.doNotInseminate ?? false,
+      herd_id: input.herdId || null,
     };
     const saved = cowId
       // A cow never changes farm or ear tag by edit — moving one is a transfer,
@@ -971,8 +1000,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       : await api.post<ApiCow>('/cows/', {
           ...common, ear_tag: input.earTag, farm_id: input.farmId,
           sex: input.sex ?? 'female',
+          allow_shared_tag: input.allowSharedTag ?? false,
         });
     await get().fetchCows();
+    // What is on her record decides which reports she is on. Only the cows
+    // were refetched, so a heifer marked Do Not Breed stayed on the Insemination
+    // Program until a pull-to-refresh (Josh's test results, Nov 5, row 64).
+    get().fetchWorklist();
     return saved.id;
   },
 
@@ -1235,15 +1269,25 @@ export const visibleCows = (s: AppState) => s.cows;
 
 /** "ID 90066" when her DairyComp ID is not just her tag again — how two
  *  animals on one tag are told apart in a list. */
-export const herdIdLabel = (c: Cow): string | null =>
+export const herdIdLabel = (c: { herdId?: string; earTag?: string }): string | null =>
   c.herdId && c.herdId !== c.earTag ? `ID ${c.herdId}` : null;
+
+/** "Maternal Sire Bayonet" when `query` found her by a sire, else null -- so a
+ *  search result says why she is there (Josh's test results, Nov 5). */
+export function sireMatch(c: Cow, query: string): string | null {
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+  if (c.sire?.toLowerCase().includes(q)) return `Sire ${c.sire}`;
+  if (c.maternalSire?.toLowerCase().includes(q)) return `Maternal Sire ${c.maternalSire}`;
+  return null;
+}
 
 /** API already scopes by role, so just return all farms */
 export const visibleFarms = (s: AppState) => s.farms;
 
 export interface HerdSummary {
   total: number; pregnant: number; open: number;
-  dry: number; fresh: number; cull: number; heat: number;
+  dry: number; dnb: number; fresh: number; cull: number; heat: number;
   inseminated: number; needling: number;
   /** Milk Cycle: in milk from calving until dry-off. */
   milking: number;
@@ -1256,6 +1300,7 @@ export const summarize = (list: Cow[]): HerdSummary => ({
   pregnant: list.filter((c) => c.status === 'pregnant').length,
   open: list.filter((c) => c.status === 'open').length,
   dry: list.filter((c) => c.status === 'dry').length,
+  dnb: list.filter((c) => c.status === 'dnb').length,
   fresh: list.filter((c) => c.status === 'fresh').length,
   cull: list.filter((c) => c.status === 'cull').length,
   inseminated: list.filter((c) => c.status === 'inseminated').length,

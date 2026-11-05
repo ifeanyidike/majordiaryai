@@ -453,7 +453,7 @@ export const demoWorklist: Worklist = {
       reports: [
         {
           type: 'needling',
-          title: 'Injection Report',
+          title: 'Needling Report',
           icon: 'fitness',
           statusKey: 'needling',
           isWorkReport: true,

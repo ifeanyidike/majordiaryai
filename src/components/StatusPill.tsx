@@ -8,6 +8,7 @@ export const STATUS_LABELS: Record<StatusKey, string> = {
   open:        'Open',
   inseminated: 'Inseminated',
   dry:         'Dry',
+  dnb:         'DNB',
   fresh:       'Fresh',
   cull:        'Cull',
   // A prediction (day 19–25 after insemination), not an observation: the

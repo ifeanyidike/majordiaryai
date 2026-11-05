@@ -16,6 +16,7 @@ class HerdSummary(BaseModel):
     inseminated: int
     pregnant: int
     dry: int
+    dnb: int = 0
     cull: int
     sold: int
     dead: int
@@ -91,6 +92,8 @@ class WorklistCow(BaseModel):
     # Optional since 0017: a cow may be identified by her name instead.
     # `label` always has something in it.
     ear_tag: Optional[str] = None
+    # Her ID in the herd software: what tells two animals on one tag apart.
+    herd_id: Optional[str] = None
     # Her herd name, and the two combined. The builder puts both on every row
     # so no screen has to fetch the cow again just to print her name — but a
     # field missing from this model is dropped from the response, which is how

@@ -9,12 +9,12 @@ import {
 } from '@/components';
 import { Cow, CowStatus } from '@/data/types';
 import { colors, spacing, useMotion } from '@/theme';
-import { cowsByFarm, farmById, herdIdLabel, useAppStore } from '@/store/useAppStore';
+import { cowsByFarm, farmById, herdIdLabel, sireMatch, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
 // The order a farmer thinks of the cycle in, not alphabetical.
 const STATUS_ORDER: CowStatus[] = [
-  'fresh', 'open', 'needling', 'inseminated', 'pregnant', 'dry',
+  'fresh', 'open', 'needling', 'inseminated', 'pregnant', 'dry', 'dnb',
   'heifer', 'calf', 'cull', 'sold', 'dead',
 ];
 
@@ -36,7 +36,9 @@ function matchesSearch(cow: Cow, query: string): boolean {
   if (!q) return true;
   return squash(cow.earTag ?? '').includes(q) || squash(cow.name ?? '').includes(q)
     // Her old DairyComp ID still finds her (Josh, Oct 26).
-    || squash(cow.herdId ?? '').includes(q);
+    || squash(cow.herdId ?? '').includes(q)
+    // ...and so do her sires (test results, Nov 5).
+    || squash(cow.sire ?? '').includes(q) || squash(cow.maternalSire ?? '').includes(q);
 }
 
 /** Days in milk only means something for a cow that is milking. */
@@ -150,7 +152,7 @@ export default function HerdScreen() {
                 <SearchBar
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search by name, ear tag or ID"
+                  placeholder="Search by name, ear tag, ID or sire"
                 />
                 <FilterChips
                   label="Status"
@@ -195,7 +197,7 @@ export default function HerdScreen() {
               // Blank parts are left out: a herd from DairyComp often has no
               // breed, and days in milk means nothing on a heifer.
               subtitle={[
-                herdIdLabel(cow), cow.breed, `Lact ${cow.lactationNumber}`,
+                herdIdLabel(cow), sireMatch(cow, query), cow.breed, `Lact ${cow.lactationNumber}`,
                 cow.isMilking ? `${cow.daysInMilk} DIM` : null,
               ].filter(Boolean).join(' · ')}
               badge={<StatusPill kind={cow.status} />}

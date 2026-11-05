@@ -25,8 +25,8 @@ from app.services.visits import (
     visit_weekdays, VisitStatus,
 )
 from app.services.worklists import (
-    injection_only, needling_due_stmt, OPEN_ENROLLMENT_STATUSES, TERMINAL_STATUSES,
-    timed_breeding_stmt,
+    injection_only, needling_due_stmt, OPEN_ENROLLMENT_STATUSES, prostaglandin_checks_stmt,
+    TERMINAL_STATUSES, timed_breeding_stmt,
 )
 
 # The Vet Area is exclusively pregnancy diagnosis (Major_further.md). A vet's
@@ -48,7 +48,7 @@ async def _farmer_injections_by_cow(db: AsyncSession, current_user: dict, today:
                                     farm_id: Optional[UUID]) -> dict:
     """Shots the FARMER gives, coming up, that nobody has written a note for.
 
-    The technician does not give these, so they are not on his Injection
+    The technician does not give these, so they are not on his Needling
     report. What is his job is telling the farmer which cow needs which
     hormone -- so this is the prompt for that note, and it disappears as soon
     as the note exists.
@@ -107,7 +107,12 @@ async def _heat_events_by_cow(db: AsyncSession, current_user: dict, today: date,
         if not check.heat_detected and check.days_since_insemination is not None \
                 and is_metestrous_bleeding(check.days_since_insemination):
             continue
-        out[str(cow.id)] = {"detected_on": check.check_date}
+        key = str(cow.id)
+        out[key] = {
+            "detected_on": check.check_date,
+            # The farmer overruled the 60-day rule on any of today's heats.
+            "overruled": check.breed_anyway or out.get(key, {}).get("overruled", False),
+        }
     return out
 
 
@@ -165,6 +170,25 @@ async def _needling_by_cow(db: AsyncSession, current_user: dict, today: date,
         for row in out.values():
             row["protocol"] = protocols.get(UUID(row["enrollment_id"]))
     return out
+
+
+async def _prostaglandin_by_cow(db: AsyncSession, current_user: dict, today: date,
+                                farm_id: Optional[UUID]) -> dict:
+    """Her latest Prostaglandin heat check, if it is still to be answered."""
+    stmt = scope_to_farms(prostaglandin_checks_stmt(today), current_user, farm_id, col=Cow.farm_id)
+    latest: dict = {}
+    for record, cow in (await db.execute(stmt)).all():
+        latest.setdefault(str(cow.id), record)
+    return {
+        key: {
+            "id": str(record.id),
+            "treatment": record.treatment,
+            "protocol_day": record.protocol_day,
+            "is_final": record.is_final,
+            "days_overdue": (today - record.scheduled_date).days,
+        }
+        for key, record in latest.items() if not record.completed
+    }
 
 
 async def _breeding_by_cow(db: AsyncSession, current_user: dict, today: date,
@@ -305,6 +329,7 @@ async def build_worklist(
         }
 
     needling = await _needling_by_cow(db, current_user, today, farm_id)
+    prostaglandin = await _prostaglandin_by_cow(db, current_user, today, farm_id)
     breeding = await _breeding_by_cow(db, current_user, today, farm_id)
     vaccinations = await _vaccinations_by_cow(db, current_user, today, farm_id)
     post_calving = await _post_calving_by_cow(db, current_user, farm_id)
@@ -328,7 +353,8 @@ async def build_worklist(
             continue
         ctx = WorklistContext(
             today=today, role=role, cows=by_farm.get(farm.id, []),
-            needling=needling, breeding=breeding, vaccinations=vaccinations,
+            needling=needling, prostaglandin=prostaglandin, breeding=breeding,
+            vaccinations=vaccinations,
             post_calving=post_calving, farmer_injections=farmer_injections,
             heat_events=heat_events, farm_self_vaccinate=farm.self_vaccinate,
             culls=culls,

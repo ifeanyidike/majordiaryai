@@ -11,8 +11,8 @@
 --
 
 
--- Dumped from database version 17.6 (Homebrew)
--- Dumped by pg_dump version 17.6 (Homebrew)
+-- Dumped from database version 16.15
+-- Dumped by pg_dump version 16.15
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -62,6 +62,7 @@ CREATE TYPE public.cow_status AS ENUM (
     'inseminated',
     'pregnant',
     'dry',
+    'dnb',
     'cull',
     'sold',
     'dead'
@@ -358,7 +359,8 @@ CREATE TABLE public.heat_checks (
     bleeding_event boolean DEFAULT false,
     technician_id uuid,
     notes text,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    breed_anyway boolean DEFAULT false NOT NULL
 );
 
 
@@ -483,7 +485,8 @@ CREATE TABLE public.pregnancy_checks (
     has_cysts boolean DEFAULT false,
     notes text,
     created_at timestamp with time zone DEFAULT now(),
-    performed_by_id uuid
+    performed_by_id uuid,
+    infection_detail character varying
 );
 
 

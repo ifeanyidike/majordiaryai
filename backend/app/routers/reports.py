@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.auth import get_current_user
@@ -96,6 +96,7 @@ async def herd_summary(
             func.count(Cow.id).filter(Cow.status == CowStatus.inseminated).label("inseminated"),
             func.count(Cow.id).filter(Cow.status == CowStatus.pregnant).label("pregnant"),
             func.count(Cow.id).filter(Cow.status == CowStatus.dry).label("dry"),
+            func.count(Cow.id).filter(Cow.status == CowStatus.dnb).label("dnb"),
             func.count(Cow.id).filter(Cow.status == CowStatus.cull).label("cull"),
             func.count(Cow.id).filter(Cow.status == CowStatus.sold).label("sold"),
             func.count(Cow.id).filter(Cow.status == CowStatus.dead).label("dead"),
@@ -138,9 +139,10 @@ async def herd_summary(
     )
     conceptions = {r.farm_id: r.n for r in (await db.execute(conceptions_q)).all()}
 
-    # Milking, by the same rule as status_engine.is_milking: she has calved and
-    # is not dry/calf/heifer/terminal. Expressed once, in SQL, so the dashboard
-    # cannot drift from the per-cow flag.
+    # Milking, by the same rule as status_engine.is_milking: she has calved, is
+    # not dry/calf/heifer/gone, and was not already dried off when she was
+    # culled. Expressed once, in SQL, so the dashboard cannot drift from the
+    # per-cow flag.
     milking_q = (
         select(Cow.farm_id, func.count(Cow.id).label("n"))
         .where(
@@ -148,8 +150,9 @@ async def herd_summary(
             Cow.last_calving_date.isnot(None),
             Cow.status.notin_([
                 CowStatus.dry, CowStatus.calf, CowStatus.heifer,
-                CowStatus.cull, CowStatus.sold, CowStatus.dead,
+                CowStatus.sold, CowStatus.dead,
             ]),
+            or_(Cow.status != CowStatus.cull, Cow.dry_date.is_(None), Cow.dry_date > today),
         )
         .group_by(Cow.farm_id)
     )

@@ -19,9 +19,16 @@ import { WorklistReport } from './types';
  */
 export const HEAT_WINDOW = [19, 25] as const;
 
+/**
+ * Mirrors status_engine.MIN_DAYS_POST_CALVING_TO_BREED. The server decides who
+ * may be bred; the app only uses this to ask "Are you sure?" first when a cow
+ * this close to calving is enrolled by hand.
+ */
+export const MIN_DAYS_POST_CALVING_TO_BREED = 60;
+
 /** Reports that read as a daily route, shown first on the Reports hub. */
 export const DAILY_REPORT_TYPES = [
-  'heat', 'breed-today', 'timed-breeding', 'needling', 'insemination',
+  'heat', 'breed-today', 'timed-breeding', 'needling', 'prostaglandin', 'insemination',
 ];
 
 /** Program reports — event- or day-triggered rather than daily. */
@@ -34,7 +41,7 @@ export const VET_REPORT_TYPES = ['pregnancy-check', 'pregnant', 'calving-due'];
 
 /** Reference lists: never work, never counted in a workload. */
 export const LIST_REPORT_TYPES = [
-  'calving-due', 'pregnant', 'open', 'cull', 'do-not-breed', 'do-not-inseminate',
+  'calving-due', 'pregnant', 'open', 'cull', 'do-not-breed',
 ];
 
 /**
@@ -45,7 +52,8 @@ const REPORT_TITLES: Record<string, string> = {
   heat: 'Heat Report',
   'breed-today': "Today's Breed Report",
   'timed-breeding': 'Timed Breeding Report',
-  needling: 'Injection Report',
+  needling: 'Needling Report',
+  prostaglandin: 'Prostaglandin Report',
   'farmer-injection': 'Farmer Injection',
   insemination: 'Insemination Program',
   'pregnancy-check': 'Pregnancy Report',
@@ -59,7 +67,6 @@ const REPORT_TITLES: Record<string, string> = {
   open: 'Open Cow List',
   cull: 'Cull Cow List',
   'do-not-breed': 'Do Not Breed List',
-  'do-not-inseminate': 'Do Not Inseminate List',
 };
 
 const REPORT_ICONS: Record<string, string> = {
@@ -67,6 +74,7 @@ const REPORT_ICONS: Record<string, string> = {
   'breed-today': 'flash',
   'timed-breeding': 'flask',
   needling: 'fitness',
+  prostaglandin: 'eye',
   'farmer-injection': 'create',
   insemination: 'git-branch',
   'pregnancy-check': 'medkit',
@@ -80,7 +88,6 @@ const REPORT_ICONS: Record<string, string> = {
   open: 'list-circle',
   cull: 'alert-circle',
   'do-not-breed': 'ban',
-  'do-not-inseminate': 'remove-circle',
 };
 
 export const knownReportType = (type: string) => type in REPORT_TITLES;

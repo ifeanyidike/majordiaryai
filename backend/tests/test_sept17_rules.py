@@ -8,7 +8,7 @@
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
@@ -156,7 +156,11 @@ async def test_the_farm_is_told_the_day_before_not_at_enrollment(
     # Named as the farm knows her, with the tag still there to remove all doubt.
     assert "Bluebell" in message and "SELF-2" in message
 
-    # Six-hourly sweeps must not repeat it.
+    # Six-hourly sweeps must not repeat it. Stamped with the day the sweep
+    # thinks it is: START is ahead of the wall clock from Wednesday to Friday
+    # (a protocol can't start then), which the "already told" guard reads.
+    sent[0].created_at = datetime.combine(START + timedelta(days=7), time.min, tzinfo=timezone.utc)
+    await db.flush()
     await status_engine.run_lifecycle_transitions(
         db, farm_ids=[farm.id], today=START + timedelta(days=7))
     assert len((await notes()).scalars().all()) == 1
@@ -568,7 +572,7 @@ def test_the_vaccine_report_is_named_for_the_vaccine():
     titles = {r.type: r.title for r in REPORTS}
     assert titles["post-calving"] == "Vaccine Report"
     assert titles["vaccination"] == "Scheduled Vaccinations"
-    assert titles["needling"] == "Injection Report"
+    assert titles["needling"] == "Needling Report"
     assert len(set(titles.values())) == len(titles), "two reports share a title"
 
 
@@ -604,19 +608,16 @@ def test_the_needling_record_schema_carries_who_gives_the_shot():
     assert "self_administered" in NeedlingRecordOut.model_fields
 
 
-# ── day 283: dry becomes fresh on her own ────────────────────────────
+# ── day 283: she stays Dry until her calving is recorded ─────────────
 
-async def test_a_dry_cow_becomes_fresh_on_her_due_date(db, farm):
-    """The client on the call: "on 283 days, the status changes from dry to
-    fresh." Day 283 from the insemination is her due date.
-
-    The written summary rendered this as "day of calving", which is what
-    on_calving already did — an event somebody has to record. This is the
-    timed version he actually described.
+async def test_a_dry_cow_stays_dry_past_her_due_date(db, farm):
+    """Josh's test results, Nov 5: "Do not automatically change dry to fresh on
+    day 283, make it a manual action once the cow gives birth". The recording
+    from the Sept 17 call asked for the opposite; this one replaces it.
     """
     from sqlalchemy import select
 
-    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS)
+    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS + 4)
     cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="D2F-1", name="Clover",
               status=CowStatus.dry, lactation_number=3,
               last_insemination_date=ai,
@@ -624,38 +625,45 @@ async def test_a_dry_cow_becomes_fresh_on_her_due_date(db, farm):
               dry_date=status_engine.compute_dry_date(ai))
     db.add(cow)
     await db.flush()
-    assert cow.due_date == TODAY
 
     await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
 
-    assert cow.status is CowStatus.fresh
-    # She needs a calving date or she is a fresh cow with no clock: the day-70
-    # sweep would never move her and the vaccine report could never find her.
-    assert cow.last_calving_date == TODAY
-    notes = (await db.execute(
+    assert cow.status is CowStatus.dry
+    assert cow.last_calving_date is None
+    assert cow.calving_assumed is False
+    assert (await db.execute(
         select(Notification).where(Notification.cow_id == cow.id)
-    )).scalars().all()
-    assert [n.type for n in notes] == ["calving"]
-    assert "confirm" in notes[0].message.lower()
+    )).scalars().all() == []
 
 
-async def test_the_timed_flip_does_not_claim_a_lactation(db, farm):
-    """Nobody has said she calved. Counting the lactation here would make the
-    real calving record count it twice."""
-    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS)
+async def test_a_late_cow_is_shown_overdue_until_her_calving_is_recorded(db, farm, api, make_user):
+    tech = await make_user(UserRole.technician)
+    farm.assigned_technician_id = tech.id
+    ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS + 4)
     cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="D2F-2",
               status=CowStatus.dry, lactation_number=3,
               last_insemination_date=ai,
-              due_date=status_engine.compute_due_date(ai))
+              due_date=status_engine.compute_due_date(ai),
+              dry_date=status_engine.compute_dry_date(ai))
     db.add(cow)
     await db.flush()
 
-    await status_engine.run_lifecycle_transitions(db, farm_ids=[farm.id], today=TODAY)
-    assert cow.lactation_number == 3
+    async with api("technician", user_id=tech.id) as client:
+        wl = (await client.get("/reports/worklist", params={"farm_id": str(farm.id)})).json()
+        reports = {r["type"]: r for r in wl["farms"][0]["reports"]}
+        (row,) = reports["calving-due"]["cows"]
+        assert row["overdue"] is True and row["record_kind"] == "calving"
+        assert "fresh" not in reports
 
-    # Recording the calving is what advances it, and corrects the assumed date.
-    real_calving = TODAY - timedelta(days=2)
-    await status_engine.on_calving(cow, real_calving, db)
+        real_calving = TODAY - timedelta(days=2)
+        r = await client.post("/calving/", json={
+            "cow_id": str(cow.id), "calving_date": real_calving.isoformat(),
+            "live_birth": True, "still_birth": False, "calf_sex": "male",
+        })
+        assert r.status_code == 201, r.text
+
+    await db.refresh(cow)
+    assert cow.status is CowStatus.fresh
     assert cow.lactation_number == 4
     assert cow.last_calving_date == real_calving
 

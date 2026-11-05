@@ -39,21 +39,22 @@ async def record_insemination(
 ):
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)
 
-    if cow.status not in status_engine.INSEMINABLE_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot inseminate a cow with status '{cow.status.value}'",
-        )
-
-    # The lists exist to stop exactly this (Josh, Oct 2/4). Taking her off the
+    # The list exists to stop exactly this (Josh, Oct 2/4). Taking her off the
     # list is a deliberate edit on her record, not something to do by accident
-    # from a breeding form.
-    if cow.do_not_breed or cow.do_not_inseminate:
-        listed = "Do Not Breed" if cow.do_not_breed else "Do Not Inseminate"
+    # from a breeding form. Before the status check, which would only say
+    # "dnb" to a technician who needs to know why.
+    listed = status_engine.breeding_list(cow)
+    if listed:
         raise HTTPException(
             status_code=409,
             detail=f"{cow.label} is on the {listed} list. Take her off it first "
                    "if she is to be bred.",
+        )
+
+    if cow.status not in status_engine.INSEMINABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot inseminate a cow with status '{cow.status.value}'",
         )
 
     # A bull from another farm's list would silently corrupt per-bull analytics.

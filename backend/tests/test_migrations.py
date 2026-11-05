@@ -14,6 +14,7 @@ import re
 import pytest
 
 SCHEMA = pathlib.Path(__file__).resolve().parents[1] / "schema.sql"
+SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
 
 
 def _schema_text() -> str:
@@ -53,6 +54,8 @@ def test_schema_is_not_stale():
         "dry_off_confirmed_date",    # 0005
         "email_status",              # 0007
         "notification_reads",        # 0011
+        "breed_anyway",              # 0023
+        "infection_detail",          # 0023
     ]:
         assert expected in sql, f"schema.sql is missing {expected!r} — re-run scripts/dump_schema.sh"
 
@@ -108,6 +111,28 @@ def test_the_app_and_the_api_agree_on_every_protocol_step():
         assert [(int(d), t) for d, t in found] == [
             (s["day"], s["treatment"]) for s in steps
         ], f"{name} differs between the app and the API"
+
+
+def test_the_app_and_the_api_agree_on_every_status():
+    """A status the app does not list is shown as Open, which for a Do Not
+    Breed cow says the one thing that is not so."""
+    from app.models.models import CowStatus
+
+    store = (SRC / "store" / "useAppStore.ts").read_text()
+    known = re.search(r"KNOWN_STATUSES: CowStatus\[\] = \[(.*?)\];", store, re.S).group(1)
+    pill = (SRC / "components" / "StatusPill.tsx").read_text()
+    colors = (SRC / "theme" / "colors.ts").read_text()
+    for status in CowStatus:
+        assert f"'{status.value}'" in known, f"{status.value} missing from KNOWN_STATUSES"
+        assert re.search(rf"^\s+{status.value}:", pill, re.M), f"{status.value} has no label"
+        assert re.search(rf"^\s+{status.value}:", colors, re.M), f"{status.value} has no colour"
+
+
+def test_the_app_and_the_api_agree_on_the_60_day_rule():
+    from app.services.status_engine import MIN_DAYS_POST_CALVING_TO_BREED
+
+    reports = (SRC / "data" / "reports.ts").read_text()
+    assert f"MIN_DAYS_POST_CALVING_TO_BREED = {MIN_DAYS_POST_CALVING_TO_BREED};" in reports
 
 
 def test_the_rls_helper_uses_the_same_grace_period_and_timezone_as_the_api():

@@ -210,13 +210,13 @@ async def test_actively_worked_protocol_is_not_expired(db, make_cow):
     ))
     await db.flush()
 
-    changed = await status_engine._expire_stale_enrollments(db, None, TODAY)
+    changed = await status_engine._expire_stale_enrollments(db, [cow.farm_id], TODAY)
     assert changed == 0, "expired an enrollment with a shot given yesterday"
     assert cow.status == CowStatus.needling
 
     # Once the recent work ages out past the cutoff, expiry applies again.
     later = TODAY + timedelta(days=status_engine.ABANDONED_PROTOCOL_DAYS + 2)
-    changed = await status_engine._expire_stale_enrollments(db, None, later)
+    changed = await status_engine._expire_stale_enrollments(db, [cow.farm_id], later)
     assert changed == 1
     assert cow.status == CowStatus.open
 

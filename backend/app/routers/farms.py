@@ -22,7 +22,7 @@ router = APIRouter()
 DEFAULT_PAGE_SIZE = 200
 MAX_PAGE_SIZE = 1000
 
-ACTIVE_STATUSES = (CowStatus.calf, CowStatus.heifer, CowStatus.fresh, CowStatus.open,
+ACTIVE_STATUSES = (CowStatus.calf, CowStatus.heifer, CowStatus.fresh, CowStatus.open, CowStatus.dnb,
                    CowStatus.needling, CowStatus.inseminated, CowStatus.pregnant, CowStatus.dry)
 
 # Non-nullable columns that a PATCH must never null out.
