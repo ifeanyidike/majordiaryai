@@ -45,7 +45,7 @@ def _timed_breeding_predicates(rec, enr, cow, today: date) -> List:
         rec.is_final == True,  # noqa: E712 — SQL expression
         rec.scheduled_date <= today,
         # Timed-AI protocols only. Prostaglandin Heat ends in *conditional* AI on
-        # observed heat, so it stays on the Needling/Heat path.
+        # observed heat, so it stays on the Prostaglandin Report.
         enr.protocol.in_(TIMED_AI_PROTOCOLS),
         enr.status.in_(OPEN_ENROLLMENT_STATUSES),
         cow.status == CowStatus.needling,
@@ -177,7 +177,7 @@ def injection_only(treatment: Optional[str]) -> Optional[str]:
 
 
 def latest_open_record_stmt(cow_id):
-    """The most recent incomplete record on a cow's open enrollment, if any.
+    """The earliest incomplete record on a cow's open enrollment, if any.
 
     Used to attach a bleeding event to her treatment history. Returns nothing
     when she isn't mid-protocol — bleeding is recordable regardless, so callers

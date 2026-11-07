@@ -260,8 +260,10 @@ async def record_bleeding_event(
     exactly when she is closest to insemination.
 
     The cow goes Open and is transferred into the Ovsynch program. The bleeding
-    is also flagged on her most recent open needling record when she has one, so
+    is also flagged on her earliest open needling record when she has one, so
     it shows up in her treatment history rather than only in a status change.
+    That step may be a missed one or one still to come, and it was not given,
+    so it keeps the day she bled as `completed_date` and stays incomplete.
     """
     cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
 
@@ -287,6 +289,7 @@ async def record_bleeding_event(
     record = await db.scalar(latest_open_record_stmt(cow.id))
     if record is not None:
         record.bleeding_event = True
+        record.completed_date = local_today()
         record.technician_id = current_user["id"]
         note = body.notes or "Bleeding event recorded"
         record.notes = f"{record.notes}\n{note}" if record.notes else note

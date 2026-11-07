@@ -6,7 +6,7 @@ from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
 from app.models.models import CalvingRecord, CalfSex, Cow, CowStatus, VaccinationRecord
 from app.schemas.calving import CalvingCreate, CalvingOut
-from app.services import status_engine
+from app.services import cow_identity, status_engine
 from app.services.access import get_cow_scoped
 from datetime import timedelta
 from typing import List
@@ -86,16 +86,11 @@ async def record_calving(
     if body.live_birth and body.calf_sex == CalfSex.female:
         if not calf_ear_tag:
             calf_ear_tag = await _generate_calf_ear_tag(db, cow.farm_id)
-        elif await db.scalar(select(func.count(Cow.id)).where(
-                Cow.farm_id == cow.farm_id, Cow.ear_tag == calf_ear_tag)):
-            # Shared tags are allowed in the database for imported herds
-            # (migration 0022); a newborn's tag already in use is a mistake.
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ear tag '{calf_ear_tag}' already exists on this farm",
-            )
+        await cow_identity.check_new_animal(
+            db, cow.farm_id, calf_ear_tag, body.calf_herd_id, body.allow_shared_tag)
         calf = Cow(
             ear_tag=calf_ear_tag,
+            herd_id=body.calf_herd_id,
             farm_id=cow.farm_id,
             sex=CalfSex.female,
             date_of_birth=body.calving_date,

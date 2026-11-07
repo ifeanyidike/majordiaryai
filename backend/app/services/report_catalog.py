@@ -583,16 +583,29 @@ def _calving_due(ctx: WorklistContext) -> List[ReportRow]:
 
 
 def _fresh(ctx: WorklistContext) -> List[ReportRow]:
-    """Cows that have just calved -- and cows the old day-283 rule ASSUMED had.
+    """Cows that have just calved, cows due to, and cows the old day-283 rule
+    ASSUMED had.
 
-    For a recorded calving the action is the post-calving check. For an
-    assumed one it is recording the calving itself: until then her lactation
-    is one short, her calving date is a guess, and her calf does not exist.
-    Nothing assumes a calving any more (test results, Nov 5); the cows it
-    happened to wait here until theirs is recorded.
+    For a recorded calving the action is the post-calving check. For the rest
+    it is recording the calving itself. A cow at her due date stays Dry until
+    someone says she calved (test results, Nov 5), so this is where she is
+    asked after: Upcoming Calvings is a reference list, and on that alone a
+    late cow would be on nobody's work. For an assumed calving her lactation
+    is one short, her calving date is a guess, and her calf does not exist;
+    nothing assumes one any more, and the cows it happened to wait here.
     """
     rows = []
     for cow in ctx.cows:
+        if cow.status in (CowStatus.pregnant, CowStatus.dry):
+            if cow.due_date and cow.due_date <= ctx.today:
+                rows.append(ReportRow(
+                    cow=cow,
+                    action="Due date reached — record the calving when she does",
+                    detail=f"Due {_fmt(cow.due_date)} · calving not recorded yet",
+                    record_kind="calving",
+                    overdue=cow.due_date < ctx.today,
+                ))
+            continue
         if cow.status != CowStatus.fresh:
             continue
         if cow.calving_assumed:
@@ -763,7 +776,7 @@ REPORTS: List[ReportDef] = [
     # it to a farm manager would end in a 403.
     ReportDef("fresh", "Fresh / Calving Report", "heart", "fresh", True, _fresh,
               record_roles=WORK_ROLES,
-              subtitle=lambda n: f"{n} freshly calved {'cow' if n == 1 else 'cows'}"),
+              subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} calved or due"),
     ReportDef("open-report", "Open Cow Report", "ellipse-outline", "open", True, _open,
               record_roles=WORK_ROLES,
               subtitle=lambda n: f"{n} {'cow' if n == 1 else 'cows'} to assess"),

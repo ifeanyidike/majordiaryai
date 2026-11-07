@@ -26,6 +26,7 @@ export { ProtocolSchedule } from './ProtocolSchedule';
 export { StatCard } from './StatCard';
 export { StatusPill, STATUS_LABELS } from './StatusPill';
 export { FilterChips } from './FilterChips';
+export { SharedTagQuestion } from './SharedTagQuestion';
 export { Text } from './Text';
 export { YesNoField } from './YesNoField';
 export { ModalToastHost, ToastHost, useToast } from './Toast';

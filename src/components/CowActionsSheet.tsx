@@ -13,9 +13,10 @@ import {
 import { Button, ModalToastHost, SegmentedControl, SectionHeader, Text, useToast } from '@/components';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormInput, FormLabel } from './FormField';
+import { SharedTagQuestion } from './SharedTagQuestion';
 import { YesNoField } from './YesNoField';
 import { HEAT_WINDOW, MIN_DAYS_POST_CALVING_TO_BREED } from '@/data/reports';
-import { api, isApiConfigured } from '@/lib/api';
+import { api, ApiError, isApiConfigured } from '@/lib/api';
 import {
   daysBetween, daysSince, isValidPastOrTodayDate, isValidStartDate, START_DATE_LOOKAHEAD_DAYS,
   todayISO,
@@ -556,6 +557,12 @@ interface HeatResult {
   can_overrule?: boolean | null;
 }
 
+/** A heat is saved before the sheet's next step, and that step can be closed
+ *  without finishing it, so the reports are told now. */
+function refreshReports() {
+  useAppStore.getState().fetchWorklist();
+}
+
 /** What happened to her, in the words the technician needs next. */
 function heatOutcome(cow: RecordTarget, result: HeatResult, checkDate: string): string {
   if (result.on_breed_report) return `${cow.label} is on Today's Breed Report — breed her today`;
@@ -664,6 +671,7 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
         notes: notes.trim() || null,
       });
       if (result.can_overrule) {
+        refreshReports();
         setOverrule(result);
         return;
       }
@@ -755,6 +763,7 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
         notes: notes.trim() || null,
       });
       if (result.can_overrule) {
+        refreshReports();
         setOverrule(result);
         return;
       }
@@ -813,7 +822,9 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
  * mark as open status", which the last day's No does.
  *
  * Yes records a heat like any other, so if she is not bred after all she is on
- * Today's Breed Report, and Open tomorrow, as every cow in heat is.
+ * Today's Breed Report, and Open tomorrow, as every cow in heat is. No asks about
+ * bleeding, which "can be recorded on any day" (Master Structure) and stops the
+ * protocol: she goes to Open and restarts on Ovsynch.
  */
 export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplete }: FormProps & {
   recordId: string;
@@ -821,6 +832,7 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
 }) {
   const toast = useToast();
   const [inHeat, setInHeat] = useState<boolean | null>(null);
+  const [bleeding, setBleeding] = useState<boolean | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [overrule, setOverrule] = useState<HeatResult | null>(null);
@@ -832,6 +844,12 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
+      if (!inHeat && bleeding) {
+        await api.post(`/needling/cow/${cow.id}/bleeding`, { notes: notes.trim() || null });
+        toast.show('Bleeding recorded — cow moves to Open and restarts on Ovsynch', 'water', 'success');
+        onComplete();
+        return;
+      }
       if (!inHeat) {
         await api.patch(`/needling/records/${recordId}/complete`, {
           bleeding_event: false,
@@ -854,8 +872,10 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
         notes: notes.trim() || null,
       });
       if (result.on_breed_report) {
+        refreshReports();
         setBreeding(true);
       } else if (result.can_overrule) {
+        refreshReports();
         setOverrule(result);
       } else {
         toast.show(heatOutcome(cow, result, todayISO()), 'flame', 'success');
@@ -902,6 +922,9 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
         {lastCheck ? ' Last check: with no heat today she goes to Open.' : ''}
       </Text>
       <YesNoField label="In heat?" value={inHeat} onChange={setInHeat} />
+      {inHeat === false ? (
+        <YesNoField label="Bleeding event?" value={bleeding} onChange={setBleeding} />
+      ) : null}
       <FormLabel>Notes</FormLabel>
       <FormInput value={notes} onChangeText={setNotes} placeholder="Optional" multiline />
       <TechnicianRow />
@@ -911,7 +934,7 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
         submitIcon={inHeat ? 'flame' : 'checkmark'}
         onSubmit={submit}
         loading={loading}
-        disabled={inHeat === null}
+        disabled={inHeat === null || (inHeat === false && bleeding === null)}
       />
     </>
   );
@@ -1039,9 +1062,26 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
   // "not answered yet", which never saves (Josh, Oct 4).
   const [calfSex, setCalfSex] = useState<'female' | 'male' | 'unknown' | null>(null);
   const [calfTag, setCalfTag] = useState('');
+  // Set when the server says the tag is already on the farm. An animal may
+  // share one, with an "Are you sure?" and an ID (Josh's test results, Nov 5).
+  const [tagInUse, setTagInUse] = useState<string | null>(null);
+  const [shareTag, setShareTag] = useState<boolean | null>(null);
+  const [calfId, setCalfId] = useState('');
   const [saleInfo, setSaleInfo] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // A different tag is a new question.
+  useEffect(() => {
+    setTagInUse(null);
+    setShareTag(null);
+  }, [calfTag]);
+
+  // A tag only belongs to a live heifer calf — she is the one that gets a
+  // herd record. The field kept its value when the technician switched to
+  // Male or Still Birth after typing, and it was submitted regardless, so
+  // a stillborn calf could be filed under a real ear tag.
+  const tagApplies = outcome === 'live' && calfSex === 'female';
 
   // Female live calves must get an ear tag (spec); the backend can generate
   // one, so an empty tag is allowed but sex is always required for live births.
@@ -1050,7 +1090,8 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
     isValidTime(calvTime) &&
     outcome !== null &&
     calfSex !== null &&
-    (outcome === 'still' || calfSex !== 'unknown');
+    (outcome === 'still' || calfSex !== 'unknown') &&
+    (!tagApplies || !tagInUse || (shareTag === true && !!calfId.trim()));
 
   const submit = async () => {
     if (!guardApi(toast.error)) return;
@@ -1058,11 +1099,6 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
     try {
       // Backend stores the calving date; keep the spec-required time in the notes.
       const timeNote = `Calved at ${calvTime}`;
-      // A tag only belongs to a live heifer calf — she is the one that gets a
-      // herd record. The field kept its value when the technician switched to
-      // Male or Still Birth after typing, and it was submitted regardless, so
-      // a stillborn calf could be filed under a real ear tag.
-      const tagApplies = outcome === 'live' && calfSex === 'female';
       await api.post('/calving/', {
         cow_id: cow.id,
         calving_date: calvDate,
@@ -1072,6 +1108,8 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
         // required, since it is not always determined.
         calf_sex: calfSex === 'unknown' ? null : calfSex,
         calf_ear_tag: tagApplies ? calfTag.trim() || null : null,
+        calf_herd_id: tagApplies && tagInUse ? calfId.trim() || null : null,
+        allow_shared_tag: tagApplies && !!tagInUse && !!shareTag,
         calf_sale_info:
           outcome === 'live' && calfSex === 'male' && saleInfo.trim()
             ? saleInfo.trim()
@@ -1081,7 +1119,12 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
       toast.success(`Calving recorded — ${cow.label} is now Fresh`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record calving');
+      // POST /calving/ opens this refusal with "Ear tag" (services/cow_identity.py).
+      if (e instanceof ApiError && e.status === 409 && e.message.startsWith('Ear tag')) {
+        setTagInUse(calfTag.trim());
+      } else {
+        toast.error(e?.message ?? 'Failed to record calving');
+      }
     } finally {
       setLoading(false);
     }
@@ -1131,6 +1174,25 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
                 onChangeText={setCalfTag}
                 placeholder="Leave blank to auto-generate"
               />
+              {tagInUse ? (
+                <SharedTagQuestion tag={tagInUse} value={shareTag} onChange={setShareTag} />
+              ) : null}
+              {tagInUse && shareTag ? (
+                <>
+                  <FormLabel>Calf ID</FormLabel>
+                  <FormInput
+                    value={calfId}
+                    onChangeText={setCalfId}
+                    placeholder="Tells her apart from the other animal"
+                    autoCapitalize="characters"
+                  />
+                </>
+              ) : null}
+              {tagInUse && shareTag === false ? (
+                <Text variant="caption" color={colors.textSecondary} style={styles.fieldHint}>
+                  Change the tag above, or leave it blank to auto-generate.
+                </Text>
+              ) : null}
             </>
           )}
           {calfSex === 'male' && (

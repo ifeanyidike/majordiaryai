@@ -12,6 +12,7 @@ import {
   Screen,
   SectionHeader,
   SegmentedControl,
+  SharedTagQuestion,
   YesNoField,
   Text,
   useToast,
@@ -224,14 +225,7 @@ export default function CowEditScreen() {
         )}
 
         {tagInUse ? (
-          <View style={styles.tagInUse}>
-            <Text variant="bodyBold">Tag {tagInUse} is already on this farm.</Text>
-            <Text variant="caption" color={colors.textSecondary} style={styles.tagInUseHint}>
-              It is usually a typing mistake, but herds do reuse tags.
-            </Text>
-            <YesNoField label="Are you sure this animal has the same tag?" value={shareTag}
-                        onChange={setShareTag} />
-          </View>
+          <SharedTagQuestion tag={tagInUse} value={shareTag} onChange={setShareTag} />
         ) : null}
 
         {existing?.herdId ? (
@@ -363,15 +357,6 @@ const styles = StyleSheet.create({
   segment: { marginBottom: spacing.md },
   breedingError: { marginTop: -spacing.xs, marginBottom: spacing.md },
   breedingHint: { marginTop: -spacing.xs, marginBottom: spacing.md },
-  tagInUse: {
-    backgroundColor: colors.primarySoft,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.red[200],
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  tagInUseHint: { marginBottom: spacing.sm },
   locked: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.sm,

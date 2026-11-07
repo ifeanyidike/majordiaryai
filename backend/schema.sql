@@ -283,7 +283,6 @@ CREATE TABLE public.cows (
     sire character varying,
     maternal_sire character varying,
     do_not_breed boolean DEFAULT false NOT NULL,
-    do_not_inseminate boolean DEFAULT false NOT NULL,
     herd_id character varying,
     CONSTRAINT ck_cows_has_an_identifier CHECK (((ear_tag IS NOT NULL) OR (name IS NOT NULL))),
     CONSTRAINT ck_cows_lactation_number_non_negative CHECK ((lactation_number >= 0))

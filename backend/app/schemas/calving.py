@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional
 from uuid import UUID
 from datetime import date, datetime
@@ -14,9 +14,18 @@ class CalvingCreate(BaseModel):
     still_birth: bool
     calf_sex: Optional[CalfSex] = None
     calf_ear_tag: Optional[str] = None
+    # The ID that tells her from an animal on the same tag, and the answer to
+    # "Are you sure?" when that tag is already on the farm.
+    calf_herd_id: Optional[str] = None
+    allow_shared_tag: bool = False
     # For male calves (no herd record) — sale/outcome details
     calf_sale_info: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("calf_herd_id")
+    @classmethod
+    def blank_id_is_no_id(cls, v):
+        return (v or "").strip() or None
 
     @model_validator(mode="after")
     def live_still_mutually_exclusive(self):

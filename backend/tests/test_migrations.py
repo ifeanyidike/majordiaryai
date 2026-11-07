@@ -58,6 +58,7 @@ def test_schema_is_not_stale():
         "infection_detail",          # 0023
     ]:
         assert expected in sql, f"schema.sql is missing {expected!r} — re-run scripts/dump_schema.sh"
+    assert "do_not_inseminate" not in sql, "dropped in 0024 — re-run scripts/dump_schema.sh"
 
 
 def test_every_model_table_has_a_migration():
@@ -133,6 +134,13 @@ def test_the_app_and_the_api_agree_on_the_60_day_rule():
 
     reports = (SRC / "data" / "reports.ts").read_text()
     assert f"MIN_DAYS_POST_CALVING_TO_BREED = {MIN_DAYS_POST_CALVING_TO_BREED};" in reports
+
+
+def test_the_app_and_the_api_agree_on_where_heat_checks_start():
+    from app.services.protocols import FIRST_HEAT_CHECK_DAY
+
+    protocols = (SRC / "data" / "protocols.ts").read_text()
+    assert f"FIRST_HEAT_CHECK_DAY = {FIRST_HEAT_CHECK_DAY};" in protocols
 
 
 def test_the_rls_helper_uses_the_same_grace_period_and_timezone_as_the_api():

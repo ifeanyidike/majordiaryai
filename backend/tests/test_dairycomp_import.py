@@ -190,6 +190,20 @@ def test_dnb_puts_her_on_the_do_not_breed_list():
     assert cow.status == CowStatus.dnb
 
 
+def test_a_dnb_cow_too_soon_after_calving_for_open_is_marked_and_fresh():
+    cow = one(row(ID=17.0, RPRO="DNB", LACT=3.0, DIM=20.0))
+    assert (cow.status, cow.do_not_breed) == (CowStatus.fresh, True)
+
+
+def test_a_dnb_heifer_is_dnb_at_breeding_age_and_a_heifer_before_it():
+    """The same line as the sweep: DNB takes over where she would go Open."""
+    bdat = lambda days: (EXPORT - timedelta(days=days)).strftime("%-d/%-m/%y")
+    young = one(row(ID=18.0, RPRO="DNB", LACT=0.0, BDAT=bdat(300)))
+    grown = one(row(ID=19.0, RPRO="DNB", LACT=0.0, BDAT=bdat(420)))
+    assert (young.status, young.do_not_breed) == (CowStatus.heifer, True)
+    assert (grown.status, grown.do_not_breed, grown.current_program) == (CowStatus.dnb, True, None)
+
+
 # ── who is left out ──────────────────────────────────────────────────
 
 def test_bull_calves_are_held_out():

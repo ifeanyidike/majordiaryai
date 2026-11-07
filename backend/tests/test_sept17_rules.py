@@ -636,7 +636,10 @@ async def test_a_dry_cow_stays_dry_past_her_due_date(db, farm):
     )).scalars().all() == []
 
 
-async def test_a_late_cow_is_shown_overdue_until_her_calving_is_recorded(db, farm, api, make_user):
+async def test_a_late_cow_stays_on_the_work_list_until_her_calving_is_recorded(db, farm, api, make_user):
+    """Upcoming Calvings is a reference list and never counted as work. When
+    day 283 stopped making her Fresh, the prompt to record her calving went
+    with it, and a cow ten days late was on nobody's list."""
     tech = await make_user(UserRole.technician)
     farm.assigned_technician_id = tech.id
     ai = TODAY - timedelta(days=status_engine.GESTATION_DAYS + 4)
@@ -653,7 +656,11 @@ async def test_a_late_cow_is_shown_overdue_until_her_calving_is_recorded(db, far
         reports = {r["type"]: r for r in wl["farms"][0]["reports"]}
         (row,) = reports["calving-due"]["cows"]
         assert row["overdue"] is True and row["record_kind"] == "calving"
-        assert "fresh" not in reports
+        (work,) = reports["fresh"]["cows"]
+        assert reports["fresh"]["is_work_report"] is True
+        assert (work["cow_id"], work["record_kind"], work["overdue"], work["status"]) == \
+            (str(cow.id), "calving", True, "dry")
+        assert wl["farms"][0]["total_cows"] == 1
 
         real_calving = TODAY - timedelta(days=2)
         r = await client.post("/calving/", json={
@@ -666,6 +673,19 @@ async def test_a_late_cow_is_shown_overdue_until_her_calving_is_recorded(db, far
     assert cow.status is CowStatus.fresh
     assert cow.lactation_number == 4
     assert cow.last_calving_date == real_calving
+
+
+def test_a_cow_is_asked_after_from_her_due_date_and_not_before():
+    def on_fresh(status, days_to_due):
+        cow = Cow(id=uuid.uuid4(), farm_id=uuid.uuid4(), ear_tag="D2F-W", status=status,
+                  lactation_number=2, due_date=TODAY + timedelta(days=days_to_due))
+        ctx = WorklistContext(today=TODAY, role="technician", cows=[cow])
+        return "fresh" in {r["type"] for r in build_reports(ctx)}
+
+    assert on_fresh(CowStatus.dry, 1) is False
+    assert on_fresh(CowStatus.dry, 0) is True
+    # A pregnant heifer has no dry-off and calves from Pregnant (migration 0022).
+    assert on_fresh(CowStatus.pregnant, 0) is True
 
 
 async def test_a_dry_cow_short_of_her_due_date_stays_dry(db, farm):

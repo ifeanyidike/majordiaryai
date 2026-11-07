@@ -13,7 +13,7 @@ from app.models.models import (
 from app.schemas.cows import (
     CowCreate, CowUpdate, CowOut, CowHealthBody, CullBody, ExitBody, CowHistory,
 )
-from app.services import status_engine
+from app.services import cow_identity, status_engine
 from app.services.access import scope_to_farms, check_farm_access, get_cow_scoped
 from datetime import timedelta
 from typing import List, Optional
@@ -148,15 +148,6 @@ async def cow_history(
     }
 
 
-async def _refuse_an_id_in_use(db: AsyncSession, farm_id: uuid.UUID, herd_id: Optional[str]) -> None:
-    """The ID is the number that stays unique on a farm (uq_cows_farm_id_herd_id).
-    Said here, because the constraint can only answer with a generic failure."""
-    if herd_id and await db.scalar(
-        select(func.count(Cow.id)).where(Cow.farm_id == farm_id, Cow.herd_id == herd_id)
-    ):
-        raise HTTPException(status_code=409, detail=f"ID '{herd_id}' is already on this farm")
-
-
 @router.post("/", response_model=CowOut, status_code=status.HTTP_201_CREATED)
 async def create_cow(
     body: CowCreate,
@@ -166,24 +157,8 @@ async def create_cow(
     if not await check_farm_access(db, current_user, body.farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
 
-    # Real herds reuse tags (migration 0022), but a tag already on the farm is
-    # usually a typo, so it takes an "Are you sure?" -- and an ID, or the two
-    # animals could not be told apart (test results, Nov 5). The app reads this
-    # 409 by its opening words; see src/app/cow/edit.tsx.
-    if body.ear_tag and await db.scalar(
-        select(func.count(Cow.id)).where(Cow.farm_id == body.farm_id, Cow.ear_tag == body.ear_tag)
-    ):
-        if not body.allow_shared_tag:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ear tag '{body.ear_tag}' already exists on this farm",
-            )
-        if not body.herd_id:
-            raise HTTPException(
-                status_code=422,
-                detail="Another animal on this farm has this tag: give this one an ID",
-            )
-    await _refuse_an_id_in_use(db, body.farm_id, body.herd_id)
+    await cow_identity.check_new_animal(
+        db, body.farm_id, body.ear_tag, body.herd_id, body.allow_shared_tag)
 
     cow = Cow(**body.model_dump(exclude={"allow_shared_tag"}))
     db.add(cow)
@@ -238,7 +213,7 @@ async def update_cow(
     if new_id and new_id != cow.herd_id:
         if cow.herd_id:
             raise HTTPException(status_code=409, detail="Her ID cannot be changed here")
-        await _refuse_an_id_in_use(db, cow.farm_id, new_id)
+        await cow_identity.refuse_an_id_in_use(db, cow.farm_id, new_id)
         cow.herd_id = new_id
 
     for field, value in data.items():

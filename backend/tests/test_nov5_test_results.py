@@ -13,8 +13,8 @@ from sqlalchemy import select
 
 from app.core.timeutils import local_today
 from app.models.models import (
-    Cow, CowStatus, EnrollmentStatus, HeatCheck, Insemination, NeedlingEnrollment,
-    Notification, ProtocolType, UserRole,
+    Cow, CowStatus, EnrollmentStatus, HeatCheck, Insemination, Notification, ProtocolType,
+    UserRole,
 )
 from app.services import kpis, status_engine
 from app.services.protocols import PROTOCOLS
@@ -281,7 +281,7 @@ async def test_a_dnb_cow_still_counts_in_the_farms_herd(db, farm, api):
 
 
 async def test_a_csv_row_with_status_dnb_is_marked(db, api, farm):
-    csv = f"ear_tag,status\nCSV-1,DNB\nCSV-2,do not breed\n".encode()
+    csv = b"ear_tag,status\nCSV-1,DNB\nCSV-2,do not breed\n"
     async with api("admin") as client:
         r = await client.post(f"/imports/cows?farm_id={farm.id}",
                               files={"file": ("herd.csv", io.BytesIO(csv), "text/csv")})
@@ -321,6 +321,18 @@ async def test_a_refused_heat_offers_the_overrule(db, farm, api, tech):
     assert "60 days" in body["not_bred_because"]
     # Saying no, or nothing, leaves her off.
     assert not _on(reports, "breed-today", cow)
+
+
+@pytest.mark.parametrize("status", [CowStatus.open, CowStatus.needling])
+async def test_any_cow_under_60_days_is_asked_about_not_just_a_fresh_one(db, farm, api, tech, status):
+    # Josh: "a cow under 60 days". A heat that is not bred sends her Open before day 60.
+    cow = await _cow(db, farm, **_under_60(status=status))
+    async with api("technician", user_id=tech.id) as client:
+        heat = (await _heat(client, cow)).json()
+        assert heat["can_overrule"] is True
+        r = await client.post(f"/checks/heat/{heat['id']}/overrule")
+        assert r.status_code == 200, r.text
+        assert _on(await _reports(client, farm), "breed-today", cow)
 
 
 async def test_overruled_she_is_on_the_report_and_can_be_bred(db, farm, api, tech):
@@ -508,6 +520,19 @@ async def test_a_check_nobody_answered_is_not_asked_again(db, farm, api, tech, m
         assert r.status_code == 200, r.text
         # Day 3 was never answered, and must not take Day 4's place.
         assert not _on(await _reports(client, farm), "prostaglandin", cow)
+
+
+async def test_a_bleed_is_kept_with_the_day_it_happened(db, farm, api, tech, make_cow):
+    # Days 2 and 3 went unanswered, so the step it lands on is dated before today.
+    cow = await make_cow(protocol=ProtocolType.prostaglandin_heat, steps=_pgf(4, done={1}))
+    async with api("technician", user_id=tech.id) as client:
+        r = await client.post(f"/needling/cow/{cow.id}/bleeding", json={"notes": "Heavy"})
+        assert r.status_code == 200, r.text
+        history = (await client.get(f"/cows/{cow.id}/history")).json()
+    (bled,) = [row for row in history["needling_records"] if row["bleeding_event"]]
+    assert bled["completed"] is False  # she was given nothing
+    assert bled["scheduled_date"] < TODAY.isoformat()
+    assert bled["completed_date"] == TODAY.isoformat()
 
 
 async def test_no_heat_by_day_5_she_is_open(db, farm, api, tech, make_cow):
@@ -720,6 +745,50 @@ async def test_a_repeat_tag_takes_an_are_you_sure_and_an_id(db, farm, api, tech)
         r = await client.post("/cows/", json=_new(farm, allow_shared_tag=True, herd_id=" 90067 "))
         assert r.status_code == 201, r.text
     assert r.json()["herd_id"] == "90067"
+
+
+async def _calve(client, dam: Cow, **calf):
+    return await client.post("/calving/", json={
+        "cow_id": str(dam.id), "calving_date": TODAY.isoformat(), "live_birth": True,
+        "still_birth": False, "calf_sex": "female", **calf,
+    })
+
+
+async def test_a_calf_can_share_a_tag_with_an_are_you_sure_and_an_id(db, farm, api, tech):
+    await _cow(db, farm, ear_tag="C-77", herd_id="7701")
+    dam = await _cow(db, farm, status=CowStatus.dry)
+    async with api("technician", user_id=tech.id) as client:
+        asked = await _calve(client, dam, calf_ear_tag="C-77")
+        assert asked.status_code == 409, asked.text
+        assert asked.json()["detail"].startswith("Ear tag")  # the app reads these words
+
+        no_id = await _calve(client, dam, calf_ear_tag="C-77", allow_shared_tag=True)
+        assert no_id.status_code == 422, no_id.text
+
+        r = await _calve(client, dam, calf_ear_tag="C-77", allow_shared_tag=True, calf_herd_id="7702")
+        assert r.status_code == 201, r.text
+    animals = (await db.execute(
+        select(Cow).where(Cow.farm_id == farm.id, Cow.ear_tag == "C-77"))).scalars().all()
+    assert sorted(a.herd_id for a in animals) == ["7701", "7702"]
+    await db.refresh(dam)
+    assert dam.status == CowStatus.fresh
+
+
+async def test_a_calf_cannot_take_an_id_already_on_the_farm(db, farm, api, tech):
+    await _cow(db, farm, ear_tag="C-78", herd_id="7801")
+    dam = await _cow(db, farm, status=CowStatus.dry)
+    async with api("technician", user_id=tech.id) as client:
+        r = await _calve(client, dam, calf_ear_tag="C-78", allow_shared_tag=True, calf_herd_id="7801")
+    assert r.status_code == 409, r.text
+    await db.refresh(dam)
+    assert dam.status == CowStatus.dry  # nothing was recorded
+
+
+async def test_a_new_tag_on_a_calf_needs_no_question(db, farm, api, tech):
+    dam = await _cow(db, farm, status=CowStatus.dry)
+    async with api("technician", user_id=tech.id) as client:
+        r = await _calve(client, dam, calf_ear_tag="C-79")
+    assert r.status_code == 201, r.text
 
 
 async def test_an_id_already_on_the_farm_is_refused(db, farm, api, tech):

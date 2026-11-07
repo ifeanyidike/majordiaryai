@@ -349,7 +349,7 @@ function toHistoryEvents(rows: any[] | undefined, describe: (r: any) => string):
   if (!Array.isArray(rows)) return [];
   return rows.map((r, i) => ({
     id: String(r.id ?? i),
-    date: String(r.date ?? r.insemination_date ?? r.check_date ?? r.calving_date ?? r.scheduled_date ?? r.administered_at ?? '').slice(0, 10),
+    date: String(r.date ?? r.insemination_date ?? r.check_date ?? r.calving_date ?? r.completed_date ?? r.scheduled_date ?? r.administered_at ?? '').slice(0, 10),
     detail: describe(r),
   }));
 }
@@ -662,10 +662,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
         vaccinations: toHistoryEvents(h.vaccinations, (r) =>
           r.vaccine_name ?? 'Vaccination'),
-        // What she was given. Steps still to come are on her schedule, and a
-        // step of a protocol that stopped was never given at all.
-        treatments: toHistoryEvents((h.needling_records ?? []).filter((r: any) => r.completed), (r) =>
-          `${r.treatment ?? 'Injection'}${r.protocol_day ? ` (Day ${r.protocol_day})` : ''}`),
+        // What she was given, and any bleed: it stopped her protocol. Steps
+        // still to come are on her schedule, and a step of a protocol that
+        // stopped was never given at all. Newest first by the day it happened;
+        // the API sends them by the day they were scheduled.
+        treatments: toHistoryEvents(
+          (h.needling_records ?? []).filter((r: any) => r.completed || r.bleeding_event),
+          (r) => {
+            if (!r.completed) return 'Bleeding event';
+            const given = `${r.treatment ?? 'Injection'}${r.protocol_day ? ` (Day ${r.protocol_day})` : ''}`;
+            return r.bleeding_event ? `${given} — bleeding event` : given;
+          },
+        ).sort((a, b) => b.date.localeCompare(a.date)),
         calvings: toHistoryEvents(h.calvings, (r) => {
           const sex = r.calf_sex ? `${r.calf_sex} calf` : 'Calving';
           return r.still_birth ? `${sex} — stillborn` : sex;

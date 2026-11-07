@@ -6,8 +6,7 @@ structurally — never rely on string matching of the treatment text.
 
 `is_final` means "last step of the protocol". It does NOT by itself mean
 "timed-AI day": Prostaglandin Heat ends with *conditional* insemination on
-observed heat, so it must not be pulled onto the Timed Breeding report or
-excluded from the Needling report by the same-day overlap rule. Use
+observed heat, so it must not be pulled onto the Timed Breeding report. Use
 TIMED_AI_PROTOCOLS for that distinction.
 """
 

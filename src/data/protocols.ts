@@ -1,5 +1,6 @@
 /** Needling / synchronization protocol tables — mirrors the Phase 1 spec exactly. */
 import { addDays } from '@/lib/dates';
+import { ActiveProtocol, ProtocolStepRecord } from './types';
 
 export interface ProtocolStep {
   day: number;
@@ -88,6 +89,32 @@ export const PROTOCOLS: ProtocolDef[] = [
 ];
 
 export const protocolByValue = (value: string) => PROTOCOLS.find((p) => p.value === value);
+
+/** Mirrors protocols.py: from this day a Prostaglandin Heat step is a look for
+ *  heat, not a shot. */
+export const FIRST_HEAT_CHECK_DAY = 2;
+
+/** A look for heat only counts on its day, so the Prostaglandin Report does not
+ *  ask a missed one again. Her last one stands: she is still waiting on it. */
+export function isMissedHeatCheck(
+  protocol: ActiveProtocol, step: ProtocolStepRecord, today: string,
+): boolean {
+  return protocol.protocol === 'prostaglandin_heat'
+    && step.day >= FIRST_HEAT_CHECK_DAY
+    && !step.done
+    && step.date < today
+    && step !== protocol.steps[protocol.steps.length - 1];
+}
+
+/** The step she is waiting on. Never a shot the farm gives: nothing marks that
+ *  one given until the insemination after it, so it would read as late. */
+export function nextProtocolStep(
+  protocol: ActiveProtocol, today: string,
+): ProtocolStepRecord | undefined {
+  return protocol.steps.find(
+    (s) => !s.done && !s.byFarm && !isMissedHeatCheck(protocol, s, today),
+  );
+}
 
 /** Josh: a protocol "can only start on a Monday, Tuesday or Saturday". The
  *  API refuses any other day; this keeps the form from offering one. */

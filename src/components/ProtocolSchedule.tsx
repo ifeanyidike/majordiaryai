@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { protocolByValue } from '@/data/protocols';
+import { isMissedHeatCheck, nextProtocolStep, protocolByValue } from '@/data/protocols';
 import { ActiveProtocol, ProtocolStepRecord } from '@/data/types';
 import { todayISO } from '@/lib/dates';
 import { colors, radius, spacing } from '@/theme';
@@ -29,7 +29,7 @@ function whenLabel(step: ProtocolStepRecord, isNext: boolean, today: string) {
  */
 export function ProtocolSchedule({ protocol }: { protocol: ActiveProtocol }) {
   const today = todayISO();
-  const next = protocol.steps.find((s) => !s.done);
+  const next = nextProtocolStep(protocol, today);
   return (
     <Card style={styles.card}>
       <Text variant="subheading" style={styles.title}>
@@ -39,7 +39,9 @@ export function ProtocolSchedule({ protocol }: { protocol: ActiveProtocol }) {
         const isNext = step === next;
         const when = step.done
           ? { text: `Done · ${fmtDay(step.doneOn ?? step.date)}`, color: colors.success }
-          : whenLabel(step, isNext, today);
+          : isMissedHeatCheck(protocol, step, today)
+            ? { text: `Not checked · ${fmtDay(step.date)}`, color: colors.textMuted }
+            : whenLabel(step, isNext, today);
         return (
           <View key={step.id} style={styles.row}>
             <View style={styles.rail}>
