@@ -1,3 +1,4 @@
+from email_validator import EmailNotValidError, validate_email
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional
 from uuid import UUID
@@ -21,6 +22,42 @@ class UserUpdate(BaseModel):
     region: Optional[str] = None
 
 
+def sign_in_email(v: str) -> str:
+    """A sign-in email, lower-cased. Unlike EmailStr it accepts the reserved
+    .test domain: every test login is @majordairy.test, and an admin must be
+    able to edit those accounts and add more of them for testing."""
+    try:
+        return validate_email(v.strip(), check_deliverability=False,
+                              test_environment=True).normalized.lower()
+    except EmailNotValidError as exc:
+        raise ValueError(str(exc))
+
+
+class TechnicianCreate(BaseModel):
+    """Admin, Technicians, Add (feature notes, Nov 10). The admin sets a first
+    password and gives it to the technician, who can change it with Forgot
+    Password on the sign-in screen."""
+    name: str = Field(min_length=1)
+    email: str
+    password: str = Field(min_length=8, max_length=72)
+    phone: Optional[str] = None
+    employee_id: Optional[str] = None
+    region: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name is required")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        return sign_in_email(v)
+
+
 class UserAdminUpdate(BaseModel):
     """What an admin may change about ANOTHER user.
 
@@ -28,6 +65,13 @@ class UserAdminUpdate(BaseModel):
     exactly the fields a user must not be able to grant themselves.
     """
     name: Optional[str] = None
+    # Their sign-in email too: it is changed on the login as well as here.
+    email: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: Optional[str]) -> Optional[str]:
+        return sign_in_email(v) if v else None
     phone: Optional[str] = None
     employee_id: Optional[str] = None
     region: Optional[str] = None

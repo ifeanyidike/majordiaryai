@@ -16,7 +16,7 @@ precisely the case a farm-addressed notification cannot reach.
 """
 
 import uuid
-from typing import Optional
+from typing import Optional, Sequence, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,37 +76,53 @@ async def send_office_alert(
     )
 
 
+def farm_names(farms: Sequence[Farm]) -> str:
+    """"A", "A and B", "A, B and C"."""
+    names = [f.name for f in farms]
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 async def announce_route_change(
     db: AsyncSession,
     admin_id: uuid.UUID,
-    farm: Farm,
+    farms: Union[Farm, Sequence[Farm]],
     previous_technician_id: Optional[uuid.UUID],
     new_technician_id: Optional[uuid.UUID],
     when: Optional[str] = None,
 ) -> int:
-    """Tell both technicians when a farm moves between them.
+    """Tell both technicians when farms move between them.
 
     Both, and by message rather than by notification, because the one who most
     needs to know is the one being taken OFF the farm -- and by the time the
     change is saved they can no longer see that farm's notifications at all.
     A farm-addressed alert would reach everyone except the person whose day
     just changed.
+
+    One message each however many farms move (Routes, test results Nov 10:
+    "two notifications are sent"). A single farm is linked, so the message
+    opens it.
     """
     if previous_technician_id == new_technician_id:
         return 0
+    farms = [farms] if isinstance(farms, Farm) else list(farms)
+    if not farms:
+        return 0
 
+    names = farm_names(farms)
+    one = len(farms) == 1
+    farm_id = farms[0].id if one else None
     day = f" on {when}" if when else ""
     sent = 0
     if previous_technician_id is not None:
         await send_office_alert(
             db, admin_id, previous_technician_id,
-            f"{farm.name} is no longer on your route{day}.", farm_id=farm.id,
+            f"{names} {'is' if one else 'are'} no longer on your route{day}.", farm_id=farm_id,
         )
         sent += 1
     if new_technician_id is not None:
         await send_office_alert(
             db, admin_id, new_technician_id,
-            f"{farm.name} has been added to your route{day}.", farm_id=farm.id,
+            f"{names} {'has' if one else 'have'} been added to your route{day}.", farm_id=farm_id,
         )
         sent += 1
     return sent

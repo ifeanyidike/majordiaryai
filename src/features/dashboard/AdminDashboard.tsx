@@ -42,6 +42,10 @@ export function AdminDashboard() {
     // Roles and farm assignment live here — it is the only way to make a Farm
     // Manager, so it belongs on the admin's front screen, not buried.
     { label: 'People', tone: tileTone.people, caption: 'Roles & access', icon: 'people', onPress: () => router.push('/users') },
+    // Feature notes, Nov 10: Technicians (list, profile, edit, add) and Routes
+    // (move a technician's farms to another technician).
+    { label: 'Technicians', tone: tileTone.technicians, caption: 'Profiles & new accounts', icon: 'construct', onPress: () => router.push('/technicians') },
+    { label: 'Routes', tone: tileTone.routes, caption: 'Reassign farms', icon: 'git-network', onPress: () => router.push('/routes') },
     // Office Alerts are the administrator's channel to a technician. Opening
     // the feed shows what has been sent (route changes arrive there on their
     // own); the pen in its header writes a new one.

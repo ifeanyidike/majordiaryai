@@ -103,6 +103,13 @@ class FarmOut(BaseModel):
         return self
 
 
+class FarmReassign(BaseModel):
+    """Routes: move these farms from one technician to another."""
+    farm_ids: List[UUID] = Field(min_length=1, max_length=500)
+    from_technician_id: UUID
+    to_technician_id: UUID
+
+
 class VisitAssignmentBody(BaseModel):
     """Hand one day's visit to a relief/another technician (or nobody)."""
     visit_date: date

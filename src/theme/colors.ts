@@ -77,6 +77,8 @@ export const tileTone = {
   cowSearch: status.open,
   vets: status.pregnant,
   people: status.fresh,
+  technicians: status.needling,
+  routes: status.calving,
 } as const;
 export type TileTone = { fg: string; bg: string };
 

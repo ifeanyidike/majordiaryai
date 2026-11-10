@@ -243,8 +243,21 @@ export interface StaffUser {
   farmId?: string;
   farmName?: string;
   phone?: string;
+  employeeId?: string;
+  region?: string;
   /** False while a signed-up account is waiting for an admin to approve it. */
   isActive: boolean;
+}
+
+/** Admin, Technicians: what the admin enters for a technician. */
+export interface TechnicianInput {
+  name: string;
+  email: string;
+  phone?: string;
+  employeeId?: string;
+  region?: string;
+  /** Add only: the first password, which the admin gives to the technician. */
+  password?: string;
 }
 
 /** A day-level override of who visits a farm (relief technician cover). */

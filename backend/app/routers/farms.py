@@ -7,7 +7,7 @@ from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
 from app.models.models import Farm, FarmVisitAssignment, Cow, CowStatus, User, UserRole
 from app.schemas.farms import (
-    FarmCreate, FarmNoteCreate, FarmUpdate, FarmOut, VisitAssignmentBody,
+    FarmCreate, FarmNoteCreate, FarmReassign, FarmUpdate, FarmOut, VisitAssignmentBody,
     VisitAssignmentOut,
 )
 from app.services import messaging
@@ -259,6 +259,61 @@ async def delete_farm(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="Farm still has dependent records")
+
+
+# ── Routes ───────────────────────────────────────────────────────────
+
+@router.post("/reassign", response_model=List[FarmOut])
+async def reassign_farms(
+    body: FarmReassign,
+    current_user: dict = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move checked farms from one technician's route to another's.
+
+    Feature notes, Nov 10 (Admin, Routes): the admin opens a technician, checks
+    farms, taps Reassign and picks the technician to receive them. One message
+    goes to each of the two technicians.
+
+    `from_technician_id` is the route the admin was looking at. A farm that
+    has left it since the page opened is refused rather than moved, so a stale
+    screen cannot take a farm off a route it is no longer on.
+    """
+    if body.to_technician_id == body.from_technician_id:
+        raise HTTPException(status_code=422, detail="Pick a different technician")
+    receiver = await db.get(User, body.to_technician_id)
+    if receiver is None or receiver.role != UserRole.technician:
+        raise HTTPException(status_code=422, detail="That technician does not exist")
+    if not receiver.is_active:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{receiver.name}'s account is waiting for approval under People",
+        )
+
+    farm_ids = list(dict.fromkeys(body.farm_ids))
+    farms = (await db.execute(
+        select(Farm).where(Farm.id.in_(farm_ids)).order_by(Farm.name).with_for_update()
+    )).scalars().all()
+    if len(farms) != len(farm_ids):
+        raise HTTPException(status_code=404, detail="Farm not found")
+    moved_away = [f for f in farms if f.assigned_technician_id != body.from_technician_id]
+    if moved_away:
+        verb = "is" if len(moved_away) == 1 else "are"
+        raise HTTPException(
+            status_code=409,
+            detail=f"{messaging.farm_names(moved_away)} {verb} no longer on this route. "
+                   "Reload and try again.",
+        )
+
+    for farm in farms:
+        farm.assigned_technician_id = receiver.id
+    await messaging.announce_route_change(
+        db, current_user["id"], farms, body.from_technician_id, receiver.id,
+    )
+    await db.commit()
+
+    result = await db.execute(_with_counts(select(Farm).where(Farm.id.in_(farm_ids))))
+    return [_row_to_dict(row) for row in result.all()]
 
 
 # ── Visit schedule ───────────────────────────────────────────────────

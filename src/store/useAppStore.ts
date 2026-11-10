@@ -4,7 +4,8 @@ import { daysBetween, daysSince, todayISO } from '@/lib/dates';
 import { HEAT_WINDOW } from '@/data/reports';
 import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
 import {
-  ActiveProtocol, Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser, Vet,
+  ActiveProtocol, Bull, Cow, CowStatus, Farm, HealthStatus, HistoryEvent, StaffUser,
+  TechnicianInput, Vet,
   VisitAssignment, Worklist, WorklistCow, WorklistFarm, WorklistReport,
 } from '@/data/types';
 import {
@@ -510,6 +511,10 @@ interface AppState {
   updateStaffUser: (
     userId: string, patch: { role?: string; farmId?: string; isActive?: boolean },
   ) => Promise<void>;
+  /** Admin, Technicians: add one (a working login) or edit one. Returns the id. */
+  saveTechnician: (input: TechnicianInput, userId?: string) => Promise<string>;
+  /** Admin, Routes: move farms from one technician's route to another's. */
+  reassignFarms: (fromId: string, toId: string, farmIds: string[]) => Promise<void>;
   addFarmNote: (farmId: string, note: string) => Promise<void>;
   reset: () => void;
 }
@@ -1134,6 +1139,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           farmId: u.farm_id ?? undefined,
           farmName: u.farm_name ?? undefined,
           phone: u.phone ?? undefined,
+          employeeId: u.employee_id ?? undefined,
+          region: u.region ?? undefined,
           isActive: u.is_active !== false,
         })),
         staffLoading: false,
@@ -1155,6 +1162,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().fetchStaff();
     // A farm manager's scope changed, so anything farm-scoped may differ.
     await get().fetchFarms();
+  },
+
+  saveTechnician: async (input, userId) => {
+    if (!isApiConfigured) throw new Error('Demo mode — connect the API to manage technicians.');
+    const body = {
+      name: input.name,
+      email: input.email,
+      phone: input.phone || null,
+      employee_id: input.employeeId || null,
+      region: input.region || null,
+    };
+    const saved = userId
+      ? await api.patch<{ id: string }>(`/users/${userId}`, body)
+      : await api.post<{ id: string }>('/users/technicians', { ...body, password: input.password });
+    await get().fetchStaff();
+    // The farm form's technician picker reads this list.
+    get().fetchTechnicians();
+    return saved.id;
+  },
+
+  reassignFarms: async (fromId, toId, farmIds) => {
+    if (!isApiConfigured) throw new Error('Demo mode — connect the API to change routes.');
+    await api.post('/farms/reassign', {
+      farm_ids: farmIds, from_technician_id: fromId, to_technician_id: toId,
+    });
+    // Who a farm belongs to decides every route and to-do list.
+    await get().fetchFarms();
+    get().fetchWorklist();
   },
 
   fetchTechnicians: async () => {
@@ -1210,6 +1245,17 @@ export const farmById = (s: AppState, id: string) => s.farms.find((f) => f.id ==
 export const cowById = (s: AppState, id: string) => s.cows.find((c) => c.id === id);
 export const cowsByFarm = (s: AppState, farmId: string) => s.cows.filter((c) => c.farmId === farmId);
 export const vetById = (s: AppState, id: string) => s.vets.find((v) => v.id === id) ?? null;
+
+export const staffById = (s: AppState, id: string) => s.staff.find((u) => u.id === id) ?? null;
+
+/** Every technician, approved or waiting, by name (Admin, Technicians and Routes). */
+export const allTechnicians = (s: AppState) => s.staff.filter((u) => u.role === 'technician');
+
+/** The farms on a technician's standing route, by name. */
+export const farmsOnRoute = (s: AppState, technicianId: string) =>
+  s.farms
+    .filter((f) => f.assignedTechnicianId === technicianId)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
 /**
  * The vet covering a farm.

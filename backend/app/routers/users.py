@@ -10,8 +10,9 @@ from app.core.database import get_db
 from app.core.auth import get_current_user, get_token_claims, require_roles
 from app.models.models import Farm, PushToken, User, UserRole
 from app.schemas.users import (
-    PushTokenBody, UserAdminUpdate, UserCreate, UserUpdate, UserOut,
+    PushTokenBody, TechnicianCreate, UserAdminUpdate, UserCreate, UserUpdate, UserOut,
 )
+from app.services import auth_admin
 
 router = APIRouter()
 
@@ -41,6 +42,52 @@ async def list_users(
         {**{c.key: getattr(u, c.key) for c in u.__table__.columns}, "farm_name": farm_name}
         for u, farm_name in (await db.execute(stmt)).all()
     ]
+
+
+async def _email_in_use(db: AsyncSession, email: str, other_than: Optional[uuid.UUID] = None) -> bool:
+    stmt = select(func.count(User.id)).where(func.lower(User.email) == email.lower())
+    if other_than is not None:
+        stmt = stmt.where(User.id != other_than)
+    return bool(await db.scalar(stmt))
+
+
+_EMAIL_TAKEN = "An account with this email already exists. If it is waiting, approve it under People."
+
+
+@router.post("/technicians", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def create_technician(
+    body: TechnicianCreate,
+    current_user: dict = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin, Technicians, Add: a working login and its profile, active at once.
+
+    The login is made first, because the profile's id is the login's. If the
+    profile then cannot be saved, the login is removed again, so a failed add
+    never leaves an email that can sign in to nothing.
+    """
+    if await _email_in_use(db, body.email):
+        raise HTTPException(status_code=409, detail=_EMAIL_TAKEN)
+    try:
+        login_id = await auth_admin.create_login(body.email, body.password)
+    except auth_admin.LoginError as exc:
+        if exc.taken:
+            raise HTTPException(status_code=409, detail=_EMAIL_TAKEN)
+        raise HTTPException(status_code=502, detail="The sign-in service refused the new login. Try again.")
+
+    user = User(
+        id=login_id, name=body.name, email=body.email, role=UserRole.technician,
+        phone=body.phone, employee_id=body.employee_id, region=body.region, is_active=True,
+    )
+    db.add(user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        await auth_admin.undo("remove the new login", login_id, auth_admin.delete_login(login_id))
+        raise HTTPException(status_code=409, detail=_EMAIL_TAKEN)
+    await db.refresh(user)
+    return {**{c.key: getattr(user, c.key) for c in user.__table__.columns}, "farm_name": None}
 
 
 @router.patch("/{user_id}", response_model=UserOut)
@@ -80,20 +127,53 @@ async def admin_update_user(
             detail="You cannot deactivate your own account — ask another admin",
         )
 
-    if data.get("name") is None:
+    if data.get("name") is None or not str(data.get("name")).strip():
         data.pop("name", None)  # non-nullable
+
+    # farm_id scopes a Farm Manager to their farm. Checked before anything is
+    # written: a missing farm used to surface as a foreign-key error from the
+    # autoflush (a 500), and now that an edit can change the login's email,
+    # nothing may reach the login until the edit is known to be valid.
+    role_after = data.get("role") or user.role
+    farm_after = data["farm_id"] if "farm_id" in data else user.farm_id
+    if role_after == UserRole.farm and farm_after is not None \
+            and await db.get(Farm, farm_after) is None:
+        raise HTTPException(status_code=422, detail="farm_id does not exist")
+
+    # The sign-in email lives on the login, so it moves there first; the row
+    # follows. Without that they would sign in with the old one and be shown
+    # the new one.
+    new_email = (data.pop("email", None) or "").strip().lower() or None
+    old_email = user.email
+    if new_email and new_email != (old_email or "").lower():
+        if await _email_in_use(db, new_email, other_than=user.id):
+            raise HTTPException(status_code=409, detail=_EMAIL_TAKEN)
+        try:
+            await auth_admin.change_email(user.id, new_email)
+        except auth_admin.LoginError as exc:
+            if exc.taken:
+                raise HTTPException(status_code=409, detail=_EMAIL_TAKEN)
+            raise HTTPException(status_code=502, detail="The sign-in service refused the email change. Try again.")
+        user.email = new_email
+    else:
+        new_email = None
 
     for field, value in data.items():
         setattr(user, field, value)
 
-    # farm_id scopes a Farm Manager to their farm; on any other role it is
-    # meaningless and would be misleading to keep.
+    # On any role but Farm Manager, farm_id is meaningless and would be
+    # misleading to keep.
     if user.role != UserRole.farm:
         user.farm_id = None
-    elif user.farm_id is not None and await db.get(Farm, user.farm_id) is None:
-        raise HTTPException(status_code=422, detail="farm_id does not exist")
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if new_email:
+            await auth_admin.undo("put the old email back", user.id,
+                                  auth_admin.change_email(user.id, old_email))
+        raise HTTPException(status_code=409, detail=_EMAIL_TAKEN)
     await db.refresh(user)
     farm_name = None
     if user.farm_id:
