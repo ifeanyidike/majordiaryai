@@ -12,7 +12,10 @@ import uuid
 
 import pytest
 
-from app.models.models import Message, MessageChannel, UserRole
+from sqlalchemy import update
+
+from app.core.timeutils import local_today
+from app.models.models import FarmVisitAssignment, Message, MessageChannel, User, UserRole
 
 
 async def _alarm(client, **body):
@@ -86,11 +89,31 @@ async def test_an_administrator_can_raise_an_office_alert(api, db, make_user):
 
 # ── addressing ───────────────────────────────────────────────────────
 
-async def test_an_alarm_needs_somebody_to_answer_it(api, db, farm):
-    """A farm with no technician assigned has nobody to raise an alarm to.
-    Silently dropping it would be the worst outcome: the owner believes help
+async def test_an_alarm_from_a_farm_with_no_technician_reaches_the_office(api, db, farm, make_user):
+    """The owner has nobody to name, so refusing left them with no way to ask
+    for help at all. The office (each active admin) answers instead."""
+    farm.assigned_technician_id = None
+    await db.execute(update(User).where(User.role == UserRole.admin).values(is_active=False))
+    office = await make_user(UserRole.admin, "Office")
+    office.is_active = True
+    await db.flush()
+
+    async with api("farm", farm_id=farm.id) as client:
+        r = await _alarm(client, body="Cow down.")
+    assert r.status_code == 201, r.text
+    assert r.json()["recipient_id"] == str(office.id)
+    async with api("admin", user_id=office.id) as client:
+        feed = (await client.get("/messages/", params={"channel": "alarm"})).json()
+        counts = (await client.get("/messages/unread-counts")).json()
+    assert [m["body"] for m in feed] == ["Cow down."]
+    assert counts["alarm"] == 1
+
+
+async def test_an_alarm_with_nobody_at_all_to_answer_it_is_refused(api, db, farm):
+    """Silently dropping it would be the worst outcome: the owner believes help
     is coming."""
     farm.assigned_technician_id = None
+    await db.execute(update(User).where(User.role == UserRole.admin).values(is_active=False))
     await db.flush()
 
     async with api("farm", farm_id=farm.id) as client:
@@ -98,6 +121,37 @@ async def test_an_alarm_needs_somebody_to_answer_it(api, db, farm):
 
     assert r.status_code == 409
     assert "no technician" in r.json()["detail"].lower()
+
+
+async def test_an_alarm_on_a_covered_day_goes_to_the_technician_covering_it(
+    api, db, farm, make_user,
+):
+    usual = await make_user(UserRole.technician, "Usual")
+    cover = await make_user(UserRole.technician, "Cover")
+    farm.assigned_technician_id = usual.id
+    db.add(FarmVisitAssignment(farm_id=farm.id, visit_date=local_today(),
+                               assigned_technician_id=cover.id))
+    await db.flush()
+
+    async with api("farm", farm_id=farm.id) as client:
+        r = await _alarm(client, body="Heifer calving, needs help.")
+    assert r.status_code == 201, r.text
+    assert r.json()["recipient_id"] == str(cover.id)
+
+
+async def test_a_skipped_day_leaves_the_alarm_with_the_usual_technician(
+    api, db, farm, make_user,
+):
+    usual = await make_user(UserRole.technician, "Usual")
+    farm.assigned_technician_id = usual.id
+    db.add(FarmVisitAssignment(farm_id=farm.id, visit_date=local_today(),
+                               assigned_technician_id=None))
+    await db.flush()
+
+    async with api("farm", farm_id=farm.id) as client:
+        r = await _alarm(client, body="Gate is open.")
+    assert r.status_code == 201, r.text
+    assert r.json()["recipient_id"] == str(usual.id)
 
 
 async def test_a_message_cannot_be_addressed_to_a_farm_owner(api, db, farm, make_user):

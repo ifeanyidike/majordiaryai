@@ -829,3 +829,14 @@ async def test_a_report_says_which_of_two_animals_on_a_tag_it_means(db, farm, ap
         reports = await _reports(client, farm)
     assert _row(reports, "pregnant", one)["herd_id"] == "90066"
     assert _row(reports, "pregnant", two)["herd_id"] == "90067"
+
+
+# ── her history says who did each record ─────────────────────────────
+
+async def test_her_history_names_who_did_each_record(db, farm, api, tech):
+    cow = await _bred_cow(db, farm)
+    async with api("technician", user_id=tech.id) as client:
+        assert (await _preg_check(client, cow)).status_code == 201
+        h = (await client.get(f"/cows/{cow.id}/history")).json()
+    (check,) = h["pregnancy_checks"]
+    assert h["people"][check["performed_by_id"]] == tech.name

@@ -8,7 +8,7 @@ from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
 from app.models.models import (
     Cow, CowStatus, EnrollmentStatus, HealthStatus, CullRecord, Insemination, HeatCheck,
-    NeedlingEnrollment, PregnancyCheck, CalvingRecord, NeedlingRecord, VaccinationRecord,
+    NeedlingEnrollment, PregnancyCheck, CalvingRecord, NeedlingRecord, VaccinationRecord, User,
 )
 from app.schemas.cows import (
     CowCreate, CowUpdate, CowOut, CowHealthBody, CullBody, ExitBody, CowHistory,
@@ -137,7 +137,24 @@ async def cow_history(
         .limit(1)
     )
 
+    who = {
+        uid
+        for rows, fields in (
+            (inseminations, ("technician_id",)), (heat_checks, ("technician_id",)),
+            (pregnancy_checks, ("performed_by_id", "vet_id")), (calvings, ("technician_id",)),
+            (needling_records, ("technician_id",)), (vaccinations, ("technician_id",)),
+        )
+        for row in rows for f in fields
+        if (uid := getattr(row, f, None)) is not None
+    }
+    people = {
+        str(uid): name for uid, name in (await db.execute(
+            select(User.id, User.name).where(User.id.in_(who))
+        )).all()
+    } if who else {}
+
     return {
+        "people": people,
         "inseminations": inseminations,
         "heat_checks": heat_checks,
         "pregnancy_checks": pregnancy_checks,

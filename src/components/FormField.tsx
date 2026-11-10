@@ -27,11 +27,13 @@ export interface FormInputProps {
   keyboardType?: 'default' | 'numeric' | 'numbers-and-punctuation' | 'email-address' | 'phone-pad';
   error?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  /** A password: hidden as it is typed. */
+  secureTextEntry?: boolean;
 }
 
 export function FormInput({
   value, onChangeText, placeholder, multiline, keyboardType, error,
-  autoCapitalize = 'none',
+  autoCapitalize = 'none', secureTextEntry,
 }: FormInputProps) {
   return (
     <TextInput
@@ -43,6 +45,8 @@ export function FormInput({
       multiline={multiline}
       keyboardType={keyboardType}
       autoCapitalize={autoCapitalize}
+      secureTextEntry={secureTextEntry}
+      autoCorrect={secureTextEntry ? false : undefined}
     />
   );
 }

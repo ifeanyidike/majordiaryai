@@ -9,12 +9,14 @@ import json
 import logging
 import types
 import uuid
+from datetime import timedelta
 
 import httpx
 import pytest
 from sqlalchemy import select
 
-from app.models.models import Farm, Message, MessageChannel, User, UserRole
+from app.core.timeutils import local_today
+from app.models.models import Farm, FarmVisitAssignment, Message, MessageChannel, User, UserRole
 from app.services import auth_admin
 
 
@@ -385,3 +387,74 @@ async def test_only_an_admin_reassigns(api, db, make_user, role):
     async with api(role, user_id=giver.id if role == "technician" else None) as client:
         r = await client.post("/farms/reassign", json=_move([f], giver, taker))
     assert r.status_code == 403
+
+
+# ── Days already given to the technician losing the farm ─────────────
+
+async def _days(db, farm, *days):
+    """(offset from today, technician) -> one visit-assignment row each."""
+    rows = []
+    for offset, tech in days:
+        row = FarmVisitAssignment(farm_id=farm.id, visit_date=local_today() + timedelta(days=offset),
+                                  assigned_technician_id=tech.id if tech else None)
+        db.add(row)
+        rows.append(row)
+    await db.flush()
+    return rows
+
+
+async def test_days_given_to_the_old_technician_go_with_the_farm(api, db, make_user):
+    giver = await make_user(UserRole.technician)
+    taker = await make_user(UserRole.technician)
+    relief = await make_user(UserRole.technician)
+    (farm,) = await _farms(db, giver, "Larch")
+    past, today, later, covered = await _days(db, farm, (-2, giver), (0, giver), (3, giver), (5, relief))
+
+    async with api("admin") as client:
+        assert (await client.post("/farms/reassign", json=_move([farm], giver, taker))).status_code == 200
+
+    for row in (past, today, later, covered):
+        await db.refresh(row)
+    assert today.assigned_technician_id == later.assigned_technician_id == taker.id
+    assert covered.assigned_technician_id == relief.id  # someone else's cover stands
+    assert past.assigned_technician_id == giver.id      # history is not rewritten
+
+
+async def test_a_day_set_for_today_does_not_keep_the_farm_open_to_the_old_technician(
+        api, db, make_user):
+    giver = await make_user(UserRole.technician)
+    taker = await make_user(UserRole.technician)
+    (farm,) = await _farms(db, giver, "Linden")
+    await _days(db, farm, (0, giver))
+    async with api("admin") as client:
+        assert (await client.post("/farms/reassign", json=_move([farm], giver, taker))).status_code == 200
+    # A day in their name up to today opens the farm to them (relief cover);
+    # left behind, it kept the farm they just lost on their phone.
+    async with api("technician", user_id=giver.id) as client:
+        assert (await client.get(f"/farms/{farm.id}")).status_code == 404
+    async with api("technician", user_id=taker.id) as client:
+        assert (await client.get(f"/farms/{farm.id}")).status_code == 200
+
+
+async def test_a_farm_edit_moves_the_old_technicians_days_too(api, db, make_user):
+    giver = await make_user(UserRole.technician)
+    taker = await make_user(UserRole.technician)
+    (farm,) = await _farms(db, giver, "Maple")
+    (later,) = await _days(db, farm, (2, giver))
+    async with api("admin") as client:
+        r = await client.patch(f"/farms/{farm.id}", json={"assigned_technician_id": str(taker.id)})
+    assert r.status_code == 200, r.text
+    await db.refresh(later)
+    assert later.assigned_technician_id == taker.id
+
+
+async def test_a_farm_left_with_no_technician_drops_the_old_technicians_days(api, db, make_user):
+    giver = await make_user(UserRole.technician)
+    (farm,) = await _farms(db, giver, "Nettle")
+    (later,) = await _days(db, farm, (2, giver))
+    async with api("admin") as client:
+        r = await client.patch(f"/farms/{farm.id}", json={"assigned_technician_id": None})
+    assert r.status_code == 200, r.text
+    # Not a skipped day (that is a row with nobody); just no override at all.
+    gone = await db.scalar(select(FarmVisitAssignment).where(FarmVisitAssignment.id == later.id))
+    assert gone is None

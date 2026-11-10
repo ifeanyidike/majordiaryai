@@ -1,3 +1,4 @@
+import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -35,7 +36,10 @@ export default function LoginScreen() {
       showToast('Enter your email above first', 'mail-outline');
       return;
     }
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(e);
+    // The email's link opens the app's New Password screen (reset-password.tsx).
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(e, {
+      redirectTo: Linking.createURL('reset-password'),
+    });
     if (resetError) {
       showToast(resetError.message, 'alert-circle');
     } else {

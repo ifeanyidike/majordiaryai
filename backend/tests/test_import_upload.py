@@ -15,9 +15,11 @@ client hits on their second upload.
 
 import io
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import select
 
+from app.core.timeutils import local_today
 from app.models.models import Cow, CowStatus
 
 
@@ -156,8 +158,10 @@ async def test_a_blank_status_still_means_open_for_a_NEW_cow(db, api, farm):
 
 async def test_a_filled_status_cell_still_updates(db, api, farm):
     """The fix must not make the status column read-only on re-import."""
+    # She has a breeding date already, which a dry cow needs.
     cow = Cow(id=uuid.uuid4(), farm_id=farm.id, ear_tag="E4",
-              status=CowStatus.open, lactation_number=1)
+              status=CowStatus.open, lactation_number=1,
+              last_insemination_date=local_today() - timedelta(days=230))
     db.add(cow)
     await db.flush()
 
@@ -168,3 +172,45 @@ async def test_a_filled_status_cell_still_updates(db, api, farm):
 
     await db.refresh(cow)
     assert cow.status == CowStatus.dry
+
+
+# ── dates that cannot be right, and a tag given twice (Josh's test doc) ──
+
+async def test_a_date_in_the_future_is_refused_and_the_rest_load(db, api, farm):
+    soon = (local_today() + timedelta(days=40)).isoformat()
+    async with api(role="admin") as client:
+        resp = await client.post(f"/imports/cows?farm_id={farm.id}", files=_upload(_csv(
+            f"F1,fresh,,{soon},2",
+            "F2,open,,,1",
+        )))
+    out = resp.json()
+    assert out["created"] == 1
+    (err,) = out["errors"]
+    assert err["ear_tag"] == "F1" and "in the future" in err["message"]
+
+
+async def test_a_status_without_its_date_is_refused(db, api, farm):
+    async with api(role="admin") as client:
+        resp = await client.post(f"/imports/cows?farm_id={farm.id}", files=_upload(_csv(
+            "P1,pregnant,,,2",     # no breeding date column at all
+            "P2,fresh,,,2",        # calving date left blank
+        )))
+    out = resp.json()
+    assert out["created"] == 0
+    msgs = {e["ear_tag"]: e["message"] for e in out["errors"]}
+    assert "breeding date" in msgs["P1"]
+    assert "calving date" in msgs["P2"]
+
+
+async def test_a_tag_given_twice_loads_neither_row(db, api, farm):
+    async with api(role="admin") as client:
+        resp = await client.post(f"/imports/cows?farm_id={farm.id}", files=_upload(_csv(
+            "T1,open,Holstein,,1",
+            "T2,open,,,1",
+            "T1,open,Jersey,,3",
+        )))
+    out = resp.json()
+    assert out["created"] == 1
+    assert [e["row"] for e in out["errors"]] == [2, 4]
+    assert all("rows 2, 4" in e["message"] for e in out["errors"])
+    assert "T1" not in await _tags(db, farm)

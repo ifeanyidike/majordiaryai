@@ -192,6 +192,10 @@ export default function FarmReportsScreen() {
             </View>
           ))}
         </View>
+        {/* Josh's test doc: the 12-month cull rate, on a screen. */}
+        <Text variant="caption" color={onDark.textSecondary} style={styles.cullLine}>
+          Cull rate, last 12 months: {kpis?.cullRate != null ? `${kpis.cullRate}%` : '—'}
+        </Text>
       </LinearGradient>
 
       {loading ? (
@@ -261,4 +265,5 @@ const styles = StyleSheet.create({
   kpiItem: { flex: 1, alignItems: 'center', gap: spacing.hairline },
   // Stretch so the label shrinks to the tile instead of "Calvings 3…".
   kpiLabel: { alignSelf: 'stretch', textAlign: 'center' },
+  cullLine: { textAlign: 'center', marginTop: spacing.sm },
 });

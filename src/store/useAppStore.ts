@@ -362,6 +362,8 @@ export interface HerdKpis {
   conceptionRate: number | null;
   servicesPerConception: number | null;
   upcomingCalvings30d: number;
+  /** % of the herd culled in the last 12 months (server's KPI report). */
+  cullRate: number | null;
 }
 
 /** The two person-to-person feeds. Alarms come from the farm owner, Office
@@ -538,6 +540,7 @@ function demoKpis(cows: Cow[]): HerdKpis {
     conceptionRate: services ? Math.round((pregnant.length / services) * 100) : null,
     servicesPerConception: pregnant.length ? Number((services / pregnant.length).toFixed(1)) : null,
     upcomingCalvings30d: upcomingCount,
+    cullRate: null,
   };
 }
 
@@ -654,19 +657,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!isApiConfigured) return;
     try {
       const h = await api.get<any>(`/cows/${id}/history`);
+      // Who did it (Josh's test doc: her history shows the technician).
+      const people: Record<string, string> = h.people ?? {};
+      const by = (text: string, ...ids: (string | null | undefined)[]) => {
+        const name = ids.map((i) => (i ? people[i] : undefined)).find(Boolean);
+        return name ? `${text} · by ${name}` : text;
+      };
       const history = {
         inseminations: toHistoryEvents(h.inseminations, (r) =>
-          `AI — ${r.bull_name ?? 'bull n/a'}${r.semen_type ? ` (${r.semen_type})` : ''}`),
+          by(`AI — ${r.bull_name ?? 'bull n/a'}${r.semen_type ? ` (${r.semen_type})` : ''}`, r.technician_id)),
         pregnancyChecks: toHistoryEvents(h.pregnancy_checks, (r) =>
-          r.result === 'pregnant' ? 'Confirmed pregnant' : 'Open'),
+          by(r.result === 'pregnant' ? 'Confirmed pregnant' : 'Open', r.vet_id, r.performed_by_id)),
         // Josh's test results, Nov 5: "state any infections and dates".
         infections: toHistoryEvents(
           (h.pregnancy_checks ?? []).filter((r: any) => r.has_infection),
-          (r) => [r.infection_detail || 'Infection', 'found at pregnancy check', r.notes]
-            .filter(Boolean).join(' — '),
+          (r) => by([r.infection_detail || 'Infection', 'found at pregnancy check', r.notes]
+            .filter(Boolean).join(' — '), r.vet_id, r.performed_by_id),
         ),
         vaccinations: toHistoryEvents(h.vaccinations, (r) =>
-          r.vaccine_name ?? 'Vaccination'),
+          by(r.vaccine_name ?? 'Vaccination', r.technician_id)),
         // What she was given, and any bleed: it stopped her protocol. Steps
         // still to come are on her schedule, and a step of a protocol that
         // stopped was never given at all. Newest first by the day it happened;
@@ -674,14 +683,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         treatments: toHistoryEvents(
           (h.needling_records ?? []).filter((r: any) => r.completed || r.bleeding_event),
           (r) => {
-            if (!r.completed) return 'Bleeding event';
+            if (!r.completed) return by('Bleeding event', r.technician_id);
             const given = `${r.treatment ?? 'Injection'}${r.protocol_day ? ` (Day ${r.protocol_day})` : ''}`;
-            return r.bleeding_event ? `${given} — bleeding event` : given;
+            const text = r.bleeding_event ? `${given} — bleeding event` : given;
+            return r.self_administered ? `${text} · by the farm` : by(text, r.technician_id);
           },
         ).sort((a, b) => b.date.localeCompare(a.date)),
         calvings: toHistoryEvents(h.calvings, (r) => {
           const sex = r.calf_sex ? `${r.calf_sex} calf` : 'Calving';
-          return r.still_birth ? `${sex} — stillborn` : sex;
+          return by(r.still_birth ? `${sex} — stillborn` : sex, r.technician_id);
         }),
       };
       // "Bull Used" is her CURRENT breeding's bull. The cow record carries no
@@ -780,15 +790,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       // every KPI rendered "—" against the real API — the demo path masked it.
       // The backend also reports rates as fractions (0.45) while the demo path
       // and the UI use percentages, so they are converted here, once.
-      const rows = await api.get<ApiHerdSummary[]>(
-        `/reports/herd-summary${farmId ? `?farm_id=${farmId}` : ''}`,
-      );
+      const scope = farmId ? `?farm_id=${farmId}` : '';
+      // The cull rate is only in the full KPI report, which works it out over
+      // the whole scope (one farm, or every farm the caller can see). It is
+      // the heavier call; if it fails the cull rate reads "—" and the other
+      // four figures still show.
+      const [rows, cullRate] = await Promise.all([
+        api.get<ApiHerdSummary[]>(`/reports/herd-summary${scope}`),
+        api.get<{ outcomes?: { cull_rate?: { value: number | null } } }>(`/reports/kpis${scope}`)
+          .then((r) => r.outcomes?.cull_rate?.value ?? null, () => null),
+      ]);
       const pct = (v: number | null | undefined) => (v == null ? null : Math.round(v * 100));
       const toKpis = (r: ApiHerdSummary): HerdKpis => ({
         pregnancyRate: pct(r.pregnancy_rate),
         conceptionRate: pct(r.conception_rate),
         servicesPerConception: r.services_per_conception ?? null,
         upcomingCalvings30d: r.upcoming_calvings_30d ?? 0,
+        cullRate,
       });
       if (farmId) {
         const row = rows.find((r) => r.farm_id === farmId) ?? rows[0];
@@ -813,6 +831,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             conceptionRate: null,
             servicesPerConception: null,
             upcomingCalvings30d: sum('upcoming_calvings_30d'),
+            cullRate,
           },
         });
       }

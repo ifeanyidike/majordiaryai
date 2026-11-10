@@ -16,12 +16,15 @@ precisely the case a farm-addressed notification cannot reach.
 """
 
 import uuid
-from typing import Optional, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Farm, Message, MessageChannel, User, UserRole
+from app.core.timeutils import local_today
+from app.models.models import (
+    Farm, FarmVisitAssignment, Message, MessageChannel, User, UserRole,
+)
 from app.services import push
 
 
@@ -128,11 +131,33 @@ async def announce_route_change(
     return sent
 
 
-async def default_alarm_recipient(db: AsyncSession, farm_id: uuid.UUID) -> Optional[uuid.UUID]:
-    """Who an owner's alarm goes to when they do not name anyone: the farm's
-    standing technician."""
+async def alarm_recipients(
+    db: AsyncSession, farm_id: uuid.UUID, sender_id: uuid.UUID,
+) -> List[uuid.UUID]:
+    """Who an alarm goes to when the sender names nobody.
+
+    The technician covering the farm TODAY, when a day has been handed to
+    someone; otherwise the farm's own technician. A farm with no technician
+    reaches the office (every active admin but the sender) rather than being
+    refused, since the owner has no one to name. Empty only when there is
+    nobody at all.
+    """
+    covering = await db.scalar(
+        select(FarmVisitAssignment.assigned_technician_id).where(
+            FarmVisitAssignment.farm_id == farm_id,
+            FarmVisitAssignment.visit_date == local_today(),
+        )
+    )
+    if covering is not None:
+        return [covering]
     farm = await db.get(Farm, farm_id)
-    return farm.assigned_technician_id if farm else None
+    if farm is not None and farm.assigned_technician_id is not None:
+        return [farm.assigned_technician_id]
+    return list((await db.execute(
+        select(User.id).where(
+            User.role == UserRole.admin, User.is_active.is_(True), User.id != sender_id,
+        ).order_by(User.name)
+    )).scalars())
 
 
 async def is_technician(db: AsyncSession, user_id: uuid.UUID) -> bool:

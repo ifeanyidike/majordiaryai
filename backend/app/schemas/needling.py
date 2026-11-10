@@ -25,6 +25,7 @@ class NeedlingRecordOut(BaseModel):
     completed: bool
     bleeding_event: bool
     notes: Optional[str] = None
+    technician_id: Optional[UUID] = None
 
 
 class NeedlingEnrollmentOut(BaseModel):

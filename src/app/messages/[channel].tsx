@@ -47,7 +47,8 @@ function wordingFor(channel: MessageChannel, role: string | null | undefined) {
              empty: 'Alarms you raise are listed here. Use the pencil to raise one.' };
   }
   if (channel === 'alarm' && role === 'admin') {
-    return { subtitle: 'From farm owners to their technicians', empty: base.empty };
+    return { subtitle: 'From farms with no technician',
+             empty: 'An alarm from a farm with no technician comes here.' };
   }
   if (channel === 'office_alert' && role === 'admin') {
     return { subtitle: 'Sent to technicians',

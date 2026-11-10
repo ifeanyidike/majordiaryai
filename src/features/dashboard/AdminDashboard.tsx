@@ -28,10 +28,11 @@ export function AdminDashboard() {
     day: 'numeric',
   });
 
-  useEffect(() => { fetchKpis(); }, []);
+  const alarms = store.unreadMessages.alarm;
+  useEffect(() => { fetchKpis(); store.fetchUnreadMessageCounts(); }, []);
 
   const mainActions: {
-    label: string; caption: string; icon: IconName; tone: TileTone; onPress: () => void;
+    label: string; caption: string; icon: IconName; tone: TileTone; badge?: number; onPress: () => void;
   }[] = [
     { label: 'Farms CRM', tone: tileTone.farms, caption: `${farms.length} farms`, icon: 'business', onPress: () => router.push('/(tabs)/farms') },
     // No Reports card, as on the technician's home: reports belong to a farm
@@ -50,6 +51,13 @@ export function AdminDashboard() {
     // the feed shows what has been sent (route changes arrive there on their
     // own); the pen in its header writes a new one.
     { label: 'Office Alerts', tone: tileTone.officeAlerts, caption: 'To technicians', icon: 'briefcase', onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'office_alert' } }) },
+    // An alarm from a farm with no technician comes to the office.
+    {
+      label: 'Alarms', tone: tileTone.alarms, icon: 'alert-circle',
+      caption: alarms ? `${alarms} from the barn` : 'From farms with no technician',
+      badge: alarms,
+      onPress: () => router.push({ pathname: '/messages/[channel]', params: { channel: 'alarm' } }),
+    },
   ];
 
   const kpiRow = [
@@ -87,6 +95,7 @@ export function AdminDashboard() {
               label={a.label}
               sublabel={a.caption}
               onPress={a.onPress}
+              badge={a.badge}
               style={styles.gridItem}
             />
           ))}
@@ -132,6 +141,7 @@ export function AdminDashboard() {
             dash on the admin's front screen looks like a broken fetch. */}
         <Text variant="caption" color={colors.textMuted} style={styles.kpiNote}>
           Conception and services per conception are per farm — open a farm's Reports.
+          {kpis?.cullRate != null ? ` Cull rate, last 12 months: ${kpis.cullRate}%.` : ''}
         </Text>
 
         <SectionHeader title="Farms" actionLabel="View all" onAction={() => router.push('/(tabs)/farms')} />

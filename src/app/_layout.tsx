@@ -88,6 +88,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const seg = segments as string[];
+    // The Forgot Password link's screen signs in for a moment to save the new
+    // password, then out again; it must not be sent anywhere either way.
+    if (seg[0] === 'reset-password') return;
     // Auth routes: the login screen ('/') and the register screen.
     const inAuth = seg.length === 0 || seg[0] === 'register';
     if (!user && !inAuth) {

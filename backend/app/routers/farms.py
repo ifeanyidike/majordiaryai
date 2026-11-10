@@ -10,7 +10,7 @@ from app.schemas.farms import (
     FarmCreate, FarmNoteCreate, FarmReassign, FarmUpdate, FarmOut, VisitAssignmentBody,
     VisitAssignmentOut,
 )
-from app.services import messaging
+from app.services import messaging, route_days
 from app.services.access import check_farm_access, scope_to_farms
 from datetime import date
 from typing import List, Optional
@@ -174,6 +174,9 @@ async def update_farm(
     # same breath, so a farm-addressed alert would reach everyone except the
     # person whose route just changed.
     if "assigned_technician_id" in data:
+        await route_days.hand_over_days(
+            db, [farm.id], previous_technician_id, farm.assigned_technician_id,
+        )
         await messaging.announce_route_change(
             db, current_user["id"], farm,
             previous_technician_id, farm.assigned_technician_id,
@@ -307,6 +310,7 @@ async def reassign_farms(
 
     for farm in farms:
         farm.assigned_technician_id = receiver.id
+    await route_days.hand_over_days(db, farm_ids, body.from_technician_id, receiver.id)
     await messaging.announce_route_change(
         db, current_user["id"], farms, body.from_technician_id, receiver.id,
     )

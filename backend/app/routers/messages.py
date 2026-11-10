@@ -146,8 +146,10 @@ async def send_message(
             ),
         )
 
+    # One send to the office is a row per admin, all stamped with the same
+    # transaction time, so sends are counted by their distinct times.
     recent = await db.scalar(
-        select(func.count()).select_from(Message).where(
+        select(func.count(func.distinct(Message.created_at))).where(
             Message.sender_id == current_user["id"],
             Message.channel == body.channel,
             Message.created_at >= datetime.now(timezone.utc) - RATE_WINDOW,
@@ -175,33 +177,40 @@ async def send_message(
     elif farm_id is not None and not await check_farm_access(db, current_user, farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
 
-    recipient_id = body.recipient_id
-    if recipient_id is None:
+    if body.recipient_id is not None:
+        recipients = [body.recipient_id]
+    else:
         if body.channel is not MessageChannel.alarm or farm_id is None:
             raise HTTPException(
                 status_code=422,
                 detail="recipient_id is required for this message",
             )
-        recipient_id = await messaging.default_alarm_recipient(db, farm_id)
-        if recipient_id is None:
+        recipients = await messaging.alarm_recipients(db, farm_id, current_user["id"])
+        if not recipients:
             raise HTTPException(
                 status_code=409,
-                detail="This farm has no technician assigned — name a recipient",
+                detail="This farm has no technician and there is no office account to reach",
             )
-    if not await messaging.is_technician(db, recipient_id):
-        raise HTTPException(
-            status_code=422, detail="Messages can only be addressed to a technician",
-        )
+    for recipient_id in recipients:
+        if not await messaging.is_technician(db, recipient_id):
+            raise HTTPException(
+                status_code=422, detail="Messages can only be addressed to a technician",
+            )
 
     if body.cow_id is not None:
         cow = await db.get(Cow, body.cow_id)
         if cow is None or (farm_id is not None and cow.farm_id != farm_id):
             raise HTTPException(status_code=422, detail="cow_id does not belong to this farm")
 
-    message = await messaging.send(
-        db, body.channel, current_user["id"], recipient_id, body.body,
-        farm_id=farm_id, cow_id=body.cow_id,
-    )
+    # One send can be several rows (an alarm to the office reaches each admin).
+    messages = [
+        await messaging.send(
+            db, body.channel, current_user["id"], recipient_id, body.body,
+            farm_id=farm_id, cow_id=body.cow_id,
+        )
+        for recipient_id in recipients
+    ]
+    message = messages[0]
     await db.commit()
     await db.refresh(message)
     return (await _hydrate(db, [message]))[0]

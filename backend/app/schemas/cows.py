@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, List
+from typing import Dict, Optional, List
 from uuid import UUID
 import datetime as dt
 from datetime import date, datetime
@@ -146,3 +146,6 @@ class CowHistory(BaseModel):
     vaccinations: List[VaccinationOut] = []
     # The protocol she is on now, with its steps, for the schedule on her page.
     active_protocol: Optional[NeedlingEnrollmentOut] = None
+    # Who did each record, by user id: the names behind technician_id,
+    # performed_by_id and vet_id, so her history can say who did it.
+    people: Dict[str, str] = {}

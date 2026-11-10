@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_roles
 from app.core.database import get_db
+from app.core.timeutils import local_today
 from app.models.models import Cow, CowStatus, Farm
 from app.schemas.imports import ImportResult, ImportRowError
 from app.services.access import check_farm_access, get_allowed_farm_ids
@@ -385,6 +386,69 @@ def _row_is_empty(row: List) -> bool:
     return all(_cell_str(c) is None for c in row)
 
 
+# Dates that have already happened. due_date and dry_date look ahead, so they
+# may rightly be in the future.
+_PAST_DATE_FIELDS = ("date_of_birth", "last_calving_date", "last_insemination_date")
+
+# A status that only makes sense with a date: without it her due date, dry-off
+# and days in milk cannot be worked out, and she sits on the wrong lists.
+_STATUS_NEEDS = {
+    CowStatus.inseminated: "last_insemination_date",
+    CowStatus.pregnant: "last_insemination_date",
+    CowStatus.dry: "last_insemination_date",
+    CowStatus.fresh: "last_calving_date",
+}
+_DATE_WORDS = {"last_insemination_date": "breeding date", "last_calving_date": "calving date"}
+
+
+def _check_dates(fields: Dict[str, object], supplied: set, existing: Optional[Cow]) -> None:
+    """Refuse a row whose dates cannot be right (Josh's test doc: blank and
+    future dates are rejected with a clear reason). A blank date cell on a cow
+    already in the app keeps what she has, so it counts as given if she has it.
+    A new cow's status is always set (blank means open)."""
+    today = local_today()
+    for name in _PAST_DATE_FIELDS:
+        value = fields.get(name) if name in supplied else None
+        if value is not None and value > today:
+            raise RowError(f"{name}: {value.isoformat()} is in the future")
+
+    def after(name):
+        if name in supplied or existing is None:
+            return fields.get(name)
+        return getattr(existing, name)
+
+    # Only when this row sets her status: a row that leaves it blank is not
+    # refused for what she already has.
+    if "status" not in supplied:
+        return
+    status = after("status")
+    needed = _STATUS_NEEDS.get(status)
+    if needed and after(needed) is None:
+        raise RowError(
+            f"a {status.value} cow needs her {_DATE_WORDS[needed]} ({needed})"
+        )
+
+
+def _repeated_tags(rows, field_to_index, farm_col_index, farm_by_id, farm_by_name,
+                   farm_id) -> Dict[tuple, List[int]]:
+    """(farm, tag) -> row numbers, for every tag the file gives more than once.
+    Which row is the real animal cannot be told, so none of them is loaded."""
+    seen: Dict[tuple, List[int]] = {}
+    tag_index = field_to_index.get("ear_tag")
+    if tag_index is None:
+        return {}
+    for offset, row in enumerate(rows):
+        tag = _cell_str(row[tag_index]) if tag_index < len(row) else None
+        if not tag:
+            continue
+        try:
+            target = _resolve_row_farm(row, farm_col_index, farm_by_id, farm_by_name, farm_id)
+        except RowError:
+            continue  # the row fails on its farm anyway
+        seen.setdefault((target, tag), []).append(offset + 2)
+    return {k: v for k, v in seen.items() if len(v) > 1}
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -430,6 +494,8 @@ async def import_cows(
     skipped = 0
     total_rows = 0
     errors: List[ImportRowError] = []
+    repeated = _repeated_tags(data_rows, field_to_index, farm_col_index,
+                              farm_by_id, farm_by_name, farm_id)
 
     for offset, row in enumerate(data_rows):
         # 1-based row number including the header row.
@@ -457,6 +523,12 @@ async def import_cows(
             target_farm_id = _resolve_row_farm(
                 row, farm_col_index, farm_by_id, farm_by_name, farm_id,
             )
+            rows_with_tag = repeated.get((target_farm_id, ear_tag))
+            if rows_with_tag:
+                raise RowError(
+                    f"tag {ear_tag} is on rows {', '.join(map(str, rows_with_tag))} of this "
+                    "file. Give each animal its own tag; none of these rows was loaded"
+                )
             fields = _extract_cow_fields(raw)
             supplied = _supplied_fields(raw)
             # A status of DNB is a cow marked Do Not Breed, not one or the other.
@@ -481,6 +553,7 @@ async def import_cows(
                     raise RowError(f"{len(matches)} animals on this farm wear tag "
                                    f"{ear_tag} — update them in the app instead")
                 existing = matches[0] if matches else None
+                _check_dates(fields, supplied | ({"status"} if existing is None else set()), existing)
                 if existing is not None:
                     for name, value in fields.items():
                         if name == "ear_tag":
