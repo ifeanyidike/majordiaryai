@@ -20,6 +20,7 @@ import { colors, radius, spacing } from '@/theme';
 import { StaffUser } from '@/data/types';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * People — assign roles and farms.
@@ -90,7 +91,7 @@ export default function UsersScreen() {
       await updateStaffUser(u.id, { role: u.role, farmId: u.farmId, isActive: true });
       toast.success(`${u.name} can now sign in`);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not approve this account');
+      toast.error(errorMessage(e, 'Could not approve this account'));
     } finally {
       setApproving(null);
     }
@@ -117,7 +118,7 @@ export default function UsersScreen() {
       toast.success(`${editing.name} updated`);
       setEditing(null);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not update this person');
+      toast.error(errorMessage(e, 'Could not update this person'));
     } finally {
       setSaving(false);
     }

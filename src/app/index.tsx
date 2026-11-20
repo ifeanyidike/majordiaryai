@@ -1,4 +1,5 @@
 import * as Linking from 'expo-linking';
+import { friendlyAuthError } from '@/lib/authErrors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -41,7 +42,7 @@ export default function LoginScreen() {
       redirectTo: Linking.createURL('reset-password'),
     });
     if (resetError) {
-      showToast(resetError.message, 'alert-circle');
+      showToast(friendlyAuthError(resetError, 'Could not send the email — try again.'), 'alert-circle');
     } else {
       showToast('Password reset email sent', 'lock-closed');
     }

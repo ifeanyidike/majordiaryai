@@ -205,7 +205,7 @@ async def send_message(
         if body.channel is not MessageChannel.alarm or farm_id is None:
             raise HTTPException(
                 status_code=422,
-                detail="recipient_id is required for this message",
+                detail="Choose who this message is for",
             )
         recipients = await messaging.alarm_recipients(db, farm_id, current_user["id"])
         if not recipients:
@@ -222,7 +222,7 @@ async def send_message(
     if body.cow_id is not None:
         cow = await db.get(Cow, body.cow_id)
         if cow is None or (farm_id is not None and cow.farm_id != farm_id):
-            raise HTTPException(status_code=422, detail="cow_id does not belong to this farm")
+            raise HTTPException(status_code=422, detail="That cow isn't on this farm")
 
     # One send can be several rows (an alarm to the office reaches each admin).
     messages = [

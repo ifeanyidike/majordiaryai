@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Button, Card, Header, Screen, SectionHeader, Text, useToast } from '@/components';
-import { api, isApiConfigured } from '@/lib/api';
+import { api, isApiConfigured, errorMessage } from '@/lib/api';
 import { colors, radius, spacing, status } from '@/theme';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -97,7 +97,7 @@ export default function ImportCowsScreen() {
       toast.success(`Imported ${res.created + res.updated} cows`);
       fetchCows();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Import failed');
+      toast.error(errorMessage(e, 'Import failed'));
     } finally {
       setUploading(false);
     }

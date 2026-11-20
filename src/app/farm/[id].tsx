@@ -29,6 +29,7 @@ import {
   useAppStore, vetForFarm,
 } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   medkit: 'medkit',
@@ -349,7 +350,7 @@ export default function FarmProfileScreen() {
             await state.addFarmNote(farm.id, text);
             toast.show('Note added to farm', 'document-text');
           } catch (e: any) {
-            toast.error(e?.message ?? 'Could not save that note');
+            toast.error(errorMessage(e, 'Could not save that note'));
           }
         }}
       />

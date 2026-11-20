@@ -17,6 +17,7 @@ import { colors, radius, shadows, spacing, useMotion } from '@/theme';
 import { emptyReport, knownReportType } from '@/data/reports';
 import { WorklistCow } from '@/data/types';
 import { farmWorklist, herdIdLabel, reportFromWorklist, useAppStore, worklistFarms } from '@/store/useAppStore';
+import { pendingFor, useOutbox } from '@/lib/outbox';
 
 /**
  * Layer 3 — the report itself: every cow on it, the exact action for each, and
@@ -51,6 +52,7 @@ export default function ReportDetailScreen() {
   const { type, farmId } = useLocalSearchParams<{ type: string; farmId?: string }>();
   const router = useRouter();
   const state = useAppStore();
+  const outbox = useOutbox((s) => s.items);
   const { worklist, worklistLoading, worklistError, fetchWorklist, ensureWorklist } = state;
   const [active, setActive] = useState<WorklistCow | null>(null);
 
@@ -146,9 +148,11 @@ export default function ReportDetailScreen() {
         renderItem={({ item: cow, index }) => (
           <Animated.View entering={motion.down(index)}>
             <Pressable
-              style={styles.row}
+              style={[styles.row, pendingFor(outbox, cow.cowId).length > 0 && styles.rowPending]}
               onPress={() =>
-                !isHandedOff(cow.farmId) && cow.recordKind
+                // Already recorded on this phone (offline mode): the quick form
+                // would record her twice. Her page shows what is waiting.
+                !isHandedOff(cow.farmId) && cow.recordKind && !pendingFor(outbox, cow.cowId).length
                   ? setActive(cow)
                   : router.push({ pathname: '/cow/[id]', params: { id: cow.cowId } })
               }
@@ -163,6 +167,13 @@ export default function ReportDetailScreen() {
                   {/* Tags can repeat on a farm; this says which animal it is. */}
                   {herdIdLabel(cow) ? (
                     <Text variant="caption" color={colors.textSecondary}>{herdIdLabel(cow)}</Text>
+                  ) : null}
+                  {/* Offline mode: recorded on this phone, not sent yet. */}
+                  {pendingFor(outbox, cow.cowId).length ? (
+                    <View style={styles.pendingRow}>
+                      <Ionicons name="cloud-offline" size={13} color={colors.textSecondary} />
+                      <Text variant="caption" color={colors.textSecondary}>Saved on this phone — waiting to sync</Text>
+                    </View>
                   ) : null}
                 </View>
                 <StatusPill
@@ -195,7 +206,8 @@ export default function ReportDetailScreen() {
                   {cow.detail}
                 </Text>
                 <Text variant="caption" color={colors.primary}>
-                  {!isHandedOff(cow.farmId) && cow.recordKind ? 'Tap to record' : 'Open profile'}
+                  {!isHandedOff(cow.farmId) && cow.recordKind && !pendingFor(outbox, cow.cowId).length
+                    ? 'Tap to record' : 'Open profile'}
                 </Text>
               </View>
             </Pressable>
@@ -215,6 +227,8 @@ export default function ReportDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  rowPending: { opacity: 0.6 },
   flex1: { flex: 1 },
   row: {
     backgroundColor: colors.surface,

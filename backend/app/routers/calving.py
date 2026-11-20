@@ -75,9 +75,9 @@ async def record_calving(
             ),
         )
     if body.calving_date > local_today():
-        raise HTTPException(status_code=422, detail="calving_date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The calving date can't be in the future")
     if body.live_birth and body.calf_sex is None:
-        raise HTTPException(status_code=422, detail="calf_sex is required for a live birth")
+        raise HTTPException(status_code=422, detail="Choose the calf's sex for a live birth")
 
     # Female live calf → herd record (ear tag auto-generated if not supplied).
     # Male calf → no herd Cow record; sex/sale info stay on the calving record.

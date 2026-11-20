@@ -5,6 +5,7 @@ import { Button, FormLabel, FormRow, Header, Screen, Text, useToast } from '@/co
 import { colors, radius, spacing } from '@/theme';
 import { MessageChannel, useAppStore } from '@/store/useAppStore';
 import { useRole } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Write an Alarm (farm owner → their technician) or an Office Alert
@@ -73,7 +74,7 @@ export default function ComposeMessageScreen() {
       toast.success(isOffice ? 'Office alert sent' : isNote ? 'Note sent' : 'Alarm raised');
       router.back();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not send');
+      toast.error(errorMessage(e, 'Could not send'));
     } finally {
       setSending(false);
     }

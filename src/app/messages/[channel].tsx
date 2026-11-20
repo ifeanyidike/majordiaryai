@@ -9,6 +9,7 @@ import {
 import { colors, radius, shadows, spacing, status } from '@/theme';
 import { AppMessage, MessageChannel, useAppStore } from '@/store/useAppStore';
 import { useAuthStore, useRole } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Alarms and Office Alerts share this screen, because they are the same
@@ -120,7 +121,7 @@ export default function MessageFeedScreen() {
       setViewing(null);
       toast.success(m.kind === 'note' ? 'Note acknowledged' : 'Alarm acknowledged');
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not acknowledge it');
+      toast.error(errorMessage(e, 'Could not acknowledge it'));
     } finally {
       setAcking(false);
     }
@@ -141,7 +142,10 @@ export default function MessageFeedScreen() {
   };
 
   return (
-    <Screen>
+    // The list scrolls itself. Inside the Screen's own scroll view it could
+    // not (React Native's "VirtualizedLists should never be nested" warning)
+    // and drew every row at once.
+    <Screen scroll={false}>
       <Header
         title={meta.title}
         subtitle={unread ? `${unread} unread · ${wording.subtitle}` : wording.subtitle}
@@ -162,7 +166,12 @@ export default function MessageFeedScreen() {
       <FlatList
         data={feed}
         keyExtractor={(m) => m.id}
-        contentContainerStyle={feed.length ? styles.list : styles.listEmpty}
+        style={styles.flex1}
+        // Clear of Android's navigation bar, which draws over the app.
+        contentContainerStyle={[
+          feed.length ? styles.list : styles.listEmpty,
+          { paddingBottom: spacing.huge + insets.bottom },
+        ]}
         refreshControl={
           <RefreshControl refreshing={messagesLoading} onRefresh={() => fetchMessages(channel)} />
         }

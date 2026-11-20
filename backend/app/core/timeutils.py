@@ -4,8 +4,9 @@ All routers/services must use local_today() instead of date.today() so that
 "today" is computed in the farm's timezone, not the server's.
 """
 
+from contextvars import ContextVar
 from datetime import date, datetime
-from typing import Union
+from typing import Optional, Union
 from zoneinfo import ZoneInfo
 from app.core.config import settings
 
@@ -14,8 +15,15 @@ def farm_tz() -> ZoneInfo:
     return ZoneInfo(settings.farm_timezone)
 
 
+# When the phone recorded the save this request carries (offline mode): an
+# outcome saved Monday with no signal and sent Tuesday happened on Monday.
+# Set only for that one request (app/core/idempotency.py).
+recorded_at: ContextVar[Optional[datetime]] = ContextVar("recorded_at", default=None)
+
+
 def local_now() -> datetime:
-    return datetime.now(farm_tz())
+    at = recorded_at.get()
+    return at.astimezone(farm_tz()) if at is not None else datetime.now(farm_tz())
 
 
 def local_today() -> date:

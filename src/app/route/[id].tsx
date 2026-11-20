@@ -10,6 +10,7 @@ import { colors, radius, shadows, spacing } from '@/theme';
 import { allTechnicians, farmsOnRoute, staffById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { StaffUser } from '@/data/types';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Admin, Routes, one technician (feature notes, Nov 10): their farms, each with
@@ -82,7 +83,7 @@ export default function RouteScreen() {
       setChecked([]);
       close();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not move the farms');
+      toast.error(errorMessage(e, 'Could not move the farms'));
       // The route may have changed under us; show it as it is now.
       fetchFarms();
     } finally {

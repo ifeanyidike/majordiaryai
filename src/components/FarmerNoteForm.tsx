@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet } from 'react-native';
-import { api } from '@/lib/api';
+import { saveOutcome } from '@/lib/outbox';
 import { colors, spacing } from '@/theme';
 import { useToast } from './Toast';
 import { FormRow } from './FormField';
@@ -43,11 +43,16 @@ export function FarmerNoteForm({
     }
     setLoading(true);
     try {
-      await api.patch(`/needling/records/${recordId}/note`, { note: body });
-      toast.success('Note left for the farmer');
+      // Offline mode: saved now, or kept on the phone until there is signal.
+      const sent = await saveOutcome({
+        method: 'PATCH', path: `/needling/records/${recordId}/note`, body: { note: body },
+        label: `Note for the farmer — ${cowLabel}`,
+      });
+      if (sent.queued) toast.show('Saved on this phone — it will be sent when you have signal', 'cloud-offline', 'info');
+      else toast.success('Note left for the farmer');
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not save the note');
+      toast.error(errorMessage(e, 'Could not save the note'));
     } finally {
       setLoading(false);
     }
@@ -86,6 +91,7 @@ export function FarmerNoteForm({
 // pair of buttons.
 import { Button } from './Button';
 import { View } from 'react-native';
+import { errorMessage } from '@/lib/api';
 
 function FormActionsShim({
   onCancel, onSubmit, loading,

@@ -15,6 +15,7 @@ import {
   farmsToVisit, unreadNotificationCount, useAppStore, worklistTotal,
 } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { okToSignOut } from '@/lib/outbox';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -90,6 +91,7 @@ export function TechnicianDashboard() {
       label: 'Logout',
       icon: 'log-out-outline',
       onPress: async () => {
+        if (!(await okToSignOut())) return;
         await signOut();
         router.replace('/');
       },

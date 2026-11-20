@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from app.core.words import status_words
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
@@ -40,12 +41,12 @@ async def record_heat_check(
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)
 
     if body.check_date > local_today():
-        raise HTTPException(status_code=422, detail="check_date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The check date can't be in the future")
 
     if cow.status not in status_engine.HEAT_RECORDABLE_STATUSES:
         raise HTTPException(
             status_code=409,
-            detail=f"A heat can't be recorded on a cow that is '{cow.status.value}'",
+            detail=f"She is {status_words(cow.status)}, so a heat can't be recorded for her",
         )
 
     if cow.status == CowStatus.inseminated:
@@ -111,7 +112,7 @@ async def overrule_heat_check(
     """
     owner = await db.scalar(select(HeatCheck.cow_id).where(HeatCheck.id == check_id))
     if owner is None:
-        raise HTTPException(status_code=404, detail="Heat check not found")
+        raise HTTPException(status_code=404, detail="That heat check could not be found — it may have been removed")
     cow = await get_cow_scoped(db, current_user, owner, for_update=True)
     check = await db.get(HeatCheck, check_id)
 
@@ -137,10 +138,10 @@ async def _heat_check_after_insemination(body, cow, db, current_user) -> HeatChe
     insemination_id = body.insemination_id or cow.last_insemination_id
     insemination = await db.get(Insemination, insemination_id) if insemination_id else None
     if not insemination or insemination.cow_id != cow.id:
-        raise HTTPException(status_code=422, detail="insemination_id does not belong to this cow")
+        raise HTTPException(status_code=422, detail="That insemination isn't this cow's — reload her and try again")
 
     if not cow.last_insemination_date:
-        raise HTTPException(status_code=409, detail="Cow has no recorded insemination")
+        raise HTTPException(status_code=409, detail="She has no insemination recorded")
 
     # The day count below is measured from her CURRENT insemination, so a check
     # filed against an older attempt would be timed by one AI and attributed to
@@ -153,7 +154,7 @@ async def _heat_check_after_insemination(body, cow, db, current_user) -> HeatChe
 
     days_since = (body.check_date - cow.last_insemination_date).days
     if days_since < 0:
-        raise HTTPException(status_code=422, detail="check_date is before the insemination")
+        raise HTTPException(status_code=422, detail="The check date is before her insemination")
     # Blood before the window is normal metestrous spotting from the heat she
     # was just bred on. The spec says bleeding is recordable on any day, so it
     # is stored — but it is NOT a returned heat, and acting on it would cancel
@@ -221,17 +222,17 @@ async def record_pregnancy_check(
     cow = await get_cow_scoped(db, current_user, body.cow_id, for_update=True)
 
     if body.check_date > local_today():
-        raise HTTPException(status_code=422, detail="check_date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The check date can't be in the future")
 
     if cow.status != CowStatus.inseminated:
         raise HTTPException(
             status_code=409,
-            detail=f"Pregnancy checks require an inseminated cow (status is '{cow.status.value}')",
+            detail=f"She is {status_words(cow.status)}, not Inseminated, so she can't have a pregnancy check",
         )
 
     insemination = await db.get(Insemination, body.insemination_id)
     if not insemination or insemination.cow_id != cow.id:
-        raise HTTPException(status_code=422, detail="insemination_id does not belong to this cow")
+        raise HTTPException(status_code=422, detail="That insemination isn't this cow's — reload her and try again")
 
     # The 30-day gate uses the LAST insemination while due/dry dates are computed
     # from the one passed in. Against an older attempt those disagree, and a

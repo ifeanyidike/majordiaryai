@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import {
   NotificationType, notificationTypeEnabled, useSettingsStore,
 } from '@/store/useSettingsStore';
+import { errorMessage } from '@/lib/api';
 
 /** Notification type → icon + accent, drawn from the semantic status palette. */
 // One entry per type the backend actually emits (NOTIFICATION_TYPES). This
@@ -64,7 +65,7 @@ export default function NotificationsScreen() {
         toast.success('Answer saved');
       }
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not save the answer');
+      toast.error(errorMessage(e, 'Could not save the answer'));
       fetchNotifications();
     } finally {
       setAnswering(null);

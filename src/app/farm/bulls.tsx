@@ -19,6 +19,7 @@ import {
 import { colors, radius, spacing } from '@/theme';
 import { farmById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * A farm's bull list — the spec's "Bull Selection", which the AI form picks
@@ -83,7 +84,7 @@ export default function FarmBullsScreen() {
       toast.success(`${name.trim()} added`);
       setName(''); setCode(''); setSemenType(null);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not add the bull');
+      toast.error(errorMessage(e, 'Could not add the bull'));
     } finally {
       setSaving(false);
     }
@@ -94,7 +95,7 @@ export default function FarmBullsScreen() {
       await retireBull(farm.id, bullId);
       toast.success(`${bullName} retired — past records keep him`);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not retire the bull');
+      toast.error(errorMessage(e, 'Could not retire the bull'));
     }
   };
 

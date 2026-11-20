@@ -11,8 +11,8 @@
 --
 
 
--- Dumped from database version 16.15
--- Dumped by pg_dump version 16.15
+-- Dumped from database version 16.13 (Postgres.app)
+-- Dumped by pg_dump version 17.6 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -364,6 +364,19 @@ CREATE TABLE public.heat_checks (
 
 
 --
+-- Name: idempotency_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.idempotency_keys (
+    user_id uuid NOT NULL,
+    key character varying(100) NOT NULL,
+    method character varying(10) NOT NULL,
+    path character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
 -- Name: inseminations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -398,6 +411,8 @@ CREATE TABLE public.messages (
     body character varying NOT NULL,
     read_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    kind character varying DEFAULT 'alarm'::character varying NOT NULL,
+    acknowledged_at timestamp with time zone,
     CONSTRAINT ck_messages_body_not_blank CHECK ((length(btrim((body)::text)) > 0))
 );
 
@@ -465,7 +480,10 @@ CREATE TABLE public.notifications (
     created_at timestamp with time zone DEFAULT now(),
     email_status character varying,
     emailed_at timestamp with time zone,
-    email_error character varying
+    email_error character varying,
+    answer character varying,
+    answered_at timestamp with time zone,
+    answered_by_id uuid
 );
 
 
@@ -627,6 +645,14 @@ ALTER TABLE ONLY public.farms
 
 ALTER TABLE ONLY public.heat_checks
     ADD CONSTRAINT heat_checks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (user_id, key);
 
 
 --
@@ -1131,6 +1157,14 @@ ALTER TABLE ONLY public.heat_checks
 
 
 --
+-- Name: idempotency_keys idempotency_keys_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: inseminations inseminations_cow_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1224,6 +1258,14 @@ ALTER TABLE ONLY public.notification_reads
 
 ALTER TABLE ONLY public.notification_reads
     ADD CONSTRAINT notification_reads_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notifications notifications_answered_by_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_answered_by_id_fkey FOREIGN KEY (answered_by_id) REFERENCES public.users(id);
 
 
 --
@@ -1481,6 +1523,12 @@ CREATE POLICY heat_checks_read ON public.heat_checks FOR SELECT USING ((public.g
 
 CREATE POLICY heat_checks_write ON public.heat_checks USING ((public.get_my_role() = ANY (ARRAY['admin'::public.user_role, 'technician'::public.user_role])));
 
+
+--
+-- Name: idempotency_keys; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.idempotency_keys ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: inseminations; Type: ROW SECURITY; Schema: public; Owner: -

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from app.core.words import status_words
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
@@ -96,7 +97,7 @@ async def enroll_cow(
     try:
         get_scheduled_records(body.protocol.value, body.start_date)
     except UnknownProtocolError:
-        raise HTTPException(status_code=422, detail=f"Unknown protocol: {body.protocol}")
+        raise HTTPException(status_code=422, detail="That protocol isn't one the app knows")
 
     # A cow can only be in one protocol at a time — replace any active enrollment.
     await status_engine.cancel_active_enrollments(cow, db, EnrollmentStatus.cancelled)
@@ -145,13 +146,13 @@ async def leave_note(
         select(NeedlingRecord.cow_id).where(NeedlingRecord.id == record_id)
     )
     if owner is None:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="That injection could not be found — it may have been removed")
     # Object-level authorization (404 when out of scope).
     await get_cow_scoped(db, current_user, owner)
 
     record = await db.get(NeedlingRecord, record_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="That injection could not be found — it may have been removed")
     record.notes = body.note.strip()
     record.technician_id = current_user["id"]
     # The note is FOR the farmer. Stored on the record alone, no screen a farm
@@ -181,7 +182,7 @@ async def complete_record(
         select(NeedlingRecord.cow_id).where(NeedlingRecord.id == record_id)
     )
     if owner is None:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="That injection could not be found — it may have been removed")
 
     # Object-level authorization (404 when out of scope) + row lock on the cow.
     cow = await get_cow_scoped(db, current_user, owner, for_update=True)
@@ -192,7 +193,7 @@ async def complete_record(
         .with_for_update(of=NeedlingRecord)
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="That injection could not be found — it may have been removed")
 
     enrollment = await db.scalar(
         select(NeedlingEnrollment)
@@ -200,10 +201,10 @@ async def complete_record(
         .with_for_update(of=NeedlingEnrollment)
     )
     if enrollment is None:
-        raise HTTPException(status_code=404, detail="Enrollment not found for this record")
+        raise HTTPException(status_code=404, detail="That protocol could not be found — it may have been removed")
 
     if record.completed:
-        raise HTTPException(status_code=409, detail="Record is already completed")
+        raise HTTPException(status_code=409, detail="That injection is already recorded")
     if record.scheduled_date > local_today():
         # Mis-tapping a future step (e.g. Double Ovsynch day 27 on day 1) flipped
         # the enrollment to completed_pending_ai and hid every remaining shot
@@ -216,9 +217,9 @@ async def complete_record(
             ),
         )
     if enrollment.status == EnrollmentStatus.cancelled:
-        raise HTTPException(status_code=409, detail="Enrollment has been cancelled")
+        raise HTTPException(status_code=409, detail="That protocol was stopped")
     if enrollment.status == EnrollmentStatus.completed:
-        raise HTTPException(status_code=409, detail="Enrollment is already completed")
+        raise HTTPException(status_code=409, detail="That protocol is already finished")
 
     record.completed = True
     record.completed_date = local_today()
@@ -281,7 +282,7 @@ async def record_bleeding_event(
     if cow.status not in (CowStatus.open, CowStatus.needling, CowStatus.heifer):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot record a pre-insemination bleeding event for a {cow.status.value} cow",
+            detail=f"She is {status_words(cow.status)}, so a bleeding event can't be recorded for her",
         )
 
     # Best-effort audit on the enrollment she's leaving (may be None — bleeding

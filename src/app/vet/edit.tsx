@@ -18,6 +18,7 @@ import {
 import { colors, radius, spacing } from '@/theme';
 import { VetInput, useAppStore, vetById } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Add / edit a veterinarian and the farms they cover.
@@ -118,7 +119,7 @@ export default function VetEditScreen() {
       toast.success(isEdit ? 'Vet updated' : `${input.name} added`);
       router.replace({ pathname: '/vet/[id]', params: { id: savedId } });
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not save the vet');
+      toast.error(errorMessage(e, 'Could not save the vet'));
     } finally {
       setSaving(false);
     }

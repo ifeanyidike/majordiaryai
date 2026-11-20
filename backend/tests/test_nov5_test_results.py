@@ -705,8 +705,9 @@ async def test_a_cow_can_be_put_on_the_insemination_program(db, farm, api, tech,
 
 @pytest.mark.parametrize("fields,word", [
     ({"status": CowStatus.dnb, "do_not_breed": True}, "Do Not Breed"),
-    ({"status": CowStatus.pregnant}, "pregnant"),
-    ({"status": CowStatus.needling}, "needling"),
+    # Said in words, not as status codes (the app shows the message as is).
+    ({"status": CowStatus.pregnant}, "She is Pregnant"),
+    ({"status": CowStatus.needling}, "She is on a protocol"),
     ({"status": CowStatus.cull}, "cull"),
 ])
 async def test_who_cannot_go_on_it(db, farm, api, tech, fields, word):

@@ -6,7 +6,8 @@ import { Skeleton } from './Skeleton';
 import { Text } from './Text';
 import { useToast } from './Toast';
 import { YesNoField } from './YesNoField';
-import { api } from '@/lib/api';
+import { api, errorMessage } from '@/lib/api';
+import { saveOutcome } from '@/lib/outbox';
 import { colors, radius, spacing, typography } from '@/theme';
 
 interface ApiNeedlingRecord {
@@ -92,21 +93,27 @@ export function NeedlingCompleteForm({
   const submit = async () => {
     setLoading(true);
     try {
+      // Offline mode: saved now, or kept on the phone until there is signal.
+      const what = `${treatment ?? 'Protocol injection'}${context ? ` (${context})` : ''}`;
       if (bleeding && !injectionGiven) {
-        await api.post(`/needling/cow/${cowId}/bleeding`, {
-          notes: notes.trim() || null,
+        const sent = await saveOutcome({
+          path: `/needling/cow/${cowId}/bleeding`, body: { notes: notes.trim() || null },
+          cowId, label: `Bleeding — ${what}`,
         });
-        toast.show(
+        if (sent.queued) toast.show('Saved on this phone — it will be sent when you have signal', 'cloud-offline', 'info');
+        else toast.show(
           'Bleeding recorded — cow moves to Open and restarts on Ovsynch',
           'water',
           'success',
         );
       } else {
-        await api.patch(`/needling/records/${recordId}/complete`, {
-          bleeding_event: !!bleeding,
-          notes: notes.trim() || null,
+        const sent = await saveOutcome({
+          method: 'PATCH', path: `/needling/records/${recordId}/complete`,
+          body: { bleeding_event: !!bleeding, notes: notes.trim() || null },
+          cowId, label: what,
         });
-        toast.show(
+        if (sent.queued) toast.show('Saved on this phone — it will be sent when you have signal', 'cloud-offline', 'info');
+        else toast.show(
           bleeding
             ? 'Injection and bleeding recorded — cow moves to Open and restarts on Ovsynch'
             : 'Needling step completed',
@@ -116,7 +123,7 @@ export function NeedlingCompleteForm({
       }
       onComplete(!!bleeding);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record the needling step');
+      toast.error(errorMessage(e, 'Failed to record the needling step'));
     } finally {
       setLoading(false);
     }

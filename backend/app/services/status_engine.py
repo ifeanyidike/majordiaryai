@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select
 from sqlalchemy.orm import aliased
 
+from app.core.words import status_words
 from app.core.timeutils import farm_tz, local_today
 from app.models.models import (
     Cow, CowStatus, Farm, HeatCheck, Insemination, NeedlingEnrollment, NeedlingRecord,
@@ -119,7 +120,7 @@ def ensure_transition(cow: Cow, new_status: CowStatus) -> None:
     if new_status not in LEGAL_TRANSITIONS.get(cow.status, set()):
         raise HTTPException(
             status_code=409,
-            detail=f"Illegal status transition: {cow.status.value} -> {new_status.value}",
+            detail=f"She is {status_words(cow.status)} and can't become {status_words(new_status)} this way",
         )
 
 

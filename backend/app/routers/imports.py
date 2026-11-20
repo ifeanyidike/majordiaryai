@@ -344,7 +344,7 @@ def _read_table(filename: str, content: bytes) -> Tuple[List, List[List]]:
         return _read_csv(content)
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail="Unsupported file type; expected .xlsx or .csv",
+        detail="That file can't be read — choose an Excel (.xlsx) or CSV (.csv) file",
     )
 
 
@@ -354,7 +354,7 @@ def _read_xlsx(content: bytes) -> Tuple[List, List[List]]:
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Could not read .xlsx file",
+            detail="That Excel file couldn't be read — save it again and retry",
         )
     try:
         ws = wb.active
@@ -473,14 +473,14 @@ async def import_cows(
     if not (lower.endswith(".xlsx") or lower.endswith(".csv")):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unsupported file type; expected .xlsx or .csv",
+            detail="That file can't be read — choose an Excel (.xlsx) or CSV (.csv) file",
         )
 
     content = await file.read()
     if len(content) > _MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File too large (max 5 MB)",
+            detail="That file is too big — the most is 5 MB",
         )
 
     headers, data_rows = _read_table(filename, content)

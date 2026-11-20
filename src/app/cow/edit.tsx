@@ -18,7 +18,7 @@ import {
   useToast,
 } from '@/components';
 import { colors, radius, spacing } from '@/theme';
-import { ApiError } from '@/lib/api';
+import { ApiError, errorMessage } from '@/lib/api';
 import { isValidPastOrTodayDate } from '@/lib/dates';
 import { CowInput, cowById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -176,7 +176,7 @@ export default function CowEditScreen() {
         setTagInUse(earTag.trim());
         scroll.current?.scrollTo({ y: 0, animated: true });
       } else {
-        toast.error(e?.message ?? 'Could not save the cow');
+        toast.error(errorMessage(e, 'Could not save the cow'));
       }
     } finally {
       setSaving(false);

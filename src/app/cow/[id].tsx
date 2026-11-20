@@ -26,6 +26,7 @@ import { HistoryEvent } from '@/data/types';
 import { protocolByValue } from '@/data/protocols';
 import { HEAT_WINDOW } from '@/data/reports';
 import { cowById, farmById, herdIdLabel, useAppStore } from '@/store/useAppStore';
+import { pendingFor, useOutbox } from '@/lib/outbox';
 
 const fmt = (iso?: string) =>
   iso
@@ -58,6 +59,7 @@ export default function CowProfileScreen() {
   const { id, action } = useLocalSearchParams<{ id: string; action?: string }>();
   const router = useRouter();
   const state = useAppStore();
+  const outbox = useOutbox((s) => s.items);
   const { refreshCow, fetchCowHistory } = state;
   const role = useAuthStore((s) => s.user?.role);
   const cow = cowById(state, id);
@@ -133,6 +135,18 @@ export default function CowProfileScreen() {
       </HeroHeader>
 
       <View style={styles.body}>
+        {/* Offline mode: what was saved for her on this phone and has not
+            reached the server yet (Josh's Part A platform tests). */}
+        {pendingFor(outbox, cow.id).length ? (
+          <View style={styles.pendingBanner}>
+            <Ionicons name="cloud-offline" size={18} color={colors.textSecondary} />
+            <Text variant="caption" color={colors.text} style={styles.healthText}>
+              {pendingFor(outbox, cow.id).map((i) => i.label.split(' — ')[0]).join(', ')}
+              {' '}saved on this phone, waiting to sync. What you see here is from before it.
+            </Text>
+          </View>
+        ) : null}
+
         {/* Sick-cow banner — recheck reminder */}
         {cow.healthStatus === 'sick' ? (
           <View style={styles.healthBanner}>
@@ -317,6 +331,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   healthText: { flex: 1 },
+  pendingBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md, padding: spacing.md, marginTop: spacing.lg,
+  },
   tabsRow: {
     flexDirection: 'row',
     gap: spacing.xs + 2,

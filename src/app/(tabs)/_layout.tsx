@@ -16,8 +16,9 @@ const tabIcon =
 
 export default function TabsLayout() {
   const role = useRole();
-  const { fetchFarms, fetchCows, fetchVets, fetchWorklist, ensureWorklist, fetchNotifications } =
-    useAppStore();
+  const {
+    fetchFarms, fetchCows, fetchVets, fetchWorklist, ensureWorklist, fetchNotifications, fetchAllBulls,
+  } = useAppStore();
 
   // Load all core data once when the user enters the tab shell
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function TabsLayout() {
     fetchVets();
     fetchWorklist();
     fetchNotifications();
+    fetchAllBulls();
   }, []);
 
   // The worklist is a day's route: an app reopened the next morning must not

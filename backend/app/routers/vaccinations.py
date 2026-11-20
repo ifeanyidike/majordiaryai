@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from app.core.words import status_words
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import ensure_aware, local_now, local_today, to_local_date
@@ -79,13 +80,13 @@ async def record_adhoc_vaccination(
     if cow.status in TERMINAL_STATUSES:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot record a vaccination for a {cow.status.value} cow",
+            detail=f"She is {status_words(cow.status)}, so a vaccination can't be recorded for her",
         )
 
     administered_at = ensure_aware(body.administered_at) if body.administered_at else local_now()
     administered_on = to_local_date(administered_at)
     if administered_on > local_today():
-        raise HTTPException(status_code=422, detail="administered_at cannot be in the future")
+        raise HTTPException(status_code=422, detail="The vaccination date can't be in the future")
 
     record = VaccinationRecord(
         cow_id=cow.id,
@@ -131,17 +132,17 @@ async def complete_vaccination(
     )
     record = result.scalar_one_or_none()
     if not record:
-        raise HTTPException(status_code=404, detail="Vaccination record not found")
+        raise HTTPException(status_code=404, detail="That vaccination could not be found — it may have been removed")
 
     # Object-level authorization: 404 when the cow is out of the caller's scope.
     await get_cow_scoped(db, current_user, record.cow_id)
 
     if record.completed:
-        raise HTTPException(status_code=409, detail="Vaccination is already completed")
+        raise HTTPException(status_code=409, detail="This vaccination is already recorded")
 
     administered_at = ensure_aware(body.administered_at) if body.administered_at else local_now()
     if to_local_date(administered_at) > local_today():
-        raise HTTPException(status_code=422, detail="administered_at cannot be in the future")
+        raise HTTPException(status_code=422, detail="The vaccination date can't be in the future")
 
     record.completed = True
     record.administered_at = administered_at

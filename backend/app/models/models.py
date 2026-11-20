@@ -637,3 +637,25 @@ class PushToken(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False,
     )
+
+
+class IdempotencyKey(Base):
+    """A save the phone has already made, by the one-time code it sent.
+
+    Offline mode (Josh's Part A platform tests): an outcome saved with no
+    signal is sent later, and one whose answer was lost mid-save is sent
+    again. The code is written in the SAME transaction as the save, so it
+    exists exactly when the save does; a second send with it is answered
+    "already recorded" instead of recording it twice.
+    """
+
+    __tablename__ = "idempotency_keys"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    method: Mapped[str] = mapped_column(String(10), nullable=False)
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+

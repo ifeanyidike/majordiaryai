@@ -138,7 +138,7 @@ async def admin_update_user(
     farm_after = data["farm_id"] if "farm_id" in data else user.farm_id
     if role_after == UserRole.farm and farm_after is not None \
             and await db.get(Farm, farm_after) is None:
-        raise HTTPException(status_code=422, detail="farm_id does not exist")
+        raise HTTPException(status_code=422, detail="That farm no longer exists — pick another")
 
     # The sign-in email lives on the login, so it moves there first; the row
     # follows. Without that they would sign in with the old one and be shown
@@ -216,7 +216,7 @@ async def create_profile(
         raise HTTPException(status_code=409, detail="Profile already exists")
 
     if body.role not in SELF_SERVE_ROLES:
-        raise HTTPException(status_code=403, detail="Role not allowed at signup")
+        raise HTTPException(status_code=403, detail="That role can't be chosen when signing up")
 
     # The email must come from the verified token, never the request body:
     # otherwise anyone can register under somebody else's address, which is

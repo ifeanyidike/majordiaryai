@@ -17,9 +17,26 @@ from app.core.auth import get_current_user, require_roles
 from app.core.database import get_db
 from app.models.models import Bull
 from app.schemas.bulls import BullCreate, BullOut, BullUpdate
-from app.services.access import check_farm_access
+from app.services.access import check_farm_access, scope_to_farms
 
 router = APIRouter()
+
+
+@router.get("/", response_model=List[BullOut])
+async def list_all_bulls(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every active bull on every farm the caller can see, in one request.
+
+    Offline mode (Josh's Part A platform tests): the bull is required on an
+    insemination and picked from the farm's list, so the phone keeps every
+    farm's list, not only the farms whose form happened to be opened online.
+    """
+    stmt = scope_to_farms(
+        select(Bull).where(Bull.active == True), current_user, col=Bull.farm_id,  # noqa: E712
+    ).order_by(Bull.farm_id, Bull.name)
+    return (await db.execute(stmt)).scalars().all()
 
 
 @router.get("/farm/{farm_id}", response_model=List[BullOut])

@@ -5,10 +5,12 @@ import React, { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ToastHost } from '@/components';
+import { OfflineBar, ToastHost } from '@/components';
 import { colors } from '@/theme';
 import { supabase } from '@/lib/supabase';
 import { registerForPush } from '@/lib/push';
+import { watchNetwork } from '@/lib/net';
+import { startOfflineMode } from '@/lib/offlineMode';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -22,7 +24,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       async (_event, session) => {
         if (session) {
           await loadProfile();
-        } else {
+        } else if (!(await useAuthStore.getState().restoreSaved())) {
+          // Offline mode: with no signal and a token over an hour old the
+          // library reports no session though it keeps it; restoreSaved opens
+          // the app as that person. Signed out for real, there is none.
           useAuthStore.setState({ user: null });
         }
       },
@@ -37,6 +42,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user) registerForPush();
   }, [user?.id]);
+
+  // Offline mode (Josh's Part A platform tests): follow the connection, and
+  // for whoever is signed in, open from the copy kept on the phone and send
+  // saves made without signal once it returns.
+  useEffect(() => watchNetwork(), []);
+  useEffect(() => (user ? startOfflineMode(user.id) : undefined), [user?.id]);
 
   // Tapping an alarm opens the feed it belongs to — including when the tap
   // is what launched the app, which is the case that matters on a lock screen.
@@ -119,6 +130,7 @@ export default function RootLayout() {
             <Stack.Screen name="index" />
             <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
           </Stack>
+          <OfflineBar />
         </AuthGuard>
         <ToastHost />
       </SafeAreaProvider>

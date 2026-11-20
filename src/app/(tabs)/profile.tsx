@@ -16,6 +16,7 @@ import {
 import { colors, gradients, onDark, spacing, status } from '@/theme';
 import { pregnancyCounts, summarize, unreadNotificationCount, useAppStore, worklistTotal } from '@/store/useAppStore';
 import { useAuthStore, useRole } from '@/store/useAuthStore';
+import { okToSignOut } from '@/lib/outbox';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -77,6 +78,7 @@ export default function ProfileScreen() {
             ];
 
   const handleLogout = async () => {
+    if (!(await okToSignOut())) return;
     setSigningOut(true);
     await signOut();
     router.replace('/');

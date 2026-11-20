@@ -309,10 +309,11 @@ def test_the_kpi_page_numbers_follow_joshs_formulas():
         {"month": "2026-09", "pregnant": 2}, {"month": "2026-10", "pregnant": 0},
         {"month": "2026-11", "pregnant": 0},
     ]
+    # Josh's example order (Sexed Semen, then Conventional), no semen type last.
     assert out["by_semen"] == [
+        {"semen_type": "sexed", "inseminated": 2, "pregnant": 1, "rate": 50.0},
         {"semen_type": "conventional", "inseminated": 3, "pregnant": 2, "rate": 66.7},
         {"semen_type": "not recorded", "inseminated": 1, "pregnant": 0, "rate": 0.0},
-        {"semen_type": "sexed", "inseminated": 2, "pregnant": 1, "rate": 50.0},
     ]
 
 

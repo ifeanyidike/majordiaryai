@@ -1,6 +1,41 @@
 import { create } from 'zustand';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { api, ApiError } from '@/lib/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api, ApiError, errorMessage } from '@/lib/api';
+import { deleteCopy } from '@/lib/offlineCopy';
+import { friendlyAuthError } from '@/lib/authErrors';
+
+/** The signed-in person's profile, kept on the phone so the app opens with
+ *  no signal (offline mode, Josh's Part A platform tests). */
+const PROFILE_KEY = 'profile-v1';
+
+/**
+ * Whose session is saved on this phone, read from storage directly. With no
+ * signal and an access token over an hour old, the sign-in library reports
+ * "no session" (it tries to refresh and cannot), though it keeps the session
+ * to refresh when signal returns. A real sign-out removes it.
+ */
+async function savedSessionUserId(): Promise<string | undefined> {
+  const key = (supabase.auth as unknown as { storageKey?: string }).storageKey;
+  if (!key) return undefined;
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? (JSON.parse(raw)?.user?.id as string | undefined) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The profile kept on this phone, if it is the saved session's person. */
+async function keptProfile(): Promise<UserProfile | null> {
+  try {
+    const [kept, userId] = await Promise.all([AsyncStorage.getItem(PROFILE_KEY), savedSessionUserId()]);
+    const profile = kept ? (JSON.parse(kept) as UserProfile) : null;
+    return profile && userId && profile.id === userId ? profile : null;
+  } catch {
+    return null;
+  }
+}
 
 export type Role = 'technician' | 'admin' | 'farm' | 'vet';
 
@@ -29,6 +64,10 @@ interface AuthState {
   signUp: (name: string, email: string, password: string, role: Role, phone?: string) => Promise<void>;
   signOut: () => Promise<void>;
   loadProfile: () => Promise<void>;
+  /** The library reported no session: open as the person whose session is
+   *  still saved on the phone (no signal, token expired). False when there is
+   *  none, as after a real sign-out. */
+  restoreSaved: () => Promise<boolean>;
   updateProfile: (patch: { name?: string; phone?: string }) => Promise<boolean>;
   clearError: () => void;
 }
@@ -91,7 +130,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       set({ loading: false });
     } catch (e: any) {
-      set({ error: e.message ?? 'Login failed', loading: false });
+      set({ error: friendlyAuthError(e, 'Could not sign in — try again.'), loading: false });
     }
   },
 
@@ -121,7 +160,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await get().loadProfile();
       set({ loading: false });
     } catch (e: any) {
-      set({ error: e.message ?? 'Registration failed', loading: false });
+      set({ error: friendlyAuthError(e, 'Could not create the account — try again.'), loading: false });
     }
   },
 
@@ -131,11 +170,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // previous account's alarms until they sign in themselves.
     const { unregisterPush } = await import('@/lib/push');
     await unregisterPush();
-    await supabase.auth.signOut();
+    const { error: outError } = await supabase.auth.signOut();
+    if (outError) {
+      // With no signal and an expired token the library stops before
+      // removing its saved session, and would sign this person back in the
+      // next time the app opens with signal. Remove it here.
+      const key = (supabase.auth as unknown as { storageKey?: string }).storageKey;
+      if (key) await AsyncStorage.multiRemove([key, `${key}-code-verifier`]).catch(() => {});
+    }
     set({ user: null, error: null, needsConfirmation: false });
+    // The next person on this phone must not open the app as this one, or
+    // see their farms. (Saves still waiting stay, under this person's id,
+    // and go when they next sign in here.)
+    await AsyncStorage.removeItem(PROFILE_KEY).catch(() => {});
+    deleteCopy();
     // Clear the previous account's herd data so the next login starts clean.
     const { useAppStore } = await import('./useAppStore');
     useAppStore.getState().reset();
+  },
+
+  restoreSaved: async () => {
+    const profile = await keptProfile();
+    if (profile) set({ user: profile, loading: false, error: null });
+    return !!profile;
   },
 
   loadProfile: async () => {
@@ -149,7 +206,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
       set({ user: profile, loading: false, error: null });
+      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile)).catch(() => {});
     } catch (e: any) {
+      // No signal: open the app as the person whose session this is, from the
+      // profile kept the last time it loaded. Only theirs: the session's own
+      // user id must match.
+      if (e instanceof ApiError && e.noResponse) {
+        const profile = await keptProfile();
+        if (profile) {
+          set({ user: profile, loading: false, error: null });
+          return;
+        }
+      }
       if (e instanceof ApiError && e.status === 404) {
         // Fresh signup whose profile row doesn't exist yet — create it now.
         try {
@@ -165,13 +233,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }
           set({ loading: false, error: 'Could not create your profile. Please try again.' });
         } catch (createErr: any) {
-          set({ loading: false, error: createErr.message ?? 'Could not create your profile.' });
+          set({ loading: false, error: errorMessage(createErr, 'Could not create your profile — try again.') });
         }
         return;
       }
       set({
         loading: false,
-        error: e.message ?? 'Could not reach the server. Check your connection and try again.',
+        error: errorMessage(e, 'Could not reach the server. Check your connection and try again.'),
       });
     }
   },
@@ -187,7 +255,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user: updated });
       return true;
     } catch (e: any) {
-      set({ user: current, error: e.message ?? 'Could not update your profile' });
+      set({ user: current, error: errorMessage(e, 'Could not update your profile') });
       return false;
     }
   },

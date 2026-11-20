@@ -43,7 +43,9 @@ async function ensureChannels(): Promise<void> {
     await Notifications.setNotificationChannelAsync(c.id, {
       name: c.name,
       importance: c.importance,
-      sound: 'default',
+      // No `sound` key is the phone's default sound. Naming it 'default' made
+      // expo-notifications look for a sound file of that name, log an error
+      // (it is not one), and fall back to the same default sound anyway.
       vibrationPattern: c.id === 'alarms' ? [0, 400, 200, 400] : undefined,
     });
   }

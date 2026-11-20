@@ -28,7 +28,11 @@ import { useAppStore, worklistFarms } from '@/store/useAppStore';
 export default function TasksScreen() {
   const router = useRouter();
   const state = useAppStore();
-  const { worklist, worklistLoading, worklistError, fetchWorklist } = state;
+  const { worklist, worklistLoading, worklistError, fetchWorklist, worklistFetchedOn } = state;
+  // Offline mode: with no signal on a new day this is the last list loaded,
+  // and today's farms may differ. Say so rather than call it today's.
+  const fromEarlierDay = !!worklist && !!worklistFetchedOn
+    && worklistFetchedOn !== new Date().toLocaleDateString('en-CA');
   const farms = worklistFarms(state);
 
   useEffect(() => {
@@ -65,10 +69,17 @@ export default function TasksScreen() {
       {worklistError ? (
         <ErrorBanner message={worklistError} onRetry={() => fetchWorklist()} />
       ) : null}
+      {fromEarlierDay ? (
+        <ErrorBanner
+          message={`This is the list from ${new Date(`${worklistFetchedOn}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })}. Today's could not be loaded yet.`}
+          onRetry={() => fetchWorklist()}
+        />
+      ) : null}
 
       {visiting.length > 0 && (
         <Text variant="body" color={colors.textSecondary} style={styles.lead}>
-          {totalCows} {totalCows === 1 ? 'cow' : 'cows'} to process across your farms today.
+          {totalCows} {totalCows === 1 ? 'cow' : 'cows'} to process across your farms
+          {fromEarlierDay ? ' on that list.' : ' today.'}
         </Text>
       )}
 

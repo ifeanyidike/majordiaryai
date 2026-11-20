@@ -6,6 +6,7 @@ import { Button, EmptyState, FormRow, Header, Screen, useToast } from '@/compone
 import { spacing } from '@/theme';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
+import { friendlyAuthError } from '@/lib/authErrors';
 
 /**
  * Set a new password, from the Forgot Password email.
@@ -87,7 +88,7 @@ export default function ResetPasswordScreen() {
       toast.success('Password changed — sign in with your new password');
       router.replace('/');
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not change the password');
+      toast.error(friendlyAuthError(e, 'Could not change the password — try again.'));
     } finally {
       setSaving(false);
     }

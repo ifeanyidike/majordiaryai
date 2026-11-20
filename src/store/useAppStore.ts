@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { api, isApiConfigured, isDemoMode } from '@/lib/api';
+import { api, isApiConfigured, isDemoMode, errorMessage } from '@/lib/api';
 import { daysBetween, daysSince, todayISO } from '@/lib/dates';
+import type { OfflineCopy } from '@/lib/offlineCopy';
 import { HEAT_WINDOW } from '@/data/reports';
 import { notificationTypeEnabled, useSettingsStore } from '@/store/useSettingsStore';
 import {
@@ -349,6 +350,15 @@ function mapActiveProtocol(p: any): ActiveProtocol | undefined {
   };
 }
 
+function mapBull(b: any): Bull {
+  return {
+    id: b.id, farmId: b.farm_id, name: b.name,
+    code: b.code ?? undefined,
+    semenType: b.semen_type ?? undefined,
+    active: b.active, notes: b.notes ?? undefined,
+  };
+}
+
 function toHistoryEvents(rows: any[] | undefined, describe: (r: any) => string): HistoryEvent[] {
   if (!Array.isArray(rows)) return [];
   return rows.map((r, i) => ({
@@ -463,6 +473,12 @@ interface AppState {
   worklist: Worklist | null;
   /** Device-local date (YYYY-MM-DD) the worklist was last fetched on. */
   worklistFetchedOn: string | null;
+  /** When the server last answered with fresh farms, cows or work list
+   *  (offline mode: "last synced"). Null until it has, this session or
+   *  in the copy kept on the phone. */
+  lastSyncedAt: number | null;
+  /** Fill what has not loaded yet from the copy kept on the phone. */
+  fillFromCopy: (copy: OfflineCopy) => void;
   notifications: AppNotification[];
   kpis: HerdKpis | null;
   /** Reproduction KPIs per farm — the Reports screen is per farm. */
@@ -519,6 +535,8 @@ interface AppState {
   saveVet: (input: VetInput, vetId?: string) => Promise<string>;
   /** Bulls stocked per farm, keyed by farm id. */
   bulls: Record<string, Bull[]>;
+  /** Every farm's bull list at once (offline mode). */
+  fetchAllBulls: () => Promise<void>;
   fetchBulls: (farmId: string) => Promise<void>;
   saveBull: (
     farmId: string,
@@ -603,6 +621,7 @@ const initialData = {
   vets: [] as Vet[],
   worklist: null as Worklist | null,
   worklistFetchedOn: null as string | null,
+  lastSyncedAt: null as number | null,
   technicians: [] as StaffUser[],
   staff: [] as StaffUser[],
   staffLoading: false,
@@ -638,9 +657,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ farmsLoading: true, farmsError: null });
     try {
       const raw = await api.getAll<ApiFarm>('/farms/');
-      set({ farms: raw.map(mapFarm), farmsLoading: false });
+      set({ farms: raw.map(mapFarm), farmsLoading: false, lastSyncedAt: Date.now() });
     } catch (e: any) {
-      set({ farmsLoading: false, farmsError: e.message ?? 'Could not load farms' });
+      set({ farmsLoading: false, farmsError: errorMessage(e, 'Could not load farms') });
     }
   },
 
@@ -661,9 +680,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? [...s.cows.filter((c) => c.farmId !== farmId), ...fetched]
           : fetched,
         cowsLoading: false,
+        lastSyncedAt: Date.now(),
       }));
     } catch (e: any) {
-      set({ cowsLoading: false, cowsError: e.message ?? 'Could not load cows' });
+      set({ cowsLoading: false, cowsError: errorMessage(e, 'Could not load cows') });
     }
   },
 
@@ -752,7 +772,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const raw = await api.get<ApiVet[]>('/vets/');
       set({ vets: raw.map(mapVet), vetsLoading: false });
     } catch (e: any) {
-      set({ vetsLoading: false, vetsError: e.message ?? 'Could not load vets' });
+      set({ vetsLoading: false, vetsError: errorMessage(e, 'Could not load vets') });
     }
   },
 
@@ -768,11 +788,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ worklistLoading: true, worklistError: null });
     try {
       const raw = await api.get<ApiWorklist>('/reports/worklist');
-      set({ worklist: mapWorklist(raw), worklistFetchedOn: fetchedOn, worklistLoading: false });
+      set({ worklist: mapWorklist(raw), worklistFetchedOn: fetchedOn, worklistLoading: false,
+            lastSyncedAt: Date.now() });
     } catch (e: any) {
-      set({ worklistLoading: false, worklistError: e.message ?? 'Could not load your work list' });
+      set({ worklistLoading: false, worklistError: errorMessage(e, 'Could not load your work list') });
     }
   },
+
+  fillFromCopy: (copy) =>
+    // Only what has not come from the server yet: a load that already
+    // succeeded is newer than any copy.
+    set((s) => ({
+      farms: s.farms.length ? s.farms : (copy.farms as Farm[]),
+      cows: s.cows.length ? s.cows : (copy.cows as Cow[]),
+      worklist: s.worklist ?? (copy.worklist as Worklist | null),
+      worklistFetchedOn: s.worklist ? s.worklistFetchedOn : copy.worklistFetchedOn,
+      bulls: Object.keys(s.bulls).length ? s.bulls : (copy.bulls as Record<string, Bull[]>),
+      lastSyncedAt: s.lastSyncedAt ?? copy.lastSyncedAt,
+    })),
 
   ensureWorklist: () => {
     const { worklist, worklistFetchedOn, worklistLoading, fetchWorklist } = get();
@@ -1126,6 +1159,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     return saved.id;
   },
 
+  fetchAllBulls: async () => {
+    // Offline mode: every farm's list at start, so an insemination can be
+    // recorded with no signal on any farm, not only the ones opened online.
+    if (!isApiConfigured || isDemoMode) return;
+    try {
+      const raw = await api.get<any[]>('/bulls/');
+      const byFarm: Record<string, Bull[]> = {};
+      for (const b of raw) (byFarm[b.farm_id] ??= []).push(mapBull(b));
+      set({ bulls: byFarm });
+    } catch {
+      // Each form still loads its own farm's list when it opens.
+    }
+  },
+
   fetchBulls: async (farmId) => {
     if (!isApiConfigured) return;
     try {
@@ -1133,12 +1180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => ({
         bulls: {
           ...s.bulls,
-          [farmId]: raw.map((b) => ({
-            id: b.id, farmId: b.farm_id, name: b.name,
-            code: b.code ?? undefined,
-            semenType: b.semen_type ?? undefined,
-            active: b.active, notes: b.notes ?? undefined,
-          })),
+          [farmId]: raw.map(mapBull),
         },
       }));
     } catch {
@@ -1225,7 +1267,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e: any) {
       // An empty list here reads as "no accounts exist", which is a different
       // and much more alarming statement than "could not load".
-      set({ staffLoading: false, staffError: e?.message ?? 'Could not load people' });
+      set({ staffLoading: false, staffError: errorMessage(e, 'Could not load people') });
     }
   },
 

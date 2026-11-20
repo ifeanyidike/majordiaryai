@@ -9,6 +9,7 @@ import {
 import { colors, radius, spacing } from '@/theme';
 import { NOTIFICATION_TOPICS, useSettingsStore } from '@/store/useSettingsStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { okToSignOut } from '@/lib/outbox';
 
 /**
  * Where support mail goes.
@@ -75,6 +76,7 @@ export default function SettingsScreen() {
   const version = Constants.expoConfig?.version ?? '1.0.0';
 
   const handleLogout = async () => {
+    if (!(await okToSignOut())) return;
     setSigningOut(true);
     await signOut();
     router.replace('/');

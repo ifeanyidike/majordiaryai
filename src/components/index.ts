@@ -30,5 +30,6 @@ export { SharedTagQuestion } from './SharedTagQuestion';
 export { Text } from './Text';
 export { YesNoField } from './YesNoField';
 export { ModalToastHost, ToastHost, useToast } from './Toast';
+export { OfflineBar, syncedLabel } from './OfflineBar';
 
 export { Skeleton, SkeletonCard, SkeletonList, SkeletonRow, SkeletonStats } from './Skeleton';

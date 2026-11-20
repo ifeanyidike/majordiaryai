@@ -19,6 +19,7 @@ import { colors, radius, spacing, touch } from '@/theme';
 import { addDays, todayISO } from '@/lib/dates';
 import { farmById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Hand a day's visit to someone else — the spec's "Farms can be reassigned to a
@@ -118,7 +119,7 @@ export default function FarmVisitsScreen() {
       setReason('');
       setCoverId(undefined);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not change the visit');
+      toast.error(errorMessage(e, 'Could not change the visit'));
     } finally {
       setSaving(false);
     }
@@ -129,7 +130,7 @@ export default function FarmVisitsScreen() {
       await clearVisitAssignment(farm.id, visitDate);
       toast.success(`${pretty(visitDate)} back to the standing technician`);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not clear the override');
+      toast.error(errorMessage(e, 'Could not clear the override'));
     }
   };
 

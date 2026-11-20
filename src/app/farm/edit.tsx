@@ -18,6 +18,7 @@ import {
 import { colors, radius, spacing } from '@/theme';
 import { FarmInput, farmById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Add / edit a farm — the Farm Module from the requirements doc (name, owner,
@@ -159,7 +160,7 @@ export default function FarmEditScreen() {
       // Replace so Back doesn't return to a stale form.
       router.replace({ pathname: '/farm/[id]', params: { id: savedId } });
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not save the farm');
+      toast.error(errorMessage(e, 'Could not save the farm'));
     } finally {
       setSaving(false);
     }

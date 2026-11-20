@@ -7,6 +7,7 @@ import {
 import { spacing } from '@/theme';
 import { staffById, useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * Admin, Technicians: add a technician, or edit one (feature notes, Nov 10).
@@ -96,7 +97,7 @@ export default function TechnicianEditScreen() {
       toast.success(isEdit ? 'Technician updated' : `${name.trim()} added — they can sign in now`);
       router.replace({ pathname: '/technician/[id]', params: { id: savedId } });
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not save the technician');
+      toast.error(errorMessage(e, 'Could not save the technician'));
     } finally {
       setSaving(false);
     }

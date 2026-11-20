@@ -32,6 +32,15 @@ class Check:
     result: Optional[str]          # "pregnant" | "not_pregnant" | None
 
 
+# Rows in the order of Josh's example table (Sexed Semen, then Conventional),
+# with breedings that have no semen type last.
+_SEMEN_ORDER = ["sexed", "conventional", "beef", "not recorded"]
+
+
+def _semen_order(semen: str) -> tuple:
+    return (_SEMEN_ORDER.index(semen) if semen in _SEMEN_ORDER else len(_SEMEN_ORDER), semen)
+
+
 def _rate(pregnant: int, inseminated: int) -> Optional[float]:
     return None if inseminated == 0 else round(100.0 * pregnant / inseminated, 1)
 
@@ -79,6 +88,6 @@ def compute(breedings: List[Breeding], checks: List[Check], today: date) -> dict
                 "pregnant": sum(1 for b in rows if b.id in confirmed),
                 "rate": _rate(sum(1 for b in rows if b.id in confirmed), len(rows)),
             }
-            for semen, rows in sorted(groups.items())
+            for semen, rows in sorted(groups.items(), key=lambda kv: _semen_order(kv[0]))
         ],
     }

@@ -86,7 +86,7 @@ async def _check_assigned_technician(db: AsyncSession, tech_id) -> None:
     if tech is None or tech.role not in (UserRole.technician, UserRole.admin):
         raise HTTPException(
             status_code=422,
-            detail="assigned_technician_id must be an existing technician or admin",
+            detail="Pick a technician from the list",
         )
 
 
@@ -265,7 +265,7 @@ async def delete_farm(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status_code=409, detail="Farm still has dependent records")
+        raise HTTPException(status_code=409, detail="This farm still has cows or records, so it can't be deleted")
 
 
 # ── Routes ───────────────────────────────────────────────────────────
@@ -384,7 +384,7 @@ async def set_visit_assignment(
         )
 
     if body.visit_date < local_today():
-        raise HTTPException(status_code=422, detail="visit_date cannot be in the past")
+        raise HTTPException(status_code=422, detail="Pick today or a later day")
 
     await _check_assigned_technician(db, body.assigned_technician_id)
 
@@ -415,7 +415,7 @@ async def set_visit_assignment(
         await db.rollback()
         raise HTTPException(
             status_code=409,
-            detail="This visit was assigned concurrently — retry to overwrite",
+            detail="Someone else changed this visit at the same moment — try again",
         )
     await db.refresh(assignment)
     name = None

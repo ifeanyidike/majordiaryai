@@ -90,7 +90,7 @@ async def test_final_step_on_drifted_cow_is_rejected_not_forced(db, make_cow):
 
     with pytest.raises(Exception) as exc:
         await status_engine.on_final_record_completed(cow, enrollment, db)
-    assert "Illegal status transition" in str(exc.value)
+    assert "She is Dry and can't become" in str(exc.value)
 
 
 # ── Insemination folds in the final record ───────────────────────────

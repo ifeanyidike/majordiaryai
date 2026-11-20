@@ -82,7 +82,7 @@ async def _decode_token(token: str) -> dict:
     try:
         header = jwt.get_unverified_header(token)
     except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your sign-in has run out — sign in again")
 
     alg = header.get("alg", settings.jwt_algorithm)
     options = {"verify_aud": False}
@@ -93,15 +93,15 @@ async def _decode_token(token: str) -> dict:
             kid = header.get("kid")
             key = await _signing_key(kid) if kid else None
             if not key:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your sign-in has run out — sign in again")
             payload = jwt.decode(token, key, algorithms=[alg], options=options)
 
         user_id = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your sign-in has run out — sign in again")
         payload["user_id"] = uuid.UUID(user_id)
     except (JWTError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your sign-in has run out — sign in again")
     return payload
 
 
@@ -132,7 +132,7 @@ async def get_current_user(
     )
     user = result.mappings().first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your account could not be found — sign in again")
     # Signup is open to anyone who can complete Supabase auth, so a claimed
     # role is a request, not a grant. Until an admin activates the account it
     # reaches nothing — not the herd, not the staff directory, not the vet
@@ -153,6 +153,6 @@ async def get_current_user(
 def require_roles(*roles: str):
     async def check(user: dict = Depends(get_current_user)):
         if user["role"] not in roles:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to do that")
         return user
     return check

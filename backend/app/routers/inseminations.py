@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from app.core.words import status_words
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import ensure_aware, local_today, to_local_date
@@ -54,7 +55,7 @@ async def record_insemination(
     if cow.status not in status_engine.INSEMINABLE_STATUSES:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot inseminate a cow with status '{cow.status.value}'",
+            detail=f"She is {status_words(cow.status)}, so she can't be inseminated",
         )
 
     # A bull from another farm's list would silently corrupt per-bull analytics.
@@ -62,12 +63,12 @@ async def record_insemination(
         bull = await db.get(Bull, body.bull_id)
         if bull is None or bull.farm_id != cow.farm_id:
             raise HTTPException(
-                status_code=422, detail="bull_id is not on this cow's farm bull list"
+                status_code=422, detail="That bull isn't on this farm's bull list"
             )
 
     insemination_date = to_local_date(body.date)
     if insemination_date > local_today():
-        raise HTTPException(status_code=422, detail="Insemination date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The insemination date can't be in the future")
 
     # A double-tap creates two attempts for one physical breeding, which
     # corrupts attempt_number and every conception-rate figure derived from it.

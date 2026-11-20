@@ -16,7 +16,8 @@ import { FormInput, FormLabel } from './FormField';
 import { SharedTagQuestion } from './SharedTagQuestion';
 import { YesNoField } from './YesNoField';
 import { HEAT_WINDOW, MIN_DAYS_POST_CALVING_TO_BREED } from '@/data/reports';
-import { api, ApiError, isApiConfigured } from '@/lib/api';
+import { api, ApiError, isApiConfigured, errorMessage } from '@/lib/api';
+import { saveOutcome } from '@/lib/outbox';
 import {
   daysBetween, daysSince, isValidPastOrTodayDate, isValidStartDate, START_DATE_LOOKAHEAD_DAYS,
   todayISO,
@@ -383,7 +384,7 @@ export function InseminationForm({
       }
       setNewBull('');
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not add the bull');
+      toast.error(errorMessage(e, 'Could not add the bull'));
     } finally {
       setAddingBull(false);
     }
@@ -397,9 +398,9 @@ export function InseminationForm({
       // endpoint, which works whether or not a scheduled record is still open —
       // the backend cancels the enrollment and re-enrolls her on Ovsynch.
       if (bleeding && canBleed) {
-        await api.post(`/needling/cow/${cow.id}/bleeding`, {
+        if ((await record(cow, 'Bleeding', `/needling/cow/${cow.id}/bleeding`, {
           notes: notes.trim() || null,
-        });
+        }, 'POST')).queued) return queuedDone(onComplete);
         toast.show(
           `Bleeding recorded — ${cow.label} moves to Open and restarts on Ovsynch`,
           'water',
@@ -413,7 +414,7 @@ export function InseminationForm({
       // record in the same transaction as the AI, so there is no second write
       // to orchestrate (and no partial-failure window) from the client.
       // Backend takes a single datetime; technician comes from the auth token.
-      await api.post('/inseminations/', {
+      if ((await record(cow, 'Insemination', '/inseminations/', {
         cow_id: cow.id,
         date: `${date}T${time}:00`,
         bull_name: bull.trim(),
@@ -422,7 +423,7 @@ export function InseminationForm({
         insemination_code: inseminationCode.trim() || null,
         semen_type: semenType,
         notes: notes.trim() || null,
-      });
+      }, 'POST')).queued) return queuedDone(onComplete);
       toast.success(
         withFinalInjection
           ? `Final injection + AI recorded — ${cow.label} is now Inseminated`
@@ -430,7 +431,7 @@ export function InseminationForm({
       );
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record insemination');
+      toast.error(errorMessage(e, 'Failed to record insemination'));
     } finally {
       setLoading(false);
     }
@@ -592,11 +593,11 @@ function OverruleConfirm({ cow, heat, onDone, onOverruled = onDone }: {
   const overrule = async () => {
     setLoading(true);
     try {
-      await api.post(`/checks/heat/${heat.id}/overrule`, {});
+      if ((await record(cow, 'Put on Breed Report', `/checks/heat/${heat.id}/overrule`, {}, 'POST')).queued) return queuedDone(onOverruled);
       toast.show(`${cow.label} is on Today's Breed Report — breed her today`, 'flame', 'success');
       onOverruled();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not put her on the report');
+      toast.error(errorMessage(e, 'Could not put her on the report'));
       setLoading(false);
     }
   };
@@ -661,14 +662,16 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
     try {
       // Blood on the tail means she WAS in heat — the spec treats it as a heat event.
       const effectiveHeat = !!heatDetected || !!bloodOnTail;
-      const result = await api.post<HeatResult>('/checks/heat', {
+      const sent = await record<HeatResult>(cow, 'Heat check', '/checks/heat', {
         cow_id: cow.id,
         insemination_id: cow.lastInseminationId,
         check_date: checkDate,
         heat_detected: effectiveHeat,
         bleeding_event: !!bloodOnTail,
         notes: notes.trim() || null,
-      });
+      }, 'POST');
+      if (sent.queued) return queuedDone(onComplete);
+      const result = sent.data!;
       if (result.can_overrule) {
         refreshReports();
         setOverrule(result);
@@ -683,7 +686,7 @@ export function HeatCheckForm({ cow, onCancel, onComplete }: FormProps) {
       );
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record heat check');
+      toast.error(errorMessage(e, 'Failed to record heat check'));
     } finally {
       setLoading(false);
     }
@@ -752,7 +755,7 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      const result = await api.post<HeatResult>('/checks/heat', {
+      const sent = await record<HeatResult>(cow, 'Seen in heat', '/checks/heat', {
         cow_id: cow.id,
         // Only an inseminated cow's heat is timed from her insemination.
         insemination_id: cow.status === 'inseminated' ? cow.lastInseminationId ?? null : null,
@@ -760,7 +763,9 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
         heat_detected: true,
         bleeding_event: false,
         notes: notes.trim() || null,
-      });
+      }, 'POST');
+      if (sent.queued) return queuedDone(onComplete);
+      const result = sent.data!;
       if (result.can_overrule) {
         refreshReports();
         setOverrule(result);
@@ -769,7 +774,7 @@ export function SeenInHeatForm({ cow, onCancel, onComplete }: FormProps) {
       toast.show(heatOutcome(cow, result, seenOn), 'flame', 'success');
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record the heat');
+      toast.error(errorMessage(e, 'Failed to record the heat'));
     } finally {
       setLoading(false);
     }
@@ -844,16 +849,16 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
     setLoading(true);
     try {
       if (!inHeat && bleeding) {
-        await api.post(`/needling/cow/${cow.id}/bleeding`, { notes: notes.trim() || null });
+        if ((await record(cow, 'Bleeding', `/needling/cow/${cow.id}/bleeding`, { notes: notes.trim() || null }, 'POST')).queued) return queuedDone(onComplete);
         toast.show('Bleeding recorded — cow moves to Open and restarts on Ovsynch', 'water', 'success');
         onComplete();
         return;
       }
       if (!inHeat) {
-        await api.patch(`/needling/records/${recordId}/complete`, {
+        if ((await record(cow, 'Protocol injection', `/needling/records/${recordId}/complete`, {
           bleeding_event: false,
           notes: notes.trim() || null,
-        });
+        }, 'PATCH')).queued) return queuedDone(onComplete);
         toast.show(
           lastCheck ? `No heat by Day ${day} — ${cow.label} goes to Open` : 'No heat — check her again next time',
           'checkmark-circle',
@@ -862,14 +867,16 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
         onComplete();
         return;
       }
-      const result = await api.post<HeatResult>('/checks/heat', {
+      const sent = await record<HeatResult>(cow, 'Heat check', '/checks/heat', {
         cow_id: cow.id,
         insemination_id: null,
         check_date: todayISO(),
         heat_detected: true,
         bleeding_event: false,
         notes: notes.trim() || null,
-      });
+      }, 'POST');
+      if (sent.queued) return queuedDone(onComplete);
+      const result = sent.data!;
       if (result.on_breed_report) {
         refreshReports();
         setBreeding(true);
@@ -881,7 +888,7 @@ export function ProstaglandinCheckForm({ cow, recordId, day, onCancel, onComplet
         onComplete();
       }
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record the check');
+      toast.error(errorMessage(e, 'Failed to record the check'));
     } finally {
       setLoading(false);
     }
@@ -962,7 +969,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post('/checks/pregnancy', {
+      if ((await record(cow, 'Pregnancy check', '/checks/pregnancy', {
         cow_id: cow.id,
         insemination_id: cow.lastInseminationId,
         check_date: checkDate,
@@ -971,7 +978,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
         infection_detail: infection ? infectionName.trim() || null : null,
         has_cysts: !!cysts,
         notes: notes.trim() || null,
-      });
+      }, 'POST')).queued) return queuedDone(onComplete);
       // Outcome messaging mirrors the program rules, including cyst/infection branches.
       let msg: string;
       if (cysts) {
@@ -986,7 +993,7 @@ export function PregnancyCheckForm({ cow, onCancel, onComplete }: FormProps) {
       toast.show(msg, 'medkit', 'success');
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record pregnancy check');
+      toast.error(errorMessage(e, 'Failed to record pregnancy check'));
     } finally {
       setLoading(false);
     }
@@ -1098,7 +1105,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
     try {
       // Backend stores the calving date; keep the spec-required time in the notes.
       const timeNote = `Calved at ${calvTime}`;
-      await api.post('/calving/', {
+      if ((await record(cow, 'Calving', '/calving/', {
         cow_id: cow.id,
         calving_date: calvDate,
         live_birth: outcome === 'live',
@@ -1114,7 +1121,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
             ? saleInfo.trim()
             : null,
         notes: notes.trim() ? `${timeNote} — ${notes.trim()}` : timeNote,
-      });
+      }, 'POST')).queued) return queuedDone(onComplete);
       toast.success(`Calving recorded — ${cow.label} is now Fresh`);
       onComplete();
     } catch (e: any) {
@@ -1122,7 +1129,7 @@ export function CalvingForm({ cow, onCancel, onComplete }: FormProps) {
       if (e instanceof ApiError && e.status === 409 && e.message.startsWith('Ear tag')) {
         setTagInUse(calfTag.trim());
       } else {
-        toast.error(e?.message ?? 'Failed to record calving');
+        toast.error(errorMessage(e, 'Failed to record calving'));
       }
     } finally {
       setLoading(false);
@@ -1240,7 +1247,7 @@ export function HealthForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post(`/cows/${cow.id}/health`, { health_status: value });
+      if ((await record(cow, 'Health check', `/cows/${cow.id}/health`, { health_status: value }, 'POST')).queued) return queuedDone(onComplete);
       toast.show(
         value === 'sick'
           ? 'Marked sick — recheck her in 7 days; she stays on the Open list.'
@@ -1250,7 +1257,7 @@ export function HealthForm({ cow, onCancel, onComplete }: FormProps) {
       );
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record health status');
+      toast.error(errorMessage(e, 'Failed to record health status'));
     } finally {
       setLoading(false);
     }
@@ -1316,16 +1323,16 @@ export function VaccinationForm({ cow, onCancel, onComplete }: FormProps) {
       );
       const pending = records.find((r) => !r.completed && r.scheduled_date <= todayISO());
       if (pending) {
-        await api.patch(`/vaccinations/${pending.id}/complete`, body);
+        if ((await record(cow, 'Vaccination', `/vaccinations/${pending.id}/complete`, body, 'PATCH')).queued) return queuedDone(onComplete);
       } else {
         // Nothing scheduled (e.g. an imported cow's post-calving shot) —
         // record it ad-hoc rather than telling the technician "no".
-        await api.post(`/vaccinations/cow/${cow.id}`, body);
+        if ((await record(cow, 'Vaccination', `/vaccinations/cow/${cow.id}`, body, 'POST')).queued) return queuedDone(onComplete);
       }
       toast.success(`Vaccination recorded for ${cow.label}`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record vaccination');
+      toast.error(errorMessage(e, 'Failed to record vaccination'));
     } finally {
       setLoading(false);
     }
@@ -1373,11 +1380,11 @@ export function ProgramForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post(`/cows/${cow.id}/insemination-program`, {});
+      if ((await record(cow, 'Insemination Program', `/cows/${cow.id}/insemination-program`, {}, 'POST')).queued) return queuedDone(onComplete);
       toast.success(`${cow.label} is on the Insemination Program`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to put her on the program');
+      toast.error(errorMessage(e, 'Failed to put her on the program'));
     } finally {
       setLoading(false);
     }
@@ -1438,7 +1445,7 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
     }
     setSavingHealth(true);
     try {
-      await api.post(`/cows/${cow.id}/health`, { health_status: value });
+      if ((await record(cow, 'Health check', `/cows/${cow.id}/health`, { health_status: value }, 'POST')).queued) return queuedDone(onComplete);
       if (value === 'sick') {
         toast.show('Marked sick — recheck her in 7 days; she stays on the Open list.', 'medkit', 'success');
         onComplete();
@@ -1446,7 +1453,7 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
         setHealthConfirmed(true);
       }
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to record health status');
+      toast.error(errorMessage(e, 'Failed to record health status'));
     } finally {
       setSavingHealth(false);
     }
@@ -1456,15 +1463,15 @@ export function EnrollForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post('/needling/enroll', {
+      if ((await record(cow, 'Protocol enrolment', '/needling/enroll', {
         cow_id: cow.id,
         protocol,
         start_date: startDate,
-      });
+      }, 'POST')).queued) return queuedDone(onComplete);
       toast.success(`${cow.label} enrolled in ${protocolByValue(protocol!)?.label}`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to enroll in protocol');
+      toast.error(errorMessage(e, 'Failed to enroll in protocol'));
     } finally {
       setLoading(false);
     }
@@ -1595,11 +1602,11 @@ export function DryOffConfirmForm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post(`/cows/${cow.id}/dry-off-confirm`, {});
+      if ((await record(cow, 'Moved to dry pen', `/cows/${cow.id}/dry-off-confirm`, {}, 'POST')).queued) return queuedDone(onComplete);
       toast.success(`${cow.label} confirmed in the dry pen`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to confirm dry off');
+      toast.error(errorMessage(e, 'Failed to confirm dry off'));
     } finally {
       setLoading(false);
     }
@@ -1636,15 +1643,15 @@ function CullConfirm({ cow, onCancel, onComplete }: FormProps) {
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post(`/cows/${cow.id}/cull`, {
+      if ((await record(cow, 'Cull', `/cows/${cow.id}/cull`, {
         cull_date: date,
         reason: reason.trim(),
         notes: notes.trim() || null,
-      });
+      }, 'POST')).queued) return queuedDone(onComplete);
       toast.success(`${cow.label} marked as Cull`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to cull cow');
+      toast.error(errorMessage(e, 'Failed to cull cow'));
     } finally {
       setLoading(false);
     }
@@ -1685,11 +1692,11 @@ function FinalStatusConfirm({ cow, onCancel, onComplete, kind }: FormProps & { k
     if (!guardApi(toast.error)) return;
     setLoading(true);
     try {
-      await api.post(`/cows/${cow.id}/mark-${kind}`, { reason: notes.trim() || null });
+      if ((await record(cow, `Marked ${kind}`, `/cows/${cow.id}/mark-${kind}`, { reason: notes.trim() || null }, 'POST')).queued) return queuedDone(onComplete);
       toast.success(`${cow.label} marked as ${kind === 'sold' ? 'Sold' : 'Dead'}`);
       onComplete();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to update status');
+      toast.error(errorMessage(e, 'Failed to update status'));
     } finally {
       setLoading(false);
     }
@@ -1718,6 +1725,24 @@ function FinalStatusConfirm({ cow, onCancel, onComplete, kind }: FormProps & { k
       />
     </>
   );
+}
+
+// ── offline mode ──────────────────────────────────────────────
+
+/** Save an outcome now, or keep it on the phone to send when there is signal
+ *  (Josh's Part A platform tests; lib/outbox.ts). */
+function record<T = unknown>(
+  cow: { id: string; label: string }, what: string, path: string, body: unknown,
+  method: 'POST' | 'PATCH' = 'POST',
+) {
+  return saveOutcome<T>({ method, path, body, cowId: cow.id, label: `${what} — ${cow.label}` });
+}
+
+/** A save kept on the phone: say so, and close the form as if it had gone. */
+function queuedDone(done: () => void) {
+  useToast.getState().show(
+    'Saved on this phone — it will be sent when you have signal', 'cloud-offline', 'info');
+  done();
 }
 
 // ── main export ───────────────────────────────────────────────

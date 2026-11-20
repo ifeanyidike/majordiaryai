@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
+from app.core.words import status_words
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_roles
 from app.core.timeutils import local_today
@@ -280,7 +281,7 @@ async def set_cow_health(
     if cow.status in (CowStatus.sold, CowStatus.dead):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot set health on a {cow.status.value} cow",
+            detail=f"She is {status_words(cow.status)}, so a health check can't be recorded for her",
         )
 
     cow.health_status = body.health_status
@@ -323,7 +324,7 @@ async def put_on_insemination_program(
     if cow.status not in (CowStatus.heifer, CowStatus.fresh, CowStatus.open):
         raise HTTPException(
             status_code=409,
-            detail=f"A cow that is '{cow.status.value}' cannot go on the Insemination Program",
+            detail=f"She is {status_words(cow.status)}, so she can't go on the Insemination Program",
         )
     # Off Fresh, nothing offers "Record Calving" any more.
     if cow.calving_assumed:
@@ -350,13 +351,13 @@ async def cull_cow(
     # ensure_transition treats same-status as a no-op, so culling an already
     # culled cow slipped through and inserted a SECOND CullRecord.
     if cow.status == CowStatus.cull:
-        raise HTTPException(status_code=409, detail="Cow is already culled")
+        raise HTTPException(status_code=409, detail="She is already culled")
     status_engine.ensure_transition(cow, CowStatus.cull)
 
     body = body or CullBody()
     cull_date = body.cull_date or local_today()
     if cull_date > local_today():
-        raise HTTPException(status_code=422, detail="cull_date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The cull date can't be in the future")
 
     db.add(CullRecord(
         cow_id=cow.id,
@@ -382,13 +383,13 @@ async def mark_sold(
     # Same-status is a no-op in ensure_transition, so a second call silently
     # overwrote the recorded exit date and reason.
     if cow.status == CowStatus.sold:
-        raise HTTPException(status_code=409, detail="Cow is already marked sold")
+        raise HTTPException(status_code=409, detail="She is already marked sold")
     status_engine.ensure_transition(cow, CowStatus.sold)
 
     body = body or ExitBody()
     exit_date = body.date or local_today()
     if exit_date > local_today():
-        raise HTTPException(status_code=422, detail="date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The date can't be in the future")
 
     cow.status = CowStatus.sold
     cow.current_program = None
@@ -408,13 +409,13 @@ async def mark_dead(
     """Mark a cow as dead (legal from any non-terminal status)."""
     cow = await get_cow_scoped(db, current_user, cow_id, for_update=True)
     if cow.status == CowStatus.dead:
-        raise HTTPException(status_code=409, detail="Cow is already marked dead")
+        raise HTTPException(status_code=409, detail="She is already marked dead")
     status_engine.ensure_transition(cow, CowStatus.dead)
 
     body = body or ExitBody()
     exit_date = body.date or local_today()
     if exit_date > local_today():
-        raise HTTPException(status_code=422, detail="date cannot be in the future")
+        raise HTTPException(status_code=422, detail="The date can't be in the future")
 
     await status_engine.cancel_active_enrollments(cow, db, new_status=status_engine.EnrollmentStatus.cancelled)
     cow.status = CowStatus.dead
@@ -447,7 +448,7 @@ async def confirm_dry_off(
     if cow.status != CowStatus.dry:
         raise HTTPException(
             status_code=409,
-            detail=f"Only a dry cow can be confirmed dried off (status is '{cow.status.value}')",
+            detail=f"She is {status_words(cow.status)}, not Dry, so she can't be moved to the dry pen",
         )
 
     questions.mark_moved_to_dry_pen(cow, local_today())

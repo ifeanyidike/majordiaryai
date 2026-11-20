@@ -6,6 +6,7 @@ import {
 } from '@/components';
 import { colors, radius, spacing } from '@/theme';
 import { farmById, useAppStore } from '@/store/useAppStore';
+import { errorMessage } from '@/lib/api';
 
 /**
  * KPI for one farm (Josh, Nov 20: "pick the 3 easiest ... make a page showing
@@ -23,6 +24,9 @@ const pct = (r: number | null) => (r == null ? '—' : `${r}%`);
 const SEMEN: Record<string, string> = {
   sexed: 'Sexed Semen', conventional: 'Conventional', beef: 'Beef', 'not recorded': 'Not recorded',
 };
+/** Table cells stay on one line, shrinking a little on narrow phones, so a
+ *  word such as "Inseminated" is never broken across two lines. */
+const ONE_LINE = { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.7 } as const;
 
 export default function FarmKpiScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,7 +38,7 @@ export default function FarmKpiScreen() {
   const load = () => {
     if (!id) return;
     setError(null);
-    state.fetchFarmKpis(id).catch((e: any) => setError(e?.message ?? 'Could not load the KPIs'));
+    state.fetchFarmKpis(id).catch((e: any) => setError(errorMessage(e, 'Could not load the KPIs')));
   };
   useEffect(load, [id]);
 
@@ -99,16 +103,20 @@ export default function FarmKpiScreen() {
               <>
                 <View style={styles.tableRow}>
                   {['Semen Type', 'Inseminated', 'Pregnant', 'Rate'].map((h, i) => (
-                    <Text key={h} variant="caption" color={colors.textSecondary}
+                    <Text key={h} variant="caption" color={colors.textSecondary} {...ONE_LINE}
                           style={i === 0 ? styles.cellWide : styles.cell}>{h}</Text>
                   ))}
                 </View>
                 {kpis.by_semen.map((s) => (
                   <View key={s.semen_type} style={[styles.tableRow, styles.tableDivider]}>
-                    <Text variant="body" style={styles.cellWide}>{SEMEN[s.semen_type] ?? s.semen_type}</Text>
-                    <Text variant="body" style={styles.cell}>{s.inseminated}</Text>
-                    <Text variant="body" style={styles.cell}>{s.pregnant}</Text>
-                    <Text variant="bodyBold" color={colors.primary} style={styles.cell}>{pct(s.rate)}</Text>
+                    <Text variant="body" {...ONE_LINE} style={styles.cellWide}>
+                      {SEMEN[s.semen_type] ?? s.semen_type}
+                    </Text>
+                    <Text variant="body" {...ONE_LINE} style={styles.cell}>{s.inseminated}</Text>
+                    <Text variant="body" {...ONE_LINE} style={styles.cell}>{s.pregnant}</Text>
+                    <Text variant="bodyBold" color={colors.primary} {...ONE_LINE} style={styles.cell}>
+                      {pct(s.rate)}
+                    </Text>
                   </View>
                 ))}
               </>
