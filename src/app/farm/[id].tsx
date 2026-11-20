@@ -201,6 +201,14 @@ export default function FarmProfileScreen() {
               style={styles.primaryBtn}
             />
           </View>
+          {/* Josh, Nov 20: "KPI for each farm", with the raw numbers. */}
+          <Button
+            variant="secondary"
+            label="KPI"
+            icon="stats-chart"
+            onPress={() => router.push({ pathname: '/farm/kpi', params: { id: farm.id } })}
+            style={styles.kpiBtn}
+          />
           {manageActions.length > 0 && (
             <View style={styles.manageRow}>
               {manageActions.map((a) => (
@@ -352,6 +360,7 @@ export default function FarmProfileScreen() {
 const styles = StyleSheet.create({
   primaryRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   primaryBtn: { flex: 1 },
+  kpiBtn: { marginBottom: spacing.sm },
   manageRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

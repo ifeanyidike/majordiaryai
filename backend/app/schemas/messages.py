@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -16,6 +16,8 @@ class MessageCreate(BaseModel):
     recipient_id: Optional[UUID] = None
     farm_id: Optional[UUID] = None
     cow_id: Optional[UUID] = None
+    # Alarms feed only: an urgent alarm, or an ordinary note from the farm.
+    kind: Literal["alarm", "note"] = "alarm"
 
     @field_validator("body")
     @classmethod
@@ -39,7 +41,9 @@ class MessageOut(BaseModel):
     cow_id: Optional[UUID] = None
     cow_label: Optional[str] = None
     body: str
+    kind: str = "alarm"
     read_at: Optional[datetime] = None
+    acknowledged_at: Optional[datetime] = None
     created_at: datetime
 
 

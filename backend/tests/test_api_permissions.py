@@ -182,8 +182,8 @@ async def test_only_admins_may_list_users(db, api, role, expected):
 @pytest.mark.parametrize("days,signal,expected", [
     (22, False, 201),   # routine check inside the window
     (30, False, 409),   # routine check after it
-    (30, True, 201),    # blood on the tail is a fact on any day from day 20
-    (2, True, 409),     # ...but not right after breeding (normal spotting)
+    (30, True, 201),    # a heat seen after the window
+    (2, True, 201),     # Josh's change requests, Nov 20: a heat seen counts on any day
 ])
 async def test_heat_check_timing_through_the_api(db, api, days, signal, expected):
     farm = await _farm(db)

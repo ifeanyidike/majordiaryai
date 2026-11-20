@@ -99,10 +99,15 @@ async def list_messages(
     # Inbox plus outbox, for everyone. The recipient needs the message; the
     # sender needs to see that it went, which is how an owner knows their
     # alarm was actually raised.
+    received = Message.recipient_id == current_user["id"]
+    if channel is MessageChannel.alarm:
+        # An acknowledged alarm leaves the list of the person who received
+        # it (Josh's change requests, Nov 20). The sender still sees it, and
+        # that it was acknowledged.
+        received = received & Message.acknowledged_at.is_(None)
     stmt = select(Message).where(
         Message.channel == channel,
-        (Message.recipient_id == current_user["id"])
-        | (Message.sender_id == current_user["id"]),
+        received | (Message.sender_id == current_user["id"]),
     )
     if unread_only:
         stmt = stmt.where(
@@ -118,9 +123,15 @@ async def unread_counts(
     db: AsyncSession = Depends(get_db),
 ):
     """Both badges in one call — the dashboard shows them side by side."""
+    # An alarm counts until it is acknowledged (Josh's change requests,
+    # Nov 20: "Not yet" keeps it waiting); an office alert until it is read.
     rows = await db.execute(
         select(Message.channel, func.count())
-        .where(Message.recipient_id == current_user["id"], Message.read_at.is_(None))
+        .where(
+            Message.recipient_id == current_user["id"],
+            ((Message.channel == MessageChannel.alarm) & Message.acknowledged_at.is_(None))
+            | ((Message.channel == MessageChannel.office_alert) & Message.read_at.is_(None)),
+        )
         .group_by(Message.channel)
     )
     counts = {channel: n for channel, n in rows.all()}
@@ -177,7 +188,18 @@ async def send_message(
     elif farm_id is not None and not await check_farm_access(db, current_user, farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
 
+    # A note is the farm's ordinary message on the Alarms feed (Josh's change
+    # requests, Nov 20); an office alert is always the office's own kind.
+    kind = body.kind if body.channel is MessageChannel.alarm else "alarm"
+
     if body.recipient_id is not None:
+        # A farm names a technician only from their profile (Josh's change
+        # requests, Nov 20), and only its own: before, any id was accepted.
+        if current_user["role"] == "farm" and \
+                body.recipient_id != await messaging.farm_technician(db, farm_id):
+            raise HTTPException(
+                status_code=422, detail="You can only write to your farm's technician",
+            )
         recipients = [body.recipient_id]
     else:
         if body.channel is not MessageChannel.alarm or farm_id is None:
@@ -206,7 +228,7 @@ async def send_message(
     messages = [
         await messaging.send(
             db, body.channel, current_user["id"], recipient_id, body.body,
-            farm_id=farm_id, cow_id=body.cow_id,
+            farm_id=farm_id, cow_id=body.cow_id, kind=kind,
         )
         for recipient_id in recipients
     ]
@@ -228,6 +250,27 @@ async def mark_read(
         raise HTTPException(status_code=404, detail="Message not found")
     if message.read_at is None:
         message.read_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(message)
+    return (await _hydrate(db, [message]))[0]
+
+
+@router.post("/{message_id}/acknowledge", response_model=MessageOut)
+async def acknowledge(
+    message_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The recipient acknowledges an alarm or note: "I've seen it and I'll
+    handle it" (Josh's change requests, Nov 20). It then leaves their list
+    and their badge. Idempotent."""
+    message = await db.get(Message, message_id, with_for_update=True)
+    if message is None or message.recipient_id != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message.channel is not MessageChannel.alarm:
+        raise HTTPException(status_code=422, detail="Only an alarm or a note is acknowledged")
+    if message.acknowledged_at is None:
+        message.acknowledged_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(message)
     return (await _hydrate(db, [message]))[0]

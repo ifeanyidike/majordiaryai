@@ -13,7 +13,7 @@ from app.models.models import (
 from app.schemas.cows import (
     CowCreate, CowUpdate, CowOut, CowHealthBody, CullBody, ExitBody, CowHistory,
 )
-from app.services import cow_identity, status_engine
+from app.services import cow_identity, questions, status_engine
 from app.services.access import scope_to_farms, check_farm_access, get_cow_scoped
 from datetime import timedelta
 from typing import List, Optional
@@ -450,7 +450,7 @@ async def confirm_dry_off(
             detail=f"Only a dry cow can be confirmed dried off (status is '{cow.status.value}')",
         )
 
-    cow.dry_off_confirmed_date = local_today()
+    questions.mark_moved_to_dry_pen(cow, local_today())
     # The "change pen" email already went out when the day-223 sweep flipped her
     # to Dry (status_engine.run_lifecycle_transitions). Confirming the move is
     # the technician closing the loop — emailing the farmer "please move her"

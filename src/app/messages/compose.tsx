@@ -24,7 +24,9 @@ export default function ComposeMessageScreen() {
   const router = useRouter();
   const toast = useToast();
   const role = useRole();
-  const { channel: raw } = useLocalSearchParams<{ channel?: string }>();
+  const { channel: raw, kind: rawKind, to, toName } = useLocalSearchParams<{
+    channel?: string; kind?: string; to?: string; toName?: string;
+  }>();
   // The role decides the channel as much as the link does: an owner can only
   // raise an alarm, an administrator's message is an office alert. The API
   // enforces the same, so this only keeps the screen honest.
@@ -37,6 +39,9 @@ export default function ComposeMessageScreen() {
   const [sending, setSending] = useState(false);
 
   const isOffice = channel === 'office_alert';
+  // A farm can send its technician a note as well as an alarm (Josh's change
+  // requests, Nov 20): an ordinary message that does not ring like an alarm.
+  const isNote = !isOffice && rawKind === 'note';
   useEffect(() => { if (isOffice) fetchTechnicians(); }, [isOffice]);
 
   // An owner's alarm goes to the technician on their farm; the server resolves
@@ -60,8 +65,12 @@ export default function ComposeMessageScreen() {
     }
     setSending(true);
     try {
-      await sendMessage({ channel, body: text, recipientId: isOffice ? recipientId : undefined });
-      toast.success(isOffice ? 'Office alert sent' : 'Alarm raised');
+      await sendMessage({
+        // From the technician's profile the farm writes to them by name.
+        channel, body: text, recipientId: isOffice ? recipientId : to || undefined,
+        kind: isNote ? 'note' : 'alarm',
+      });
+      toast.success(isOffice ? 'Office alert sent' : isNote ? 'Note sent' : 'Alarm raised');
       router.back();
     } catch (e: any) {
       toast.error(e?.message ?? 'Could not send');
@@ -73,13 +82,15 @@ export default function ComposeMessageScreen() {
   return (
     <Screen>
       <Header
-        title={isOffice ? 'New Office Alert' : 'Raise an Alarm'}
+        title={isOffice ? 'New Office Alert' : isNote ? 'Send a Note' : 'Raise an Alarm'}
         subtitle={
           isOffice
             ? 'From the office to one technician'
-            : myFarm?.assignedTechnician
-              ? `Goes to ${myFarm.assignedTechnician}, your technician`
-              : 'Goes to the technician assigned to your farm'
+            : toName
+              ? `Goes to ${toName}`
+              : myFarm?.assignedTechnician
+                ? `Goes to ${myFarm.assignedTechnician}, your technician`
+                : 'Goes to the technician assigned to your farm'
         }
         back
       />
@@ -124,14 +135,16 @@ export default function ComposeMessageScreen() {
             placeholder={
               isOffice
                 ? 'e.g. Start at Cedar Lane on Friday.'
-                : 'e.g. The cow in pen 4 is down — please come today.'
+                : isNote
+                  ? 'e.g. The gate code changed to 4482.'
+                  : 'e.g. The cow in pen 4 is down — please come today.'
             }
             multiline
           />
 
           <Button
-            label={isOffice ? 'Send Office Alert' : 'Raise Alarm'}
-            icon={isOffice ? 'briefcase' : 'alert-circle'}
+            label={isOffice ? 'Send Office Alert' : isNote ? 'Send Note' : 'Raise Alarm'}
+            icon={isOffice ? 'briefcase' : isNote ? 'chatbubble-ellipses' : 'alert-circle'}
             onPress={send}
             loading={sending}
             style={styles.send}

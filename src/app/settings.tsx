@@ -94,6 +94,9 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      {/* Technicians get no farm notices (Josh's change requests, Nov 20), so
+          these switches would turn off nothing. */}
+      {user?.role === 'technician' ? null : (<>
       <SectionHeader title="Notifications" />
       <Card style={styles.card}>
         {NOTIFICATION_TOPICS.map((t, i) => (
@@ -115,6 +118,7 @@ export default function SettingsScreen() {
           </View>
         ))}
       </Card>
+      </>)}
 
       <SectionHeader title="App" />
       <Card style={styles.card}>

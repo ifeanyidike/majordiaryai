@@ -99,6 +99,7 @@ export interface Farm {
   /** FK for editing; `assignedTechnician` above is the resolved display name. */
   assignedTechnicianId?: string;
   assignedTechnicianPhone?: string;
+  assignedTechnicianEmail?: string;
   /** Weekdays this farm is visited, Mon=0 … Sun=6 (5-day = Mon–Fri). */
   visitWeekdays: number[];
   /** This farm gives the last protocol hormone itself, the day before AI. */

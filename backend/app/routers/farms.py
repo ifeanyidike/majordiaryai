@@ -47,6 +47,9 @@ def _with_counts(stmt):
             func.max(User.name).label("assigned_technician_name"),
             # The farm portal's "Technician" action needs something to dial.
             func.max(User.phone).label("assigned_technician_phone"),
+            # And their email, for the farm's short technician profile
+            # (Josh's change requests, Nov 20).
+            func.max(User.email).label("assigned_technician_email"),
         )
         .outerjoin(Cow, Cow.farm_id == Farm.id)
         .outerjoin(User, User.id == Farm.assigned_technician_id)
@@ -63,6 +66,7 @@ def _row_to_dict(row):
     d["open_count"] = row.open_count
     d["assigned_technician_name"] = row.assigned_technician_name
     d["assigned_technician_phone"] = row.assigned_technician_phone
+    d["assigned_technician_email"] = row.assigned_technician_email
     return d
 
 

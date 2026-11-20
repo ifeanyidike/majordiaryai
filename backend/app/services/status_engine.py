@@ -37,6 +37,7 @@ from app.models.models import (
     EnrollmentStatus, ProtocolType,
 )
 from app.services.notifications import create_notification
+from app.services import questions
 from app.services.protocols import (
     FIRST_HEAT_CHECK_DAY, final_step_without_hormone, get_scheduled_records, protocol_label,
     self_inject_step, TIMED_AI_PROTOCOLS,
@@ -158,7 +159,8 @@ def is_metestrous_bleeding(days_since: int) -> bool:
     return days_since < HEAT_WINDOW[0]
 
 
-def heat_check_timing_error(days_since: int, has_signal: bool) -> Optional[str]:
+def heat_check_timing_error(days_since: int, has_signal: bool,
+                            heat_seen: bool = False) -> Optional[str]:
     """Why a heat check at `days_since` post-AI is not accepted, or None if it is.
 
     Routine (no-signal) checks belong to the monitoring window only. A check
@@ -171,6 +173,11 @@ def heat_check_timing_error(days_since: int, has_signal: bool) -> Optional[str]:
     treating it as a returned heat would cancel a perfectly good insemination.
     """
     lo, hi = HEAT_WINDOW
+    # Josh's change requests (Nov 20): an Inseminated cow can be marked Seen in
+    # heat on any day, and goes on today's breed report. Only blood with no
+    # heat seen keeps the lower bound below.
+    if heat_seen:
+        return None
     if has_signal:
         if days_since < lo:
             return (
@@ -667,11 +674,8 @@ async def run_lifecycle_transitions(
         if cow.status == CowStatus.pregnant and cow.dry_date and cow.dry_date <= today \
                 and has_calved(cow):
             cow.status = CowStatus.dry
-            create_notification(
-                db, cow.farm_id, cow.id, "dry_off",
-                f"{cow.label} has reached day {DRY_OFF_DAY} and is now Dry — "
-                "stop milking her and change her pen.",
-            )
+            # Josh's change requests (Nov 20): the farm is asked, Yes / No.
+            questions.ask_dry_pen(db, cow)
             changed += 1
             continue
 
@@ -723,6 +727,7 @@ async def run_lifecycle_transitions(
     changed += await _expire_stale_enrollments(db, farm_ids, today)
     changed += await _remind_pregnancy_checks(db, farm_ids, today)
     changed += await _announce_self_injections(db, farm_ids, today)
+    changed += await questions.ask_birth_checks(db, farm_ids, today)
 
     if changed:
         await db.commit()

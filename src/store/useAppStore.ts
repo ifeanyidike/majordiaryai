@@ -27,6 +27,7 @@ interface ApiFarm {
   herd_size: number; cow_count?: number;
   assigned_technician_id?: string; assigned_technician_name?: string | null;
   assigned_technician_phone?: string | null;
+  assigned_technician_email?: string | null;
   visit_weekdays?: number[]; visit_schedule_label?: string | null;
   self_inject_needling?: boolean; self_vaccinate?: boolean;
   notes?: string | null;
@@ -51,6 +52,7 @@ interface ApiCow {
 interface ApiNotification {
   id: string; farm_id: string; cow_id?: string | null;
   type: string; message: string; read: boolean; created_at: string;
+  answer?: 'yes' | 'no' | null; asks?: boolean; can_answer?: boolean;
 }
 
 interface ApiVet {
@@ -178,6 +180,7 @@ function mapFarm(f: ApiFarm): Farm {
     assignedTechnician: f.assigned_technician_name ?? '',
     assignedTechnicianId: f.assigned_technician_id ?? undefined,
     assignedTechnicianPhone: f.assigned_technician_phone ?? undefined,
+    assignedTechnicianEmail: f.assigned_technician_email ?? undefined,
     visitWeekdays: f.visit_weekdays ?? [0, 1, 2, 3, 4, 5],
     visitScheduleLabel: f.visit_schedule_label ?? undefined,
     selfInjectNeedling: f.self_inject_needling ?? false,
@@ -357,6 +360,13 @@ function toHistoryEvents(rows: any[] | undefined, describe: (r: any) => string):
 
 // ── Store ─────────────────────────────────────────────────────
 
+/** A farm's KPI page, as the server sends it (/reports/farm-kpis). */
+export interface FarmKpis {
+  conception: { inseminated: number; pregnant: number; rate: number | null };
+  pregnancies_by_month: { month: string; pregnant: number }[];
+  by_semen: { semen_type: string; inseminated: number; pregnant: number; rate: number | null }[];
+}
+
 export interface HerdKpis {
   pregnancyRate: number | null;
   conceptionRate: number | null;
@@ -383,7 +393,11 @@ export interface AppMessage {
   cowId?: string;
   cowLabel?: string;
   body: string;
+  /** On the Alarms feed: an urgent alarm, or an ordinary note from the farm. */
+  kind: 'alarm' | 'note';
   readAt?: string;
+  /** The technician tapped Acknowledge; it has left their list. */
+  acknowledgedAt?: string;
   createdAt: string;
 }
 
@@ -393,7 +407,8 @@ interface ApiMessage {
   recipient_id: string;
   farm_id?: string | null; farm_name?: string | null;
   cow_id?: string | null; cow_label?: string | null;
-  body: string; read_at?: string | null; created_at: string;
+  body: string; kind?: 'alarm' | 'note'; read_at?: string | null;
+  acknowledged_at?: string | null; created_at: string;
 }
 
 function mapMessage(m: ApiMessage): AppMessage {
@@ -409,7 +424,9 @@ function mapMessage(m: ApiMessage): AppMessage {
     cowId: m.cow_id ?? undefined,
     cowLabel: m.cow_label ?? undefined,
     body: m.body,
+    kind: m.kind ?? 'alarm',
     readAt: m.read_at ?? undefined,
+    acknowledgedAt: m.acknowledged_at ?? undefined,
     createdAt: m.created_at,
   };
 }
@@ -422,12 +439,19 @@ export interface AppNotification {
   message: string;
   read: boolean;
   createdAt: string;
+  /** A Yes / No question's answer, once given. */
+  answer?: 'yes' | 'no';
+  /** Still asks its question (unanswered, and not already done). */
+  asks?: boolean;
+  /** This user is the one asked, and it is still open (the server decides). */
+  canAnswer?: boolean;
 }
 
 function mapNotification(n: ApiNotification): AppNotification {
   return {
     id: n.id, farmId: n.farm_id, cowId: n.cow_id ?? undefined,
     type: n.type, message: n.message, read: n.read, createdAt: n.created_at,
+    answer: n.answer ?? undefined, asks: n.asks ?? false, canAnswer: n.can_answer ?? false,
   };
 }
 
@@ -474,10 +498,17 @@ interface AppState {
   fetchUnreadMessageCounts: () => Promise<void>;
   sendMessage: (input: {
     channel: MessageChannel; body: string;
-    recipientId?: string; farmId?: string; cowId?: string;
+    recipientId?: string; farmId?: string; cowId?: string; kind?: 'alarm' | 'note';
   }) => Promise<void>;
   markMessageRead: (id: string) => Promise<void>;
+  /** "I've seen it and I'll handle it": the alarm leaves the list. */
+  acknowledgeMessage: (id: string) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
+  /** Answer a Yes / No notice (dry pen, birth check). */
+  answerNotification: (id: string, answer: 'yes' | 'no') => Promise<void>;
+  /** One farm's KPI page, keyed by farm id. */
+  farmKpis: Record<string, FarmKpis>;
+  fetchFarmKpis: (farmId: string) => Promise<void>;
   /** Mark every notification the user can currently see as read. */
   markAllNotificationsRead: () => Promise<void>;
   /** Create or update a farm (admin). Returns the saved farm's id. */
@@ -876,7 +907,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  sendMessage: async ({ channel, body, recipientId, farmId, cowId }) => {
+  sendMessage: async ({ channel, body, recipientId, farmId, cowId, kind }) => {
     if (isDemoMode) return;
     const sent = await api.post<ApiMessage>('/messages/', {
       channel,
@@ -884,6 +915,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       recipient_id: recipientId,
       farm_id: farmId,
       cow_id: cowId,
+      kind: kind ?? 'alarm',
     });
     set((st) => ({
       messages: { ...st.messages, [channel]: [mapMessage(sent), ...st.messages[channel]] },
@@ -900,7 +932,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       (Object.keys(next) as MessageChannel[]).forEach((key) => {
         next[key] = next[key].map((m) => {
           if (m.id !== id || m.readAt) return m;
-          channel = key;
+          // An alarm's badge counts until it is acknowledged, not read.
+          if (key === 'office_alert') channel = key;
           return { ...m, readAt: now };
         });
       });
@@ -919,6 +952,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       // Left marked read locally; the next fetch reconciles it.
     }
+  },
+
+  acknowledgeMessage: async (id) => {
+    if (isDemoMode) return;
+    await api.post(`/messages/${id}/acknowledge`, {});
+    // It leaves the list and the badge (the server says the same on refetch).
+    set((st) => ({
+      messages: { ...st.messages, alarm: st.messages.alarm.filter((m) => m.id !== id) },
+      unreadMessages: { ...st.unreadMessages, alarm: Math.max(0, st.unreadMessages.alarm - 1) },
+    }));
+  },
+
+  answerNotification: async (id, answer) => {
+    if (!isApiConfigured) return;
+    const saved = await api.post<ApiNotification>(`/notifications/${id}/answer`, { answer });
+    set((s) => ({
+      notifications: s.notifications.map((n) => (n.id === id ? mapNotification(saved) : n)),
+    }));
+  },
+
+  farmKpis: {},
+  fetchFarmKpis: async (farmId) => {
+    if (!isApiConfigured) return;
+    const k = await api.get<FarmKpis>(`/reports/farm-kpis?farm_id=${farmId}`);
+    set((s) => ({ farmKpis: { ...s.farmKpis, [farmId]: k } }));
   },
 
   fetchNotifications: async () => {

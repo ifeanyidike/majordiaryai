@@ -40,12 +40,30 @@ def is_test_address(email: str) -> bool:
 # "calving" and wrong for an abbreviation.
 EMAIL_SUBJECTS = {
     "dry_off": "Dry-off",
+    "dry_pen": "Moved to dry pen?",
     "breeding_due": "Ready to breed",
     "open": "Breeding decision needed",
     "calving": "Calving",
     "preg_check": "Pregnancy check due",
     "self_inject": "Injection to give tomorrow",
 }
+
+# Who sees which notice. Josh's change requests (Nov 20): a technician keeps
+# only route changes (Office Alerts, not notices) and loses every farm notice;
+# the one notice a technician does get is the Day 293 birth check, which is for
+# the technician alone (the farm is not asked, nor emailed).
+TECHNICIAN_TYPES = frozenset({"birth_check"})
+
+
+def visible_types_filter(role: str, type_column):
+    """The SQL condition on a notice's type for what this role sees, or None
+    for every type (admin)."""
+    if role == "admin":
+        return None
+    if role == "technician":
+        return type_column.in_(TECHNICIAN_TYPES)
+    return type_column.notin_(TECHNICIAN_TYPES)
+
 
 # Keep strong references to fire-and-forget email tasks so they aren't GC'd
 # mid-flight.
@@ -173,15 +191,18 @@ def create_notification(
     cow_id: Optional[uuid.UUID],
     type: str,
     message: str,
+    email: bool = True,
 ) -> Notification:
-    """Add an in-app notification and queue the farm email for after commit."""
+    """Add an in-app notification and queue the farm email for after commit.
+    email=False for a notice that is not for the farm (the birth check)."""
     # id is assigned client-side so the queued email can reference the row
     # without needing a flush before commit.
     notification = Notification(
         id=uuid.uuid4(), farm_id=farm_id, cow_id=cow_id, type=type, message=message
     )
     db.add(notification)
-    db.sync_session.info.setdefault(_PENDING_EMAILS_KEY, []).append(
-        (notification.id, farm_id, type, message)
-    )
+    if email:
+        db.sync_session.info.setdefault(_PENDING_EMAILS_KEY, []).append(
+            (notification.id, farm_id, type, message)
+        )
     return notification

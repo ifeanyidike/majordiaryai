@@ -19,11 +19,15 @@ import { createJSONStorage, persist } from 'zustand/middleware';
  */
 export const NOTIFICATION_TYPES = [
   'dry_off',
+  // Day 223 since Nov 20: asks the farm "Moved to dry pen? Yes / No".
+  'dry_pen',
   'breeding_due',
   'open',
   'calving',
   'preg_check',
   'self_inject',
+  // For the technician only, and always shown: it asks a question.
+  'birth_check',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -42,7 +46,7 @@ export const NOTIFICATION_TOPICS: {
   {
     key: 'dryOff',
     label: 'Dry-off',
-    hint: 'A cow reached day 223 and needs her pen changed',
+    hint: 'A cow reached day 223: has she been moved to the dry pen?',
   },
   {
     key: 'readyToBreed',
@@ -76,8 +80,9 @@ export const NOTIFICATION_TOPICS: {
  * new notification type is added without deciding where it belongs, which is
  * how the last set drifted out of step silently.
  */
-const TOPIC_FOR_TYPE: Record<NotificationType, keyof NotificationPrefs> = {
+const TOPIC_FOR_TYPE: Partial<Record<NotificationType, keyof NotificationPrefs>> = {
   dry_off: 'dryOff',
+  dry_pen: 'dryOff',
   breeding_due: 'readyToBreed',
   open: 'needsDecision',
   calving: 'calving',

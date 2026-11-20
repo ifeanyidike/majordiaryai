@@ -36,9 +36,13 @@ async def send(
     body: str,
     farm_id: Optional[uuid.UUID] = None,
     cow_id: Optional[uuid.UUID] = None,
+    kind: str = "alarm",
 ) -> Message:
     """Queue one message, and a push to the recipient's phones. The caller
-    commits; the push goes out only if that commit happens."""
+    commits; the push goes out only if that commit happens.
+
+    kind "note": an ordinary message from the farm on the Alarms feed. It
+    still pushes, but as a note, on the quieter Office Alerts phone channel."""
     message = Message(
         id=uuid.uuid4(),
         channel=channel,
@@ -47,11 +51,15 @@ async def send(
         farm_id=farm_id,
         cow_id=cow_id,
         body=body.strip(),
+        kind=kind,
     )
     db.add(message)
 
     farm = await db.get(Farm, farm_id) if farm_id else None
-    if channel is MessageChannel.alarm:
+    note = channel is MessageChannel.alarm and kind == "note"
+    if note:
+        title = f"Note · {farm.name}" if farm else "Note"
+    elif channel is MessageChannel.alarm:
         title = f"Alarm · {farm.name}" if farm else "Alarm"
     else:
         title = f"Office Alert · {farm.name}" if farm else "Office Alert"
@@ -59,7 +67,8 @@ async def send(
         db, recipient_id, title, message.body,
         # What the app needs to open the right feed when the alert is tapped.
         {"channel": channel.value, "message_id": str(message.id)},
-        channel.value,
+        # The phone channel: a note does not ring like an alarm.
+        "office_alert" if note else channel.value,
     )
     return message
 
@@ -131,6 +140,24 @@ async def announce_route_change(
     return sent
 
 
+async def _covering_today(db: AsyncSession, farm_id: uuid.UUID) -> Optional[uuid.UUID]:
+    """The technician a day has been handed to for today, or None (no hand-off,
+    or the day was skipped)."""
+    return await db.scalar(
+        select(FarmVisitAssignment.assigned_technician_id).where(
+            FarmVisitAssignment.farm_id == farm_id,
+            FarmVisitAssignment.visit_date == local_today(),
+        )
+    )
+
+
+async def farm_technician(db: AsyncSession, farm_id: uuid.UUID) -> Optional[uuid.UUID]:
+    """The farm's own technician: the one its profile page names, and so the
+    only one the farm may write to by name ("send them a note or an alarm")."""
+    farm = await db.get(Farm, farm_id)
+    return farm.assigned_technician_id if farm else None
+
+
 async def alarm_recipients(
     db: AsyncSession, farm_id: uuid.UUID, sender_id: uuid.UUID,
 ) -> List[uuid.UUID]:
@@ -142,17 +169,12 @@ async def alarm_recipients(
     refused, since the owner has no one to name. Empty only when there is
     nobody at all.
     """
-    covering = await db.scalar(
-        select(FarmVisitAssignment.assigned_technician_id).where(
-            FarmVisitAssignment.farm_id == farm_id,
-            FarmVisitAssignment.visit_date == local_today(),
-        )
-    )
+    covering = await _covering_today(db, farm_id)
     if covering is not None:
         return [covering]
-    farm = await db.get(Farm, farm_id)
-    if farm is not None and farm.assigned_technician_id is not None:
-        return [farm.assigned_technician_id]
+    standing = await farm_technician(db, farm_id)
+    if standing is not None:
+        return [standing]
     return list((await db.execute(
         select(User.id).where(
             User.role == UserRole.admin, User.is_active.is_(True), User.id != sender_id,

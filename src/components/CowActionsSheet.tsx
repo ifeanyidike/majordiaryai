@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -147,12 +147,11 @@ function getActions(cow: RecordTarget, role: UserRole): ActionKey[] {
       keys.push('inseminate', 'seen_heat');
       break;
     case 'inseminated':
-      // Inside the Heat Report's days it is the scheduled Yes/No check; after
-      // them a heat can still be seen (Josh, Oct 4: "any time"), and that is
-      // only ever a Yes. Before day 19 any spotting is from the heat she was
-      // just bred on, so neither is offered.
+      // Inside the Heat Report's days there is also the scheduled Yes/No
+      // check. Seen in heat is offered on any day (Josh's change requests,
+      // Nov 20): she then goes on today's breed report, to be bred that day.
       if (days !== null && days >= HEAT_WINDOW[0] && days <= HEAT_WINDOW[1]) keys.push('heat_check');
-      if (days !== null && days > HEAT_WINDOW[1]) keys.push('seen_heat');
+      keys.push('seen_heat');
       if (days !== null && days >= 30) keys.push('pregnancy_check');
       break;
     case 'fresh':
@@ -1726,9 +1725,12 @@ function FinalStatusConfirm({ cow, onCancel, onComplete, kind }: FormProps & { k
 interface Props {
   cow: Cow;
   onRefresh: () => void;
+  /** Open this form at once, when she offers it: the birth check's Yes
+   *  opens Record Calving (Josh's change requests, Nov 20). */
+  openAction?: string;
 }
 
-export function CowActionsSheet({ cow, onRefresh }: Props) {
+export function CowActionsSheet({ cow, onRefresh, openAction }: Props) {
   const [activeAction, setActiveAction] = useState<ActionKey | null>(null);
   const role = useRole();
   const insets = useSafeAreaInsets();
@@ -1736,6 +1738,14 @@ export function CowActionsSheet({ cow, onRefresh }: Props) {
   // unresolved role to 'technician' offered a vet buttons the API answers
   // with a 403 — the same regression this screen has had before.
   const actions = role ? getActions(cow, role) : [];
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current || !openAction) return;
+    if (actions.includes(openAction as ActionKey)) {
+      opened.current = true;
+      setActiveAction(openAction as ActionKey);
+    }
+  }, [openAction, actions.join()]);
 
   if (actions.length === 0) return null;
 

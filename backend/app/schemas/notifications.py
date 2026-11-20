@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 from typing import Optional
 from uuid import UUID
@@ -16,3 +18,15 @@ class NotificationOut(BaseModel):
     email_status: Optional[str] = None
     emailed_at: Optional[datetime] = None
     created_at: datetime
+    # A Yes / No question (questions.ANSWERERS): its answer once given, and
+    # whether it still asks (unanswered, and not already done another way).
+    answer: Optional[str] = None
+    answered_at: Optional[datetime] = None
+    asks: bool = False
+    # Whether THIS caller is the one asked (questions.can_answer), so the app
+    # shows Yes / No without its own copy of who answers what.
+    can_answer: bool = False
+
+
+class NotificationAnswer(BaseModel):
+    answer: Literal["yes", "no"]

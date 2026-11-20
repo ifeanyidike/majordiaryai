@@ -209,6 +209,11 @@ def test_the_app_knows_every_notification_type_the_backend_sends():
         r"'([a-z_]+)'", re.search(r"NOTIFICATION_TYPES = \[([^\]]*)\]", ts).group(1),
     ))
 
+    # Types no longer sent but still stored, which the app must still draw:
+    # "dry_off" told the farm to move her until Nov 20, when Day 223 became
+    # the "dry_pen" question.
+    emitted |= {"dry_off"}
+
     assert declared == emitted, (
         "src/store/useSettingsStore.ts NOTIFICATION_TYPES is out of step with "
         f"the backend.\n  only in the app: {sorted(declared - emitted)}\n"

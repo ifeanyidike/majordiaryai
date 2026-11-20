@@ -533,6 +533,14 @@ class Notification(Base):
     email_status: Mapped[Optional[str]] = mapped_column(String)
     emailed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     email_error: Mapped[Optional[str]] = mapped_column(String)
+    # A notice that asks a question (Josh's change requests, Nov 20: "Moved to
+    # dry pen? Yes / No", "Has she given birth? Yes / No"): the answer, when,
+    # and by whom. NULL until someone answers.
+    answer: Mapped[Optional[str]] = mapped_column(String)
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    answered_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
 
@@ -588,7 +596,15 @@ class Message(Base):
         UUID(as_uuid=True), ForeignKey("cows.id", ondelete="CASCADE"),
     )
     body: Mapped[str] = mapped_column(String, nullable=False)
+    # On the Alarms feed: "alarm" (urgent) or "note" (an ordinary message from
+    # the farm, Josh's change requests, Nov 20). Office alerts are "alarm".
+    kind: Mapped[str] = mapped_column(
+        String, nullable=False, default="alarm", server_default=text("'alarm'"),
+    )
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # The technician tapped Acknowledge: "I've seen it and I'll handle it".
+    # The alarm then leaves their list; until then it stays.
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False,
     )

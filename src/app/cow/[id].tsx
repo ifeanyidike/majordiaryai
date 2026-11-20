@@ -55,7 +55,7 @@ const HISTORY_TABS: { key: HistoryTab; label: string; icon: keyof typeof Ionicon
 
 export default function CowProfileScreen() {
   const motion = useMotion();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, action } = useLocalSearchParams<{ id: string; action?: string }>();
   const router = useRouter();
   const state = useAppStore();
   const { refreshCow, fetchCowHistory } = state;
@@ -219,6 +219,7 @@ export default function CowProfileScreen() {
         {/* Status Actions */}
         <CowActionsSheet
           cow={cow}
+          openAction={action}
           onRefresh={() => {
             refreshCow(id);
             fetchCowHistory(id);

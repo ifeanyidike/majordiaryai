@@ -1,9 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { EmptyState, Header, Screen, SkeletonList, Text } from '@/components';
-import { colors, radius, spacing, status } from '@/theme';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  Button, EmptyState, Header, ModalToastHost, Screen, SkeletonList, Text, useToast,
+} from '@/components';
+import { colors, radius, shadows, spacing, status } from '@/theme';
 import { AppMessage, MessageChannel, useAppStore } from '@/store/useAppStore';
 import { useAuthStore, useRole } from '@/store/useAuthStore';
 
@@ -78,7 +81,15 @@ export default function MessageFeedScreen() {
   const channel: MessageChannel = isChannel(raw) ? raw : 'alarm';
   const meta = CHANNELS[channel];
 
-  const { messages, messagesLoading, fetchMessages, markMessageRead } = useAppStore();
+  const {
+    messages, messagesLoading, fetchMessages, markMessageRead, acknowledgeMessage,
+  } = useAppStore();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  // Josh's change requests (Nov 20): an alarm opens in a larger view with
+  // "Not yet" or "Acknowledge"; neither is chosen for them.
+  const [viewing, setViewing] = useState<AppMessage | null>(null);
+  const [acking, setAcking] = useState(false);
   const myId = useAuthStore((s) => s.user?.id);
   const role = useRole();
   const wording = wordingFor(channel, role);
@@ -91,20 +102,42 @@ export default function MessageFeedScreen() {
 
   useEffect(() => { fetchMessages(channel); }, [channel]);
 
-  const unread = useMemo(
-    () => feed.filter((m) => !m.readAt && m.recipientId === myId).length,
-    [feed, myId],
-  );
+  // An alarm waits until it is acknowledged (acknowledged ones have left the
+  // list); an office alert until it is read.
+  const waiting = (m: AppMessage) =>
+    m.recipientId === myId && (channel === 'alarm' ? !m.acknowledgedAt : !m.readAt);
+  const unread = useMemo(() => feed.filter(waiting).length, [feed, myId, channel]);
+
+  const goTo = (m: AppMessage) => {
+    if (m.cowId) router.push({ pathname: '/cow/[id]', params: { id: m.cowId } });
+    else if (m.farmId) router.push({ pathname: '/farm/[id]', params: { id: m.farmId } });
+  };
+
+  const acknowledge = async (m: AppMessage) => {
+    setAcking(true);
+    try {
+      await acknowledgeMessage(m.id);
+      setViewing(null);
+      toast.success(m.kind === 'note' ? 'Note acknowledged' : 'Alarm acknowledged');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Could not acknowledge it');
+    } finally {
+      setAcking(false);
+    }
+  };
 
   const open = (m: AppMessage) => {
     // The feed carries your outbox as well as your inbox, and only the
     // RECIPIENT can mark a message read — marking your own sent message
     // decremented a badge that never counted it, and the request 404s.
     if (!m.readAt && m.recipientId === myId) markMessageRead(m.id);
+    if (channel === 'alarm') {
+      setViewing(m);
+      return;
+    }
     // A message about a specific cow is nearly always a request to go look at
     // her, so opening it goes where the work is.
-    if (m.cowId) router.push({ pathname: '/cow/[id]', params: { id: m.cowId } });
-    else if (m.farmId) router.push({ pathname: '/farm/[id]', params: { id: m.farmId } });
+    goTo(m);
   };
 
   return (
@@ -143,12 +176,13 @@ export default function MessageFeedScreen() {
         renderItem={({ item: m }) => (
           <Pressable
             onPress={() => open(m)}
-            style={[styles.row, !m.readAt && m.recipientId === myId && styles.rowUnread]}
+            style={[styles.row, waiting(m) && styles.rowUnread]}
             accessibilityRole="button"
             accessibilityLabel={`${m.senderName ?? 'Message'}: ${m.body}`}
           >
             <View style={[styles.iconWrap, { backgroundColor: `${meta.color}1A` }]}>
-              <Ionicons name={meta.icon} size={20} color={meta.color} />
+              <Ionicons name={m.kind === 'note' ? 'chatbubble-ellipses' : meta.icon} size={20}
+                        color={meta.color} />
             </View>
             <View style={styles.body}>
               {/* Who sent it, and from where — the same shape as a
@@ -161,7 +195,9 @@ export default function MessageFeedScreen() {
                   {relativeTime(m.createdAt)}
                 </Text>
               </View>
-              <Text variant="body">{m.body}</Text>
+              <Text variant="body" numberOfLines={channel === 'alarm' ? 3 : undefined}>
+                {m.kind === 'note' ? `Note · ${m.body}` : m.body}
+              </Text>
               {/* With no farm, the sender already leads the row; don't say it twice. */}
               {(m.senderName && m.farmName) || m.cowLabel ? (
               <View style={styles.footLine}>
@@ -181,12 +217,50 @@ export default function MessageFeedScreen() {
               </View>
               ) : null}
             </View>
-            {!m.readAt && m.recipientId === myId ? (
+            {waiting(m) ? (
               <View style={[styles.dot, { backgroundColor: meta.color }]} />
             ) : null}
           </Pressable>
         )}
       />
+
+      <Modal visible={!!viewing} transparent animationType="slide" onRequestClose={() => setViewing(null)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdrop} onPress={() => setViewing(null)}
+                     accessibilityRole="button" accessibilityLabel="Close" />
+          {viewing ? (
+            <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+              <ModalToastHost />
+              <View style={styles.handle} />
+              <View style={styles.topLine}>
+                <Ionicons name={viewing.kind === 'note' ? 'chatbubble-ellipses' : meta.icon}
+                          size={20} color={meta.color} />
+                <Text variant="heading" style={styles.flex1}>
+                  {viewing.kind === 'note' ? 'Note' : 'Alarm'}
+                  {viewing.farmName ? ` · ${viewing.farmName}` : ''}
+                </Text>
+              </View>
+              <Text variant="caption" color={colors.textMuted} style={styles.sheetMeta}>
+                {[viewing.senderName, relativeTime(viewing.createdAt), viewing.cowLabel]
+                  .filter(Boolean).join(' · ')}
+              </Text>
+              <ScrollView style={styles.sheetBody}>
+                <Text variant="title">{viewing.body}</Text>
+              </ScrollView>
+              {viewing.recipientId === myId && !viewing.acknowledgedAt ? (
+                <View style={styles.actions}>
+                  {/* Josh: "Neither is selected by default", so the two
+                      carry the same weight; neither looks pre-chosen. */}
+                  <Button variant="secondary" label="Not yet" icon="time-outline" style={styles.flex1}
+                          disabled={acking} onPress={() => setViewing(null)} />
+                  <Button variant="secondary" label="Acknowledge" icon="checkmark" style={styles.flex1}
+                          loading={acking} onPress={() => acknowledge(viewing)} />
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -223,4 +297,18 @@ const styles = StyleSheet.create({
   },
   cowLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: spacing.xs },
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
+  sheet: {
+    backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.xl, paddingTop: spacing.md, maxHeight: '85%', gap: spacing.sm,
+    ...shadows.card,
+  },
+  handle: {
+    alignSelf: 'center', width: 40, height: 4, borderRadius: 2,
+    backgroundColor: colors.border, marginBottom: spacing.sm,
+  },
+  sheetMeta: { marginBottom: spacing.xs },
+  sheetBody: { flexGrow: 0, maxHeight: 320, marginVertical: spacing.sm },
+  actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
 });

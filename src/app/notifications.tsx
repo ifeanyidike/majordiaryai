@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { EmptyState, Header, Screen, Text, SkeletonList } from '@/components';
+import { Button, EmptyState, Header, Screen, Text, SkeletonList, useToast } from '@/components';
 import { colors, radius, spacing, status } from '@/theme';
 import { daysSince } from '@/lib/dates';
 import { AppNotification, useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import {
   NotificationType, notificationTypeEnabled, useSettingsStore,
 } from '@/store/useSettingsStore';
@@ -17,11 +18,13 @@ import {
 // `breeding_due`, which IS sent, and so drew a generic bell.
 const TYPE_META: Record<NotificationType, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
   dry_off:      { icon: 'moon', color: status.dry.fg },
+  dry_pen:      { icon: 'moon', color: status.dry.fg },
   breeding_due: { icon: 'flame', color: status.heat.fg },
   open:         { icon: 'ellipse-outline', color: status.open.fg },
   calving:      { icon: 'heart', color: status.fresh.fg },
   preg_check:   { icon: 'medkit', color: status.inseminated.fg },
   self_inject:  { icon: 'create', color: status.needling.fg },
+  birth_check:  { icon: 'help-circle', color: status.calving.fg },
 };
 
 function metaFor(type: string) {
@@ -42,8 +45,31 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const {
     notifications: allNotifications, notificationsLoading, farms, cows,
-    fetchNotifications, markNotificationRead, markAllNotificationsRead,
+    fetchNotifications, markNotificationRead, markAllNotificationsRead, answerNotification,
   } = useAppStore();
+  const role = useAuthStore((s) => s.user?.role);
+  const toast = useToast();
+  const [answering, setAnswering] = useState<string | null>(null);
+
+  // Josh's change requests (Nov 20): the farm answers "Moved to dry pen?" on
+  // Day 223 and the technician "Has she given birth?" on Day 293. Yes to the
+  // birth check opens her calving form, to add the calf.
+  const answer = async (n: AppNotification, value: 'yes' | 'no') => {
+    setAnswering(n.id);
+    try {
+      await answerNotification(n.id, value);
+      if (n.type === 'birth_check' && value === 'yes' && n.cowId) {
+        router.push({ pathname: '/cow/[id]', params: { id: n.cowId, action: 'calving' } });
+      } else {
+        toast.success('Answer saved');
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Could not save the answer');
+      fetchNotifications();
+    } finally {
+      setAnswering(null);
+    }
+  };
   const prefs = useSettingsStore((s) => s.notifications);
 
   useEffect(() => { fetchNotifications(); }, []);
@@ -127,7 +153,9 @@ export default function NotificationsScreen() {
             <EmptyState
               icon="notifications-off-outline"
               title="No notifications"
-              message="Dry-offs, cows ready to breed and cows needing a decision show up here."
+              message={role === 'technician'
+                ? 'Birth checks show up here. Route changes come as Office Alerts.'
+                : 'Dry-offs, cows ready to breed and cows needing a decision show up here.'}
             />
           )
         }
@@ -167,6 +195,18 @@ export default function NotificationsScreen() {
                     </Text>
                   </View>
                 ) : null}
+                {n.canAnswer ? (
+                  <View style={styles.answers}>
+                    <Button compact variant="secondary" label="No" style={styles.flex1}
+                            disabled={answering === n.id} onPress={() => answer(n, 'no')} />
+                    <Button compact label="Yes" icon="checkmark" style={styles.flex1}
+                            loading={answering === n.id} onPress={() => answer(n, 'yes')} />
+                  </View>
+                ) : n.answer ? (
+                  <Text variant="caption" color={colors.textSecondary}>
+                    Answered {n.answer === 'yes' ? 'Yes' : 'No'}
+                  </Text>
+                ) : null}
               </View>
               {!n.read ? <View style={styles.dot} /> : null}
             </Pressable>
@@ -185,6 +225,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.hairline,
   },
+  answers: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   cowLine: {
     flexDirection: 'row',
     alignItems: 'center',

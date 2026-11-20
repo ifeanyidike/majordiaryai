@@ -58,9 +58,9 @@ async def test_dry_off_happens_on_the_dry_date(db, farm, offset, expected):
     assert cow.status == expected
 
 
-async def test_dry_off_notifies_the_farm_to_change_pen(db, farm):
-    """The spec's day-223 action is a pen change, and the farmer is told by
-    email. If the transition stops firing the email stops with it."""
+async def test_dry_off_asks_the_farm_about_the_dry_pen(db, farm):
+    """Day 223 asks the farm "Moved to dry pen? Yes / No" (Josh's change
+    requests, Nov 20). If the transition stops firing the question stops too."""
     cow = await _cow(db, farm, status=CowStatus.pregnant,
                      dry_date=TODAY - timedelta(days=1))
     await _sweep(db)
@@ -68,12 +68,8 @@ async def test_dry_off_notifies_the_farm_to_change_pen(db, farm):
     notes = (await db.execute(
         select(Notification).where(Notification.cow_id == cow.id)
     )).scalars().all()
-    assert [n.type for n in notes] == ["dry_off"]
-    message = notes[0].message.lower()
-    # Both halves of the instruction: she comes out of the milking string AND
-    # moves pen. The message used to say only the second.
-    assert "stop milking" in message, message
-    assert "pen" in message, message
+    assert [n.type for n in notes] == ["dry_pen"]
+    assert notes[0].message == f"Cow {cow.label}: Day 223. Moved to dry pen?"
 
 
 async def test_a_pregnant_cow_with_no_dry_date_is_left_alone(db, farm):

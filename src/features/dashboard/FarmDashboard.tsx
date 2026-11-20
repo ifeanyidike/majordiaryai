@@ -101,18 +101,16 @@ export function FarmDashboard() {
         <Animated.View entering={motion.downAt(120, 500)} style={styles.chipsRow}>
           <PressableScale
             style={styles.chip}
+            // Josh's change requests (Nov 20): tapping the technician opens
+            // their short profile, where they can be called, emailed, or sent
+            // a note or an alarm.
             onPress={() =>
-              farm.assignedTechnicianPhone
-                ? dial(farm.assignedTechnicianPhone)
-                : toast.show(
-                    farm.assignedTechnician
-                      ? `${farm.assignedTechnician} has no phone number on file`
-                      : 'No technician is assigned to your farm yet',
-                    'construct',
-                  )
+              farm.assignedTechnician
+                ? router.push('/my-technician')
+                : toast.show('No technician is assigned to your farm yet', 'construct')
             }
             accessibilityRole="button"
-            accessibilityLabel="Contact technician"
+            accessibilityLabel="Open your technician's profile"
           >
             <Ionicons name="construct" size={18} color={onDark.text} />
             <Text variant="label" color={onDark.text} numberOfLines={1}
@@ -226,15 +224,17 @@ export function FarmDashboard() {
         <SectionHeader title="Your Team" />
         <Animated.View entering={motion.upAt(310, 500)}>
           <Card style={styles.teamCard}>
+            {/* Josh's change requests (Nov 20): tapping the technician opens
+                their short profile — details, contact, a note or an alarm. */}
             <PressableScale
               style={styles.teamRow}
-              onPress={() => farm.assignedTechnicianPhone && dial(farm.assignedTechnicianPhone)}
-              disabled={!farm.assignedTechnicianPhone}
+              onPress={() => router.push('/my-technician')}
+              disabled={!farm.assignedTechnician}
               accessibilityRole="button"
               accessibilityLabel={
-                farm.assignedTechnicianPhone
-                  ? `Call ${farm.assignedTechnician}`
-                  : 'Technician contact unavailable'
+                farm.assignedTechnician
+                  ? `Open ${farm.assignedTechnician}'s profile`
+                  : 'Technician not assigned yet'
               }
             >
               <IconCircle name="construct" size={40} />
@@ -247,8 +247,8 @@ export function FarmDashboard() {
                   {farm.assignedTechnicianPhone ? ` · ${farm.assignedTechnicianPhone}` : ''}
                 </Text>
               </View>
-              {farm.assignedTechnicianPhone ? (
-                <Ionicons name="call" size={18} color={colors.primary} />
+              {farm.assignedTechnician ? (
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
               ) : null}
             </PressableScale>
             {vet ? (
@@ -294,6 +294,14 @@ export function FarmDashboard() {
             label="View Farm Reports"
             icon="bar-chart"
             onPress={() => router.push({ pathname: '/farm/reports', params: { id: farm.id } })}
+            style={styles.reportsBtn}
+          />
+          {/* Josh, Nov 20: "KPI for each farm", with the raw numbers. */}
+          <Button
+            variant="secondary"
+            label="KPI"
+            icon="stats-chart"
+            onPress={() => router.push({ pathname: '/farm/kpi', params: { id: farm.id } })}
             style={styles.reportsBtn}
           />
         </Animated.View>

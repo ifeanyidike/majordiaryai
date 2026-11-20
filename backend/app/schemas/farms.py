@@ -82,6 +82,7 @@ class FarmOut(BaseModel):
     # resolved name of the assigned technician (for display; id above is the FK)
     assigned_technician_name: Optional[str] = None
     assigned_technician_phone: Optional[str] = None
+    assigned_technician_email: Optional[str] = None
     visit_weekdays: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
     # Human label for the schedule, e.g. "Mon–Fri". Derived from
     # visit_weekdays below; nothing used to set it, so the app fell back to

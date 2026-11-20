@@ -170,7 +170,8 @@ async def _heat_check_after_insemination(body, cow, db, current_user) -> HeatChe
         # blood on tail) are accepted from the window's start onward with no
         # upper bound.
         error = status_engine.heat_check_timing_error(
-            days_since, has_signal=bool(body.heat_detected or body.bleeding_event)
+            days_since, has_signal=bool(body.heat_detected or body.bleeding_event),
+            heat_seen=bool(body.heat_detected),
         )
         if error:
             raise HTTPException(status_code=409, detail=error)
