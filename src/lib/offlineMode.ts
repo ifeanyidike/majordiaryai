@@ -2,7 +2,7 @@ import { AppState } from 'react-native';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { isDemoMode } from './api';
-import { useNet } from './net';
+import { onReconnect } from './net';
 import { readCopy, writeCopy } from './offlineCopy';
 import { syncPending, useOutbox } from './outbox';
 
@@ -46,16 +46,14 @@ export function startOfflineMode(userId: string): () => void {
   // Signal back: send what is waiting, then load fresh data, so the screens
   // drop yesterday's list and their "No signal" banners without a pull, and
   // "last synced" moves on. (A sync that sent something reloads by itself.)
-  const stopNet = useNet.subscribe((s, prev) => {
-    if ((s.online && !prev.online) || (s.canTry && !prev.canTry)) {
-      syncPending().then((sent) => {
-        if (sent > 0) return;   // the sync reloaded already
-        const app = useAppStore.getState();
-        app.fetchWorklist();
-        app.fetchFarms();
-        app.fetchCows();
-      });
-    }
+  const stopNet = onReconnect(() => {
+    syncPending().then((sent) => {
+      if (sent > 0) return;   // the sync reloaded already
+      const app = useAppStore.getState();
+      app.fetchWorklist();
+      app.fetchFarms();
+      app.fetchCows();
+    });
   });
   const appState = AppState.addEventListener('change', (next) => {
     if (next === 'active') syncPending();

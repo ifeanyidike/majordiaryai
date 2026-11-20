@@ -3,6 +3,7 @@ import { Platform, TextStyle } from 'react-native';
 const sans = Platform.select({ ios: 'System', default: 'sans-serif' })!;
 
 export type TextVariant =
+  | 'metric'
   | 'display'
   | 'title'
   | 'heading'
@@ -17,6 +18,14 @@ export type TextVariant =
   | 'input';
 
 export const typography: Record<TextVariant, TextStyle> = {
+  /** The one headline number of an analytics screen (a KPI's rate) */
+  metric: {
+    fontFamily: sans,
+    fontSize: 64,
+    fontWeight: '800',
+    letterSpacing: -2,
+    lineHeight: 70,
+  },
   /** Big numbers / login wordmark */
   display: {
     fontFamily: sans,

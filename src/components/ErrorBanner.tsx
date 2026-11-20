@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors, radius, spacing } from '@/theme';
+import { onReconnect } from '@/lib/net';
 import { Button } from './Button';
 import { Text } from './Text';
 
@@ -12,6 +13,13 @@ interface ErrorBannerProps {
 
 /** Inline load-failure banner with retry — so an API outage never looks like an empty herd. */
 export function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
+  // When the signal comes back, retry by itself, so a "No signal" message does
+  // not stay on the screen after the connection has returned. Every Retry
+  // given to this banner reloads data; none sends a save.
+  const retry = useRef(onRetry);
+  useEffect(() => { retry.current = onRetry; }, [onRetry]);
+  useEffect(() => onReconnect(() => retry.current?.()), []);
+
   return (
     <View style={styles.banner}>
       <Ionicons name="cloud-offline-outline" size={20} color={colors.danger} />
